@@ -139,14 +139,23 @@
 # DECOMPOSITION. A big-picture card is a container: an issue whose children are
 # the real work. No worker can ship a container, so a container must never spend
 # the one issue-to-task binding above, and this adapter makes that structural
-# rather than conventional. `poll` never prints `new` for a card sitting in a
-# big-picture column or holding a decomposition record, `import` refuses an
-# issue that holds such a record, `child-add` refuses a parent that holds a
-# link, and `promote` refuses an issue that holds a link. No record can
-# therefore be reached from the other's side. `poll` writes a container's record
-# the first time it sees the card rather than when it is decomposed, so the
-# refusal covers every container the board has ever shown, not only the ones
-# already broken down.
+# rather than conventional: every verb that would write one of the two records
+# refuses first when the issue already holds the other.
+#
+# On the binding side, `import` refuses an issue that holds a decomposition
+# record, and so does `card_ensure`, the one boundary `place` and `child-add`
+# both bind through - for `child-add` that is the child it is carding, since a
+# parent holding a container record is the ordinary case. `poll` never prints
+# `new` for a card sitting in a big-picture column or holding a decomposition
+# record, so a container is never offered for binding either.
+#
+# On the container side, `promote` takes no task id at all and refuses an issue
+# that holds a link, `child-add` refuses a parent that holds a link, and
+# `decomposed` refuses a parent that holds a link. No record can therefore be
+# reached from the other's side, whichever order a caller attempts, and every
+# such refusal exits 3. `poll` writes a container's record the first time it
+# sees the card rather than when it is decomposed, so the refusal covers every
+# container the board has ever shown, not only the ones already broken down.
 #
 # PROMOTION, and why its ordering is a one-way door. A container arrives two
 # ways: the captain files one in the container lane, or firstmate judges a card
@@ -1346,11 +1355,20 @@ CARD_STEP=
 # exists so the next cycle can never offer it as new work, and its `synced` stays
 # unconfirmed until the column write lands, which leaves poll's ordinary
 # outstanding-write retry to finish it.
+#
+# This is the boundary every binding route passes through, so it is where the
+# bind side of the one-way door is shut: a container ships nothing, so an issue
+# that already holds a decomposition record can never be given the one binding it
+# has. The refusal is made before the board is touched, so a refused call leaves
+# no card behind and a board write that fails stays as fail-soft as it ever was.
 card_ensure() {
   local project=$1 owner=$2 number=$3 status_field=$4 state=$5 column=$6
   local issue=$7 task=$8
   local item_id pr=- pr_synced=-
   CARD_STEP=
+  if decomps_find "$issue" >/dev/null; then
+    die "$issue is a decomposition container on board \"$DECOMP_PROJECT\"; its children hold the work, so it can never bind task $task" 3
+  fi
   item_id=$(board_item_add "$owner" "$number" "$issue") || {
     CARD_STEP=card
     return 1
@@ -1652,6 +1670,11 @@ cmd_decomposed() {
   local parent
   board_for "$project" >/dev/null
   parent=$(issue_canonical "$raw_parent") || die "\"$raw_parent\" is not an issue URL"
+  # Closing a container is the other way a container record is written, so it
+  # refuses a bound issue exactly as `child-add` and `promote` do.
+  if links_find issue "$parent" >/dev/null; then
+    die "$parent is linked to task $LINK_TASK, so it is ordinary work rather than a container" 3
+  fi
   if decomps_find "$parent" >/dev/null; then
     [ "$DECOMP_PROJECT" = "$project" ] \
       || die "$parent is decomposed under project $DECOMP_PROJECT" 3

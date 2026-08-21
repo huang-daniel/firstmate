@@ -1494,7 +1494,7 @@ test_firstmate_promotes_a_filed_card_to_a_programme() {
 }
 
 test_a_bound_issue_can_never_become_a_container() {
-  local home issue out rc
+  local home issue out rc parent child placed before
   home=$(new_home a_bound_issue_can_never_become_a_container)
   programme_board "$home"
   issue=https://github.com/harbour-collective/app/issues/360
@@ -1518,6 +1518,16 @@ test_a_bound_issue_can_never_become_a_container() {
   out=$(board "$home" child-add harbourlight "$issue" 'A child' 'body' fm-child 2>&1) && rc=0 || rc=$?
   expect_code 3 "$rc" "a bound issue was allowed to parent children"
 
+  # Nor by declaring the breakdown finished over the top of the binding, which is
+  # the third way a container record gets written.
+  out=$(board "$home" decomposed harbourlight "$issue" 2>&1) && rc=0 || rc=$?
+  expect_code 3 "$rc" "a bound issue was allowed to be recorded as a decomposed container"
+  assert_contains "$out" 'fm-onetask' "the refusal did not name the task holding the binding"
+  assert_absent "$home/data/board-decompositions.tsv" \
+    "a refused decomposed still recorded a container"
+  assert_contains "$(board "$home" lookup fm-onetask)" "	processed	processed	" \
+    "a refused decomposed disturbed the binding it refused to spend"
+
   # Judged the other way round, on an issue that never bound, it works - which is
   # the whole point of making the judgement before anything binds.
   : > "$home/items"
@@ -1527,6 +1537,45 @@ test_a_bound_issue_can_never_become_a_container() {
   out=$(board "$home" import harbourlight https://github.com/harbour-collective/app/issues/361 fm-late 2>&1) \
     && rc=0 || rc=$?
   expect_code 3 "$rc" "a container was allowed to bind a task after promotion"
+
+  # `import` is not the only way a task reaches an issue, so the door has to be
+  # shut on the routes that file their own issue too. An interrupted placement
+  # leaves the issue filed and unlinked, which is exactly the state promotion
+  # still accepts - and the convergence run that would have bound the container
+  # is refused rather than spending its binding.
+  home=$(new_home a_placed_container_can_never_be_bound_afterwards)
+  programme_board "$home"
+  out=$(GH_FAIL="project item-add" board "$home" place harbourlight fm-interrupted \
+    'Interrupted placement' 'body')
+  assert_contains "$out" 'placed-partial' "an interrupted placement was reported as complete"
+  placed=$(cut -f2 "$home/issues")
+  [ -z "$(board "$home" lookup fm-interrupted)" ] || fail "an uncarded placement recorded a link"
+  board "$home" promote harbourlight "$placed" >/dev/null 2>&1
+  before=$(board "$home" decompositions)
+  out=$(board "$home" place harbourlight fm-interrupted 'Interrupted placement' 'body' 2>&1) \
+    && rc=0 || rc=$?
+  expect_code 3 "$rc" "a placement was allowed to bind a task to a container"
+  [ -z "$(board "$home" lookup fm-interrupted)" ] || fail "a refused placement bound the container anyway"
+  [ "$(board "$home" decompositions)" = "$before" ] \
+    || fail "a refused placement disturbed the container record"
+
+  # And the same sequence through `child-add`, where the issue that gets promoted
+  # is a child the parent's record already names.
+  parent=https://github.com/harbour-collective/app/issues/380
+  item "$home" PVTI_p Issue "$parent" 'Big Picture Processed' firstmate - 'Rebuild the harbour' -
+  out=$(GH_FAIL="project item-add" board "$home" child-add harbourlight "$parent" \
+    'Dredge the channel' 'Second piece.' fm-dredge)
+  assert_contains "$out" 'child-partial' "an interrupted child was reported as complete"
+  child=$(printf '%s' "$out" | cut -d' ' -f4)
+  [ -z "$(board "$home" lookup fm-dredge)" ] || fail "an uncarded child recorded a link"
+  board "$home" promote harbourlight "$child" >/dev/null 2>&1
+  before=$(board "$home" decompositions | sort)
+  out=$(board "$home" child-add harbourlight "$parent" 'Dredge the channel' 'Second piece.' fm-dredge 2>&1) \
+    && rc=0 || rc=$?
+  expect_code 3 "$rc" "a child-add was allowed to bind a task to a container"
+  [ -z "$(board "$home" lookup fm-dredge)" ] || fail "a refused child-add bound the container anyway"
+  [ "$(board "$home" decompositions | sort)" = "$before" ] \
+    || fail "a refused child-add disturbed the container record"
   pass "the container-or-task judgement is made before anything binds, and cannot be reversed after"
 }
 
