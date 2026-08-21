@@ -2,7 +2,7 @@
 name: board-orchestration
 description: >-
   Agent-only policy for bridging a configured project board and firstmate's existing backlog.
-  Load on a session-start or heartbeat cycle when a project board is configured, before importing or decomposing a board item, before placing existing work on a board, before reflecting a dispatch, PR, blocker, or merge onto a board, and whenever a card's status disagrees with firstmate's own records.
+  Load on a session-start or heartbeat cycle when a project board is configured, before judging whether a filed card is one task or a programme, before importing, promoting, or decomposing a board item, before placing existing work on a board, before reflecting a dispatch, PR, blocker, or merge onto a board, and whenever a card's status disagrees with firstmate's own records.
 user-invocable: false
 metadata:
   internal: true
@@ -30,7 +30,7 @@ Never place, comment on, or move work for a project the captain did not configur
 
 ## Scope
 
-The bridge may read the board's issues and cards, import new actionable items into the existing backlog, break a big-picture container into linked child cards, place work firstmate already holds onto the board, move a card as firstmate's own execution events happen, attach the working PR to the originating issue, record blockers on that issue, and report a card whose status firstmate did not write.
+The bridge may read the board's issues and cards, import new actionable items into the existing backlog, promote a filed card firstmate judges to be a programme into the container lane, break a container into linked child cards, place work firstmate already holds onto the board, move a card as firstmate's own execution events happen, attach the working PR to the originating issue, record blockers on that issue, and report a card whose status firstmate did not write.
 
 It may not become a second execution system.
 Do not build or ask for webhook infrastructure, another daemon, another database, a second queue, continuous real-time synchronization, a separate board service, or a new orchestration layer.
@@ -59,13 +59,29 @@ A poll that could not read the board reports an `error` line and reconciles noth
 The label is the authoritative trigger; the optional mention and assignee triggers are additional and off unless the captain configured them.
 Everything else on the board is deliberately invisible to intake, including draft cards, pull requests, and untagged issues.
 
-Import each `new` line exactly once, in this order:
+### Judge the card before anything binds
+
+A filed card is one of two things, and which one it is has to be settled before the card binds to anything.
+It is either one shippable task, or a programme: work too large to ship as a single task, whose children are the real work.
+
+Settle it first because the judgement cannot be revisited afterwards.
+An issue binds to exactly one task permanently and a conflicting relink is refused rather than overwritten, so a programme internalized as one task has spent its issue's one binding on work no worker can ship, recoverable only by abandoning that issue and filing a fresh one.
+The adapter refuses a promotion after a binding for exactly that reason, so a refusal is the ordering being enforced rather than an obstacle to route around.
+
+Read the issue in full, and any linked context it names, then take exactly one of two routes: "One shippable task" immediately below, or "Promoting a filed card firstmate judges to be a programme" under "Programmes and their children".
+Never take both, and never start down the task route and switch.
+When it is genuinely unclear which one it is, ask the captain rather than binding it to find out.
+
+### One shippable task
+
+Import each such `new` line exactly once, in this order:
 
 1. Confirm no backlog item already names that issue URL.
 2. Create the ordinary backlog item, recording the issue URL in its note, and resolve delivery mode and yolo at intake exactly as AGENTS.md section 7 requires.
 3. Immediately run `bin/fm-board.sh import <project> <issue-url> <task-id>` so the linkage is durable before the turn ends.
 
-Step 3 is what makes import idempotent, so it is never deferred to a later turn.
+Step 3 is also what moves the card out of the captain's inbox on a board that configures the Processed column, so it is what makes the board's own reading of "picked up" true.
+It is what makes import idempotent, so it is never deferred to a later turn.
 The record lives with the durable fleet records rather than the task's runtime state, so it outlives cleanup: an issue whose task shipped and was torn down months ago is still linked and can never be imported a second time.
 Step 1 exists only for the narrow window where a turn died between steps 2 and 3.
 Re-running `import` for an already-linked issue is a successful no-op, and an attempt to point a linked issue at a different task is refused rather than silently rebound; investigate a refusal instead of working around it.
@@ -86,21 +102,63 @@ This skill says nothing about work that did not come from a board; that is each 
 
 ## Status mapping
 
-Todo means filed and not cleared to run, In Progress means a worker actively owns it, and Done means merged and verified.
-A configured optional `queued` column sits between the first two and means firstmate has been cleared to launch that work; a home that did not configure it has no such column and nothing changes.
+Ownership of a card alternates between the captain and firstmate, and that alternation is what makes every hand-off unambiguous.
+
+| Column | Means | Who moves it next |
+| --- | --- | --- |
+| Todo | The captain's inbox: a card they filed that firstmate has not internalized yet. | firstmate |
+| `processed` | Firstmate has internalized it into the backlog and resolved how it ships. | the captain |
+| `queued` | The captain's go is given; firstmate launches it as soon as it is runnable. | firstmate |
+| In Progress | Started and not yet landed: a worker running, or a PR open awaiting merge. | firstmate |
+| Done | Merged and verified. | - |
+
+`processed` and `queued` are optional and unset by default, and each is inert until its home configures it.
+A home that configured neither has only the three original columns and nothing here changes for it.
+
+A card still sitting in Todo means firstmate has not picked it up yet, and that is deliberate rather than a gap to close.
+It is honest signal about how fresh the last cycle was, and an idle fleet produces no heartbeats, so a card filed while everything is idle genuinely waits for the next session start.
+Never move a card to `processed` to make the board look current.
+That column is written only by internalizing the work the card names, so writing it any other way reports a state firstmate's own records do not support.
+
 A blocked item stays visible in the column it is already in, with the blocker recorded on its issue through `bin/fm-board.sh note <task-id> "Blocked: ..."`.
 A column outside these is reported by its real name and never driven; leave the card there rather than forcing it into one of the others.
 
-## Breaking down a big-picture item
+### `processed` to `queued` is a chat instruction
 
-A `decompose <project> <parent-issue-url>` line is a container the captain filed: an issue whose children are the real work, and which no worker can ship as it stands.
+The captain gives their go in conversation, and firstmate then moves the card with `bin/fm-board.sh mark <task-id> queued`.
+The board reports that go; it never issues it.
+A card that appears in `queued` on its own is a divergence to report exactly as any other is, and is never authorization to launch anything - see "Filing is intent; status is firstmate's report" below, which this does not weaken.
+
+## Programmes and their children
+
+A `decompose <project> <parent-issue-url>` line is a container: an issue whose children are the real work, and which no worker can ship as it stands.
 Deciding what it breaks down into is judgement, which is why the script never invents children and this skill owns the procedure.
 Nothing here happens in a home whose board configures no big-picture columns, because no card is ever classified as a container there.
+
+A container arrives two ways, and both end in the same procedure.
+The captain files one directly in the big-picture lane, or firstmate judges a card the captain filed as ordinary work to be a programme and promotes it.
+
+### Promoting a filed card firstmate judges to be a programme
+
+This is firstmate's own call and it is made at intake, on the `new` line, before that card binds to anything - "Judge the card before anything binds" above owns why the ordering is not negotiable.
+The script provides the mechanism and never decides what is or is not a programme.
+
+Promote when the card cannot be implemented and validated as one piece of work: it names several independently shippable outcomes, spans surfaces that would each need their own review, or reads as a direction rather than a change.
+Do not promote merely because a card is hard, long, or touches many files; a single difficult change is still one task.
+Prefer importing it as one task when a competent worker could plausibly carry the whole thing on one branch.
+
+1. Run `bin/fm-board.sh promote <project> <issue-url>`. The card moves into the big-picture lane and its container record opens; the card is never bound to a task, and the adapter refuses to bind it afterwards.
+2. Break it down with the procedure below, starting at step 2 - the container issue is the one just promoted.
+
+Tell the captain plainly that their card turned out to be a programme, what it broke into, and that the pieces are waiting on their go.
+That is a judgement they may disagree with, so it is reported rather than filed silently.
+
+### Breaking a container down
 
 1. Read the container issue in full, and any linked context it names.
 2. Break it into concrete work items that can each be independently implemented and validated - not a restatement of the container in three parts. If it genuinely cannot be broken down, or the split needs a product decision, say so to the captain rather than inventing pieces.
 3. Resolve delivery mode and yolo for each piece exactly as AGENTS.md section 7 requires, at intake, on that project's standing posture.
-4. For each piece, run `bin/fm-board.sh child-add <project> <parent-issue-url> <title> <body> <task-id>`. One command per piece creates the issue as a native GitHub sub-issue of the container, cards it in Todo, and records its link. A `child-partial` line names the step that did not land: re-run the same command, which converges on the issue it already filed rather than creating a second one.
+4. For each piece, run `bin/fm-board.sh child-add <project> <parent-issue-url> <title> <body> <task-id>`. One command per piece creates the issue as a native GitHub sub-issue of the container, cards it as work firstmate itself filed, and records its link. A `child-partial` line names the step that did not land: re-run the same command, which converges on the issue it already filed rather than creating a second one.
 5. Create each backlog item, **held**, exactly as the captain gate above requires. Creating the child cards is unattended; running them is not.
 6. Run `bin/fm-board.sh decomposed <project> <parent-issue-url>`. Until that lands the container keeps being offered, which is what finishes an interrupted breakdown; once it lands the container is never offered again.
 7. Post the breakdown as a comment on the parent issue, so the captain has the reasoning where the work lives, then report it to them.
@@ -111,8 +169,9 @@ The container's own card then follows its children with no further action - any 
 
 ## Putting work firstmate already holds on the board
 
-`bin/fm-board.sh place <project> <task-id> <title> [<body>]` is the inverse of `import`: it files the issue, cards it in Todo, and records the link, after which every event below works on it with no special casing.
+`bin/fm-board.sh place <project> <task-id> <title> [<body>]` is the inverse of `import`: it files the issue, cards it, and records the link, after which every event below works on it with no special casing.
 Use it for a task that started in the backlog and belongs on that roadmap.
+Work firstmate files itself never sat in the captain's inbox and is already internalized when its card appears, so `place` and `child-add` card it as internalized rather than as something the captain still has to be told about.
 
 Whether a task belongs on a board is an editorial call the script never makes, and project alone does not settle it.
 Firstmate's own work belongs on a captain's product roadmap when it serves that product's delivery and stays off it when it does not.
@@ -128,7 +187,7 @@ A task with no board link is never passed to any of them; they refuse it outrigh
 Firstmate's own execution events are what move a card, and the ones that matter most happen on their own:
 
 - **Dispatch and merge need no command.** `bin/fm-spawn.sh` places the card if the project has a board and the task has none, then marks it in progress; `bin/fm-pr-check.sh` attaches the PR to its originating issue; `bin/fm-pr-merge.sh` closes the card after a merge that actually landed. A task with no board, and every task in a home with no board configured, is untouched by all three.
-- **Cleared to launch:** `bin/fm-board.sh mark <task-id> queued` when the captain's go releases a held item and the board configures that column.
+- **Cleared to launch:** `bin/fm-board.sh mark <task-id> queued` when the captain's go, given in chat, releases a held item and the board configures that column.
 - **Blocked:** `bin/fm-board.sh note <task-id> "Blocked: <what is needed>"`, alongside the ordinary captain escalation when the blocker needs the captain.
 - Run `mark` by hand only to correct a card, for instance after a divergence or when work leaves the cleared set.
 
@@ -147,6 +206,7 @@ A new labelled card is them adding work, and intake above is unchanged - includi
 
 **The status columns are firstmate's own report of its records.**
 Firstmate writes them outward from the backlog; a card's column never tells firstmate what to do.
+That covers every one of them, including the optional `processed` and `queued` columns: each is written because firstmate's own records already moved, never to make the board read better than the records support.
 So a `divergence` line - a card showing a status firstmate did not write - means change nothing, dispatch nothing, stop nothing, and tell the captain in chat.
 The adapter has already declined to reconcile it in either direction, and firstmate must not do by hand what the adapter deliberately refused.
 Raise a given divergence once and do not repeat it every cycle while it stands unresolved; when the captain decides, `bin/fm-board.sh mark <task-id> <state>` is how the card is put right.
@@ -171,7 +231,7 @@ This is a real security property of the design and the captain accepted it knowi
   A cycle that reported an error reconciled nothing, so never tell the captain the board is in sync on the strength of it.
 - A `truncated` line means the board filled the read's card ceiling, so a card past it was never seen.
   Everything that read did report still stands, but no withdrawal is reported from that board on this cycle, because absence cannot be told apart from the ceiling.
-  Re-run `poll` for that board with a higher `--limit`, and if it stays truncated tell the captain the board has outgrown the default read; the same ceiling applies to the card lookup `mark` needs, so a card sitting past it cannot be moved either.
+  Re-run `poll` for that board with a higher `--limit`, and if it stays truncated tell the captain the board has outgrown the default read; the same ceiling applies to the card lookup `mark`, `import`, and `promote` need, so a card sitting past it cannot be moved by any of them until the limit is raised.
 - A scope edit to a card's own text mid-flight follows the lifecycle rule AGENTS.md section 7 already owns: route it to follow-up work unless it completely invalidates the work being validated.
   A board edit does not create a second, competing rule for that.
 

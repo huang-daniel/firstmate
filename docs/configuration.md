@@ -69,8 +69,9 @@ status-field = Status
 todo = Todo
 in-progress = In Progress
 done = Done
+processed = Processed
 queued = Queued
-big-picture-todo = Big Picture Todo
+big-picture-todo = Big Picture Processed
 big-picture-in-progress = Big Picture In Progress
 big-picture-done = Big Picture Done
 ```
@@ -80,11 +81,22 @@ Everything else is optional: `repo` restricts intake to one repository on a boar
 The defaults are `Status`, `Todo`, `In Progress`, and `Done`, and the names are matched ignoring case and spaces, so a field exported as `status` still resolves.
 Nothing about the board is baked into firstmate's tracked code; every identifier comes from this file, so any project can gain a board without a code change.
 
-`queued` is optional and unset by default.
-Configure it and firstmate uses that column for work it has been cleared to launch, between filed and started; leave it out and there is no such column and nothing changes.
+`processed` and `queued` are optional and unset by default, and each is inert until you configure it.
+Configure them and ownership of a card alternates between you and firstmate, which is what makes each hand-off unambiguous:
+
+| Column | Means | Who moves it next |
+| --- | --- | --- |
+| Todo | Your inbox: a card you filed that firstmate has not picked up yet. | firstmate |
+| `processed` | Firstmate has taken it into the backlog and worked out how it ships. | you |
+| `queued` | You gave the go; firstmate launches it as soon as it can. | firstmate |
+| In Progress | Started and not yet landed: a worker running, or a PR open awaiting merge. | firstmate |
+| Done | Merged and verified. | - |
+
+Leave either key out and that column simply does not exist, in either direction, exactly as before the key existed.
+A card still sitting in Todo therefore means firstmate has genuinely not picked it up yet, which is a straight answer about how fresh the last cycle was rather than something the board papers over.
 
 The three `big-picture-*` keys are also optional and unset by default, and they are one switch rather than three: set all three or none, because a partial set is refused with the reason rather than half-enabled.
-They turn on decomposition, described below.
+They turn on decomposition, described below, and their values are ordinary column names like every other key here - a board whose main lane runs Todo to Processed usually names the first of them `Big Picture Processed`.
 No column name may be used twice across all of these keys.
 
 A card is picked up only when it is a real issue, sits in the Todo column, and carries the trigger.
@@ -92,12 +104,13 @@ The **label** is the authoritative trigger and defaults to `firstmate`, so add a
 `mention` and `assignee` are additional triggers and are off unless you set them; a mention is a weaker signal than a label because a plausible handle may belong to a real GitHub account that is not yours, so prefer the label and treat a mention as a convenience.
 An issue is imported once and the link is kept forever, so the same issue can never produce two backlog items even after its task is finished and cleaned up.
 Work you file on the board is never started just because it arrived: firstmate imports it, tells you it is there, and waits for your go before dispatching anything.
+You give that go in chat, and firstmate then moves the card; the board reports the go rather than issuing it.
 
 Work can also go the other way. Firstmate puts a task it already holds onto the board, filing the issue and carding it, so the roadmap shows work that started in the backlog as well as work that started on the board.
 That happens automatically when it dispatches a task whose project has a board, and can be done deliberately for any task the first mate judges belongs on that roadmap.
 There is no bulk operation that sweeps existing work onto a board; cards are placed one at a time.
 
-Cards then move on firstmate's own execution events, without anyone remembering a step: In Progress when a worker is dispatched, the working PR attached to the originating issue when it opens, and Done after a confirmed merge.
+Cards then move on firstmate's own execution events, without anyone remembering a step: Processed when it takes a card you filed into the backlog, In Progress when a worker is dispatched, the working PR attached to the originating issue when it opens, and Done after a confirmed merge.
 A blocked item stays in the column it is already in with the blocker recorded as an issue comment.
 A board update that fails never blocks a dispatch, a merge, or cleanup - the board simply goes stale and the next cycle reconciles it.
 
@@ -108,14 +121,21 @@ That splits into two halves worth knowing:
 
 - **Filing work on the board is you adding work.** A new labelled card is picked up as before.
 - **The status columns are firstmate's report.** If a card's column changes to something firstmate did not put there, it changes nothing, starts nothing, stops nothing, and tells you in chat instead - including if a card appears in the `queued` column, which under this model can only mean something outside firstmate wrote to the board.
+  That covers `processed` too: firstmate writes it because it really did take the work in, never to make an untouched board look current.
 
 So moving a card yourself is a fine way to tell firstmate something, but tell it in chat too: it will report the difference rather than act on it.
 Nothing here ever discards unlanded work.
 
 ### Big-picture items and their children
 
-With the three `big-picture-*` keys configured, a card in the big-picture Todo column carrying the trigger label is a container: an issue whose children are the real work.
-Firstmate reads it, breaks it into concrete work items, and files each one as a native GitHub sub-issue of that container, carded in the ordinary Todo column - so GitHub's own `Parent issue` and `Sub-issues progress` fields show the structure with nothing invented on top.
+With the three `big-picture-*` keys configured, a card in the first big-picture column carrying the trigger label is a container: an issue whose children are the real work.
+Firstmate reads it, breaks it into concrete work items, and files each one as a native GitHub sub-issue of that container, carded in the ordinary lane - so GitHub's own `Parent issue` and `Sub-issues progress` fields show the structure with nothing invented on top.
+
+Containers also arrive the other way round.
+When you file an ordinary card that turns out to be too big to ship as one task, firstmate promotes it into the big-picture lane itself and breaks it down from there, then tells you it did and what the pieces are.
+It makes that call while reading the card and before the card is tied to any one piece of work, because an issue is tied to exactly one task permanently: a container that had already been tied to a task would be work nobody could ship, fixable only by abandoning that issue for a fresh one.
+So a card is either taken in as one task or promoted to a container, never one and then the other.
+
 A container never becomes a task itself, and is only ever broken down once.
 Its own card then follows its children: any child in progress moves it to the big-picture In Progress column, and all children done moves it to big-picture Done.
 
