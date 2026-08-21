@@ -179,14 +179,16 @@
 # card lands in the container lane's first column, exactly where a captain-filed
 # container sits, and `child-add` then generates the children as it always has.
 #
-# `poll` prints `decompose <project> <parent-issue-url>` for a real issue in the
-# big-picture Todo column that carries the configured label and is not yet
-# recorded as decomposed. Deciding what a container breaks down into is
-# judgement, so this script never invents children: firstmate reads that line,
-# runs `child-add` once per piece of work, and closes the container with
-# `decomposed`. Like `new`, a `decompose` line repeats every cycle until that
-# closing command runs, so an interrupted decomposition is finished rather than
-# lost; once closed it is never printed again, however long ago it was closed.
+# `poll` prints `decompose <project> <parent-issue-url>` for a container not yet
+# recorded as decomposed: a real issue in the big-picture Todo column that
+# carries the configured label, or one `promote` recorded, which the record
+# below keeps offering wherever its card has reached. Deciding what a container
+# breaks down into is judgement, so this script never invents children:
+# firstmate reads that line, runs `child-add` once per piece of work, and closes
+# the container with `decomposed`. Like `new`, a `decompose` line repeats every
+# cycle until that closing command runs, so an interrupted decomposition is
+# finished rather than lost; once closed it is never printed again, however long
+# ago it was closed.
 #
 # data/board-decompositions.tsv is that durable record, alongside the linkage
 # record and for the same reason: it must outlive task cleanup, so a parent

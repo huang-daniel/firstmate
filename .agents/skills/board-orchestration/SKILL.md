@@ -231,7 +231,7 @@ This is a real security property of the design and the captain accepted it knowi
   A cycle that reported an error reconciled nothing, so never tell the captain the board is in sync on the strength of it.
 - A `truncated` line means the board filled the read's card ceiling, so a card past it was never seen.
   Everything that read did report still stands, but no withdrawal is reported from that board on this cycle, because absence cannot be told apart from the ceiling.
-  Re-run `poll` for that board with a higher `--limit`, and if it stays truncated tell the captain the board has outgrown the default read; the same ceiling applies to the card lookup `mark` needs, so a card sitting past it cannot be moved either.
+  Re-run `poll` for that board with a higher `--limit`, and if it stays truncated tell the captain the board has outgrown the default read; the same ceiling applies to the card lookup `mark`, `import`, and `promote` need, so a card sitting past it cannot be moved by any of them until the limit is raised.
 - A scope edit to a card's own text mid-flight follows the lifecycle rule AGENTS.md section 7 already owns: route it to follow-up work unless it completely invalidates the work being validated.
   A board edit does not create a second, competing rule for that.
 
