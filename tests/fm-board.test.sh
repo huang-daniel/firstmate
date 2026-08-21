@@ -227,6 +227,45 @@ EOF
     'opt_prog:In Progress' opt_done:Done
 }
 
+# An ordinary board that also carries the optional internalized column, so
+# ownership of a card alternates: Todo is the captain's inbox and Processed is
+# firstmate's answer.
+processed_board() {
+  local home=$1
+  cat > "$home/config/boards" <<'EOF'
+project = harbourlight
+owner = harbour-collective
+number = 4
+repo = harbour-collective/app
+label = firstmate
+processed = Processed
+queued = Queued
+EOF
+  fields "$home" PVTSSF_status opt_todo:Todo opt_processed:Processed \
+    opt_queued:Queued 'opt_prog:In Progress' opt_done:Done
+}
+
+# The same board with the container lane, named the way a board whose ordinary
+# lane runs Todo -> Processed names it.
+programme_board() {
+  local home=$1
+  cat > "$home/config/boards" <<'EOF'
+project = harbourlight
+owner = harbour-collective
+number = 4
+repo = harbour-collective/app
+label = firstmate
+processed = Processed
+big-picture-todo = Big Picture Processed
+big-picture-in-progress = Big Picture In Progress
+big-picture-done = Big Picture Done
+EOF
+  fields "$home" PVTSSF_status opt_todo:Todo opt_processed:Processed \
+    'opt_prog:In Progress' opt_done:Done \
+    'opt_bptodo:Big Picture Processed' 'opt_bpprog:Big Picture In Progress' \
+    'opt_bpdone:Big Picture Done'
+}
+
 # --- configuration is the whole board identity ------------------------------
 
 test_boards_are_configuration_not_convention() {
@@ -1246,6 +1285,311 @@ test_an_unreadable_repo_never_files_a_duplicate() {
   pass "a check that cannot run stops the placement rather than risking a duplicate"
 }
 
+# --- the captain's inbox and firstmate's answer ------------------------------
+
+test_the_processed_column_does_not_exist_until_it_is_configured() {
+  local home issue out rc
+  home=$(new_home the_processed_column_does_not_exist_until_it_is_configured)
+  ordinary_board "$home"
+  issue=https://github.com/harbour-collective/app/issues/300
+  item "$home" PVTI_a Issue "$issue" Todo firstmate - 'Ordinary work' -
+
+  assert_contains "$(board "$home" boards)" 'processed=-' \
+    "an unconfigured board reported an internalized column"
+  out=$(board "$home" import harbourlight "$issue" fm-ordinary)
+  assert_contains "$out" "linked harbourlight $issue fm-ordinary" \
+    "import stopped reporting the link it made"
+  assert_not_contains "$out" 'processed' "an unconfigured home reported an internalized card"
+  assert_contains "$(board "$home" lookup fm-ordinary)" "	todo	todo	" \
+    "an unconfigured home recorded a column it never had"
+  [ -z "$(gh_log "$home")" ] || fail "an unconfigured home reached the board to internalize: $(gh_log "$home")"
+
+  out=$(board "$home" mark fm-ordinary processed 2>&1) && rc=0 || rc=$?
+  expect_code 2 "$rc" "an unconfigured internalized column was still writable"
+  assert_contains "$out" 'no processed column configured' "the refusal did not name the missing column"
+
+  # A board that happens to carry such a column reads it as a column firstmate
+  # does not drive, exactly as it did before the key existed.
+  : > "$home/items"
+  item "$home" PVTI_a Issue "$issue" Processed firstmate - 'Ordinary work' -
+  out=$(board "$home" poll)
+  assert_contains "$out" "divergence harbourlight $issue fm-ordinary todo other Processed" \
+    "an unconfigured internalized column was read as an internalized state"
+  pass "with no processed key configured the column does not exist in either direction"
+}
+
+test_internalizing_a_filed_card_moves_it_out_of_the_inbox() {
+  local home issue out
+  home=$(new_home internalizing_a_filed_card_moves_it_out_of_the_inbox)
+  processed_board "$home"
+  issue=https://github.com/harbour-collective/app/issues/310
+  item "$home" PVTI_a Issue "$issue" Todo firstmate - 'Filed by the captain' -
+
+  out=$(board "$home" poll)
+  assert_contains "$out" "new harbourlight $issue label" "a filed card was not offered"
+
+  : > "$home/gh.log"
+  out=$(board "$home" import harbourlight "$issue" fm-filed)
+  assert_contains "$out" "linked harbourlight $issue fm-filed processed" \
+    "internalizing did not report the card leaving the inbox"
+  assert_contains "$(gh_log "$home")" '--single-select-option-id opt_processed' \
+    "internalizing did not write this board's own Processed option"
+  assert_contains "$(board "$home" lookup fm-filed)" "	processed	processed	" \
+    "the record did not carry the internalized state it wrote"
+
+  # The card has left the inbox, so it is never offered as new work again and a
+  # reconciled board says only that it agrees.
+  : > "$home/gh.log"
+  out=$(board "$home" poll)
+  assert_not_contains "$out" 'new ' "an internalized card was offered as new work again"
+  assert_contains "$out" "linked harbourlight $issue fm-filed processed" \
+    "the internalized card was not reported as agreeing"
+  assert_not_contains "$(gh_log "$home")" 'item-edit' "a reconciled card was written again"
+
+  # And the ordinary execution events still run from there with no special case.
+  board "$home" mark fm-filed in-progress >/dev/null
+  assert_contains "$(board "$home" lookup fm-filed)" "	in-progress	in-progress	" \
+    "an internalized card could not move on to the ordinary events"
+  pass "internalizing a filed card moves it from the captain's inbox to firstmate's answer"
+}
+
+test_a_card_left_in_the_inbox_is_never_restatused() {
+  local home issue out
+  home=$(new_home a_card_left_in_the_inbox_is_never_restatused)
+  processed_board "$home"
+  issue=https://github.com/harbour-collective/app/issues/320
+  item "$home" PVTI_a Issue "$issue" Todo firstmate - 'Not picked up yet' -
+
+  # Firstmate has not internalized it, so nothing moves it and it keeps being
+  # offered. A card still sitting in the inbox is honest signal about that.
+  out=$(board "$home" poll)
+  assert_contains "$out" "new harbourlight $issue label" "an un-internalized card stopped being offered"
+  out=$(board "$home" poll)
+  assert_contains "$out" "new harbourlight $issue label" "an un-internalized card was offered only once"
+  assert_not_contains "$(gh_log "$home")" 'item-edit' "a card nobody internalized was moved anyway"
+  assert_contains "$(awk -F'\t' '$1 == "PVTI_a" { print $4 }' "$home/items")" 'Todo' \
+    "a card nobody internalized left the inbox"
+
+  # A write that does not land is the same honesty in the other direction: the
+  # record says internalized, the card still says inbox, and the next cycle
+  # finishes the job rather than the adapter claiming it already had.
+  out=$(GH_FAIL="project item-edit" board "$home" import harbourlight "$issue" fm-notyet 2>/dev/null)
+  assert_contains "$out" "linked-stale harbourlight $issue fm-notyet processed" \
+    "an internalizing write that failed was reported as if it had landed"
+  assert_contains "$(board "$home" lookup fm-notyet)" "	processed	todo	" \
+    "a failed write did not leave an outstanding move"
+  assert_contains "$(awk -F'\t' '$1 == "PVTI_a" { print $4 }' "$home/items")" 'Todo' \
+    "a failed write moved the card anyway"
+
+  out=$(board "$home" poll)
+  assert_contains "$out" "synced harbourlight $issue fm-notyet processed" \
+    "the outstanding move was not retried on the next cycle"
+  assert_not_contains "$out" 'new ' "a linked card was offered as new work"
+  pass "a card in the inbox is left there until firstmate internalizes it, and never restatused early"
+}
+
+test_work_firstmate_files_itself_never_sits_in_the_inbox() {
+  local home out parent
+  home=$(new_home work_firstmate_files_itself_never_sits_in_the_inbox)
+  programme_board "$home"
+
+  # Work that started in the backlog never sat in the captain's inbox, so its
+  # card is filed already internalized.
+  out=$(board "$home" place harbourlight fm-ours 'Work firstmate already held' 'body')
+  assert_contains "$out" 'placed harbourlight' "placing work firstmate holds did not land"
+  assert_contains "$(board "$home" lookup fm-ours)" "	processed	processed	" \
+    "work firstmate filed itself was recorded as sitting in the captain's inbox"
+  assert_contains "$(gh_log "$home")" '--single-select-option-id opt_processed' \
+    "work firstmate filed itself was carded into the inbox"
+
+  # A child of a container is firstmate's own work for the same reason.
+  parent=https://github.com/harbour-collective/app/issues/330
+  item "$home" PVTI_p Issue "$parent" 'Big Picture Processed' firstmate - 'A programme' -
+  board "$home" poll >/dev/null
+  : > "$home/gh.log"
+  out=$(board "$home" child-add harbourlight "$parent" 'A concrete piece' 'body' fm-piece)
+  assert_contains "$out" "child harbourlight $parent" "a child was not created"
+  assert_contains "$(board "$home" lookup fm-piece)" "	processed	processed	" \
+    "a generated child was recorded as sitting in the captain's inbox"
+  assert_contains "$(gh_log "$home")" '--single-select-option-id opt_processed' \
+    "a generated child was carded into the inbox"
+  pass "work firstmate creates itself is filed already internalized, never into the captain's inbox"
+}
+
+test_a_queued_card_still_reports_rather_than_launches() {
+  local home issue out
+  home=$(new_home a_queued_card_still_reports_rather_than_launches)
+  processed_board "$home"
+  issue=https://github.com/harbour-collective/app/issues/340
+  item "$home" PVTI_a Issue "$issue" Todo firstmate - 'Awaiting the go' -
+  board "$home" import harbourlight "$issue" fm-awaiting >/dev/null
+
+  # The captain's go is a chat instruction, so a card that appears in the go
+  # column on its own can only mean something outside firstmate wrote there.
+  : > "$home/items"
+  : > "$home/gh.log"
+  item "$home" PVTI_a Issue "$issue" Queued firstmate - 'Awaiting the go' -
+  out=$(board "$home" poll)
+  assert_contains "$out" "divergence harbourlight $issue fm-awaiting processed queued Queued" \
+    "a go firstmate never gave was not reported"
+  assert_contains "$(board "$home" lookup fm-awaiting)" "	processed	processed	" \
+    "the record adopted a go firstmate never gave"
+  assert_not_contains "$(gh_log "$home")" 'item-edit' "the divergence caused a board write"
+
+  # Firstmate's own record is still the only thing that puts a card there.
+  : > "$home/gh.log"
+  out=$(board "$home" mark fm-awaiting queued)
+  assert_contains "$out" "synced harbourlight $issue fm-awaiting queued" \
+    "firstmate could not record the captain's go"
+  assert_contains "$(gh_log "$home")" '--single-select-option-id opt_queued' \
+    "the go was not written to this board's own column"
+  pass "a card appearing in the go column unbidden is reported, never obeyed"
+}
+
+# --- firstmate-initiated promotion to a programme ----------------------------
+
+test_firstmate_promotes_a_filed_card_to_a_programme() {
+  local home issue out rc
+  home=$(new_home firstmate_promotes_a_filed_card_to_a_programme)
+  programme_board "$home"
+  issue=https://github.com/harbour-collective/app/issues/350
+  item "$home" PVTI_a Issue "$issue" Todo firstmate - 'Rebuild the harbour' 'far too big for one task'
+
+  # It arrives as ordinary filed work, because the captain files into one inbox.
+  out=$(board "$home" poll)
+  assert_contains "$out" "new harbourlight $issue label" "a filed card was not offered"
+
+  out=$(board "$home" promote harbourlight "$issue")
+  assert_contains "$out" "promoted harbourlight $issue" "the card was not promoted to a programme"
+  assert_contains "$(awk -F'\t' -v u="$issue" '$3 == u { print $4 }' "$home/items")" \
+    'Big Picture Processed' "a promoted card did not reach the container lane"
+
+  # It is a container from that moment: never offered as work again, never
+  # bindable, and offered for breaking down until it is closed.
+  out=$(board "$home" poll)
+  assert_not_contains "$out" 'new ' "a promoted card was still offered as ordinary work"
+  assert_contains "$out" "decompose harbourlight $issue" "a promoted card was not offered for breaking down"
+  board "$home" import harbourlight "$issue" fm-programme >/dev/null 2>&1 && rc=0 || rc=$?
+  expect_code 3 "$rc" "a promoted container was allowed to bind a task"
+
+  board "$home" child-add harbourlight "$issue" 'Dredge the channel' 'body' fm-dredge >/dev/null
+  board "$home" child-add harbourlight "$issue" 'Rebuild the jetty' 'body' fm-jetty >/dev/null
+  board "$home" decomposed harbourlight "$issue" >/dev/null
+  out=$(board "$home" poll)
+  assert_not_contains "$out" 'decompose' "a broken-down programme was offered again"
+
+  # The children hold the work; the parent holds none of it.
+  board "$home" lookup "$issue" >/dev/null 2>&1 && rc=0 || rc=$?
+  [ "$rc" != 0 ] || fail "a promoted container ended up holding a task binding"
+  board "$home" lookup fm-dredge >/dev/null || fail "a generated child holds no link"
+  board "$home" lookup fm-jetty >/dev/null || fail "a generated child holds no link"
+
+  # And the container's own card then follows those children with no further
+  # instruction, exactly as a captain-filed container's does.
+  board "$home" mark fm-dredge in-progress >/dev/null
+  out=$(board "$home" poll)
+  assert_contains "$out" "synced harbourlight $issue - in-progress" \
+    "a promoted container's card did not follow its children"
+  pass "firstmate promotes a filed card to a programme, and its children carry the work"
+}
+
+test_a_bound_issue_can_never_become_a_container() {
+  local home issue out rc
+  home=$(new_home a_bound_issue_can_never_become_a_container)
+  programme_board "$home"
+  issue=https://github.com/harbour-collective/app/issues/360
+  item "$home" PVTI_a Issue "$issue" Todo firstmate - 'Internalized as one task' -
+
+  # Judged as one shippable task first, which spends the issue's one binding.
+  board "$home" import harbourlight "$issue" fm-onetask >/dev/null
+
+  # Promotion after that is a one-way door already shut. It is refused by the
+  # mechanism rather than by the caller remembering the order.
+  out=$(board "$home" promote harbourlight "$issue" 2>&1) && rc=0 || rc=$?
+  expect_code 3 "$rc" "a bound issue was allowed to become a container"
+  assert_contains "$out" 'fm-onetask' "the refusal did not name the task holding the binding"
+  assert_contains "$out" 'never become a container' "the refusal did not say the door is shut"
+  assert_absent "$home/data/board-decompositions.tsv" \
+    "a refused promotion still recorded a container"
+  assert_contains "$(board "$home" lookup fm-onetask)" "	processed	processed	" \
+    "a refused promotion disturbed the binding it refused to spend"
+
+  # Nor by the other route into the same record.
+  out=$(board "$home" child-add harbourlight "$issue" 'A child' 'body' fm-child 2>&1) && rc=0 || rc=$?
+  expect_code 3 "$rc" "a bound issue was allowed to parent children"
+
+  # Judged the other way round, on an issue that never bound, it works - which is
+  # the whole point of making the judgement before anything binds.
+  : > "$home/items"
+  item "$home" PVTI_b Issue https://github.com/harbour-collective/app/issues/361 \
+    Todo firstmate - 'A programme instead' -
+  board "$home" promote harbourlight https://github.com/harbour-collective/app/issues/361 >/dev/null
+  out=$(board "$home" import harbourlight https://github.com/harbour-collective/app/issues/361 fm-late 2>&1) \
+    && rc=0 || rc=$?
+  expect_code 3 "$rc" "a container was allowed to bind a task after promotion"
+  pass "the container-or-task judgement is made before anything binds, and cannot be reversed after"
+}
+
+test_a_promotion_the_board_did_not_take_is_still_a_container() {
+  local home issue out rc
+  home=$(new_home a_promotion_the_board_did_not_take_is_still_a_container)
+  programme_board "$home"
+  issue=https://github.com/harbour-collective/app/issues/370
+  item "$home" PVTI_a Issue "$issue" Todo firstmate - 'A programme' -
+
+  out=$(GH_FAIL="project item-edit" board "$home" promote harbourlight "$issue" 2>/dev/null)
+  assert_contains "$out" "promoted-partial harbourlight $issue" \
+    "a promotion whose card move failed was reported as if it had landed"
+  assert_contains "$(awk -F'\t' -v u="$issue" '$3 == u { print $4 }' "$home/items")" 'Todo' \
+    "a promotion the board refused moved the card anyway"
+
+  # The record is what makes it a container, so the card sitting in an ordinary
+  # column for one more cycle changes nothing about what it is.
+  board "$home" import harbourlight "$issue" fm-late >/dev/null 2>&1 && rc=0 || rc=$?
+  expect_code 3 "$rc" "a container whose card had not moved was allowed to bind a task"
+  out=$(board "$home" poll)
+  assert_not_contains "$out" 'new ' "a container whose card had not moved was offered as ordinary work"
+  assert_contains "$out" "decompose harbourlight $issue" \
+    "a container whose card had not moved stopped being offered for breaking down"
+  assert_contains "$out" "synced harbourlight $issue - todo" \
+    "the outstanding promotion move was not retried on the next cycle"
+  assert_contains "$(awk -F'\t' -v u="$issue" '$3 == u { print $4 }' "$home/items")" \
+    'Big Picture Processed' "the retried promotion did not reach the container lane"
+  pass "a promotion the board did not take is still a container, and the move is retried"
+}
+
+test_promotion_needs_a_container_lane_and_converges() {
+  local home issue out rc
+  home=$(new_home promotion_needs_a_container_lane_and_converges)
+  processed_board "$home"
+  issue=https://github.com/harbour-collective/app/issues/380
+  item "$home" PVTI_a Issue "$issue" Todo firstmate - 'A programme' -
+
+  out=$(board "$home" promote harbourlight "$issue" 2>&1) && rc=0 || rc=$?
+  expect_code 2 "$rc" "a board with no container lane accepted a promotion"
+  assert_contains "$out" 'big-picture' "the refusal did not name the missing lane"
+  assert_absent "$home/data/board-decompositions.tsv" "a refused promotion recorded a container"
+
+  # Repeating a promotion converges rather than doing anything a second time.
+  home=$(new_home promotion_converges)
+  programme_board "$home"
+  item "$home" PVTI_a Issue "$issue" Todo firstmate - 'A programme' -
+  board "$home" promote harbourlight "$issue" >/dev/null
+  out=$(board "$home" promote harbourlight "$issue")
+  assert_contains "$out" "promoted harbourlight $issue" "a repeated promotion did not converge"
+  [ "$(board "$home" decompositions | grep -c "$issue")" = 1 ] \
+    || fail "a repeated promotion recorded the container twice"
+
+  # And once it is broken down it is finished, however often it is asked again.
+  board "$home" decomposed harbourlight "$issue" >/dev/null
+  out=$(board "$home" promote harbourlight "$issue")
+  assert_contains "$out" "already-promoted harbourlight $issue" \
+    "a broken-down programme was reopened by promoting it again"
+  out=$(board "$home" poll)
+  assert_not_contains "$out" 'decompose' "a broken-down programme was offered again after a repeat promotion"
+  pass "promotion needs a configured container lane, and repeating it converges"
+}
+
 # --- run --------------------------------------------------------------------
 
 test_boards_are_configuration_not_convention
@@ -1286,3 +1630,12 @@ test_place_is_the_inverse_of_import
 test_place_says_where_the_change_actually_lands
 test_placement_converges_after_an_interrupted_run
 test_an_unreadable_repo_never_files_a_duplicate
+test_the_processed_column_does_not_exist_until_it_is_configured
+test_internalizing_a_filed_card_moves_it_out_of_the_inbox
+test_a_card_left_in_the_inbox_is_never_restatused
+test_work_firstmate_files_itself_never_sits_in_the_inbox
+test_a_queued_card_still_reports_rather_than_launches
+test_firstmate_promotes_a_filed_card_to_a_programme
+test_a_bound_issue_can_never_become_a_container
+test_a_promotion_the_board_did_not_take_is_still_a_container
+test_promotion_needs_a_container_lane_and_converges
