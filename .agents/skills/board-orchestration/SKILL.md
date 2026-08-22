@@ -108,7 +108,7 @@ Ownership of a card alternates between the captain and firstmate, and that alter
 | --- | --- | --- |
 | Todo | The captain's inbox: a card they filed that firstmate has not internalized yet. | firstmate |
 | `processed` | Firstmate has internalized it into the backlog and resolved how it ships. | the captain |
-| `queued` | The captain's go is given; firstmate launches it as soon as it is runnable. | firstmate |
+| `queued` | The captain's go is given and the only thing left is for the work to become runnable, including while it waits on another task to land. | firstmate |
 | In Progress | Started and not yet landed: a worker running, or a PR open awaiting merge. | firstmate |
 | Done | Merged and verified. | - |
 
@@ -120,12 +120,16 @@ It is honest signal about how fresh the last cycle was, and an idle fleet produc
 Never move a card to `processed` to make the board look current.
 That column is written only by internalizing the work the card names, so writing it any other way reports a state firstmate's own records do not support.
 
-A blocked item stays visible in the column it is already in, with the blocker recorded on its issue through `bin/fm-board.sh note <task-id> "Blocked: ..."`.
+An item the captain has approved whose only remaining obstacle is a dependency is `queued`, not `processed`: the go has been given, and waiting for another task to land is exactly what that column is for.
+
+Work that becomes blocked after it has started stays visible in the column it is already in, with the blocker recorded on its issue through `bin/fm-board.sh note <task-id> "Blocked: ..."`.
+That rule is about work already under way, and it never holds an approved item out of `queued`.
 A column outside these is reported by its real name and never driven; leave the card there rather than forcing it into one of the others.
 
 ### `processed` to `queued` is a chat instruction
 
 The captain gives their go in conversation, and firstmate then moves the card with `bin/fm-board.sh mark <task-id> queued`.
+When the go came before the card existed, the placement carries it instead - see `--cleared` under "Putting work firstmate already holds on the board" - so it is never a second command to remember.
 The board reports that go; it never issues it.
 A card that appears in `queued` on its own is a divergence to report exactly as any other is, and is never authorization to launch anything - see "Filing is intent; status is firstmate's report" below, which this does not weaken.
 
@@ -173,6 +177,21 @@ The container's own card then follows its children with no further action - any 
 Use it for a task that started in the backlog and belongs on that roadmap.
 Work firstmate files itself never sat in the captain's inbox and is already internalized when its card appears, so `place` and `child-add` card it as internalized rather than as something the captain still has to be told about.
 
+State everything the card should say on that one call.
+A fact firstmate holds at placement and leaves to a second command is a fact it will eventually not send, which is why these are flags on `place` rather than steps in this procedure:
+
+- **The programme it belongs to.**
+  When the task exists as follow-on from a container already on the board, pass `--parent <parent-issue-url>`.
+  The issue is created as a native GitHub sub-issue of that container and recorded as its child in the same operation, and the container's card then follows it exactly as it follows the children a decomposition created.
+  That is GitHub's own sub-issue relationship and nothing else, as "Programmes and their children" already requires; never attach it afterwards by hand.
+- **That the captain has already cleared it.**
+  When their go was given before the card existed, pass `--cleared` and the card is filed in `queued` rather than `processed`.
+  State it only when they actually gave it: never infer it from the absence of a hold, from the task existing, or from any other proxy, because an inferred go turns a filed card into a launch authorization the moment the inference is wrong.
+  Work firstmate has not been cleared to run is placed internalized, which is what the absent flag means.
+
+`--parent` attaches work to a programme that already exists and never creates one, so an issue not already recorded as a container is refused; judge and `promote` it first, exactly as "Judge the card before anything binds" requires.
+A board with no `queued` column has nowhere to show a go, so `--cleared` files the card internalized instead; the `placed` line names the state it filed, so read it rather than assuming.
+
 Whether a task belongs on a board is an editorial call the script never makes, and project alone does not settle it.
 Firstmate's own work belongs on a captain's product roadmap when it serves that product's delivery and stays off it when it does not.
 When the change lands somewhere other than the repository the card's issue is filed in, pass `--lands-in <owner/name>` so the roadmap never implies a diff is somewhere it is not.
@@ -187,7 +206,7 @@ A task with no board link is never passed to any of them; they refuse it outrigh
 Firstmate's own execution events are what move a card, and the ones that matter most happen on their own:
 
 - **Dispatch and merge need no command.** `bin/fm-spawn.sh` places the card if the project has a board and the task has none, then marks it in progress; `bin/fm-pr-check.sh` attaches the PR to its originating issue; `bin/fm-pr-merge.sh` closes the card after a merge that actually landed. A task with no board, and every task in a home with no board configured, is untouched by all three.
-- **Cleared to launch:** `bin/fm-board.sh mark <task-id> queued` when the captain's go, given in chat, releases a held item and the board configures that column.
+- **Cleared to launch:** `bin/fm-board.sh mark <task-id> queued` when the captain's go, given in chat, releases a held item already on the board and the board configures that column. Work being placed after the go is already given carries it on the placement itself instead.
 - **Blocked:** `bin/fm-board.sh note <task-id> "Blocked: <what is needed>"`, alongside the ordinary captain escalation when the blocker needs the captain.
 - Run `mark` by hand only to correct a card, for instance after a divergence or when work leaves the cleared set.
 

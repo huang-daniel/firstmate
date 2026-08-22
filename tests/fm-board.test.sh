@@ -266,6 +266,29 @@ EOF
     'opt_bpdone:Big Picture Done'
 }
 
+# The same board carrying the whole vocabulary, including the captain's go. This
+# is the shape a roadmap has once a programme on it is being fed follow-on work
+# that the captain has already cleared.
+roadmap_board() {
+  local home=$1
+  cat > "$home/config/boards" <<'EOF'
+project = harbourlight
+owner = harbour-collective
+number = 4
+repo = harbour-collective/app
+label = firstmate
+processed = Processed
+queued = Queued
+big-picture-todo = Big Picture Processed
+big-picture-in-progress = Big Picture In Progress
+big-picture-done = Big Picture Done
+EOF
+  fields "$home" PVTSSF_status opt_todo:Todo opt_processed:Processed \
+    opt_queued:Queued 'opt_prog:In Progress' opt_done:Done \
+    'opt_bptodo:Big Picture Processed' 'opt_bpprog:Big Picture In Progress' \
+    'opt_bpdone:Big Picture Done'
+}
+
 # --- configuration is the whole board identity ------------------------------
 
 test_boards_are_configuration_not_convention() {
@@ -318,6 +341,12 @@ test_the_bridge_is_inert_until_a_board_is_configured() {
     board "$home" "$verb" fm-x https://github.com/someone/app/pull/1 >/dev/null 2>&1 && rc=0 || rc=$?
     [ "$rc" != 0 ] || fail "an unconfigured home accepted \"$verb\""
   done
+  # Placement refuses for the same reason, whichever facts it is asked to state.
+  board "$home" place somewhere fm-x 'Work' 'body' >/dev/null 2>&1 && rc=0 || rc=$?
+  expect_code 2 "$rc" "an unconfigured home accepted a placement"
+  board "$home" place somewhere fm-x 'Work' 'body' --cleared \
+    --parent https://github.com/someone/app/issues/1 >/dev/null 2>&1 && rc=0 || rc=$?
+  expect_code 2 "$rc" "an unconfigured home accepted a placement stating a go and a programme"
 
   [ -z "$(gh_log "$home")" ] || fail "an unconfigured home called the GitHub CLI: $(gh_log "$home")"
   assert_absent "$home/data/board-links.tsv" "an unconfigured home created a link record"
@@ -1639,6 +1668,182 @@ test_promotion_needs_a_container_lane_and_converges() {
   pass "promotion needs a configured container lane, and repeating it converges"
 }
 
+# --- the two facts a placement already knows ---------------------------------
+#
+# These exist because both were once known, said in chat, and still never
+# reached the board: they had no owning command, so they became things to
+# remember and were forgotten. Each is now stated on the call that files the
+# card, which is the only shape that has ever reflected reliably here.
+
+test_placing_work_under_a_programme_attaches_it_there() {
+  local home parent out child log
+  home=$(new_home placing_work_under_a_programme_attaches_it_there)
+  roadmap_board "$home"
+  parent=https://github.com/harbour-collective/app/issues/400
+  item "$home" PVTI_p Issue "$parent" 'Big Picture Processed' firstmate - 'Rebuild the harbour' -
+  board "$home" poll >/dev/null
+  board "$home" decomposed harbourlight "$parent" >/dev/null
+
+  # Follow-on work firstmate files itself, long after the breakdown closed.
+  : > "$home/gh.log"
+  out=$(board "$home" place harbourlight fm-followon 'Follow-on from the rebuild' \
+    'Filed by firstmate.' --parent "$parent")
+  assert_contains "$out" 'placed harbourlight' "the follow-on work was not placed"
+  child=$(printf '%s' "$out" | cut -d' ' -f3)
+  log=$(gh_log "$home")
+  assert_contains "$log" "--parent $parent" \
+    "the follow-on work was not attached as a native sub-issue of the programme"
+  assert_not_contains "$log" 'project item-list' "placing under a programme read the whole board"
+  assert_contains "$(board "$home" decompositions)" "fm-followon=$child" \
+    "the programme's own record did not gain the child"
+
+  # It feeds the parent status the adapter already derives, not a second
+  # mechanism: the container's card follows the new child with no further
+  # command.
+  board "$home" mark fm-followon in-progress >/dev/null
+  : > "$home/gh.log"
+  out=$(board "$home" poll)
+  assert_contains "$out" "synced harbourlight $parent - in-progress" \
+    "a child attached by placement did not move its programme's card"
+  assert_contains "$(gh_log "$home")" '--single-select-option-id opt_bpprog' \
+    "the programme's card was not moved through the container lane"
+
+  # And the child is ordinary work from there on, never offered as fresh intake.
+  assert_not_contains "$out" "new harbourlight $child" \
+    "work placed under a programme was offered as fresh work to import"
+
+  # A run interrupted after the issue exists is finished on the next one rather
+  # than filing the work under the programme twice, exactly as an ordinary
+  # placement converges.
+  out=$(GH_FAIL="project item-add" board "$home" place harbourlight fm-second \
+    'A second follow-on' 'body' --parent="$parent")
+  assert_contains "$out" 'placed-partial' "an interrupted placement was reported as complete"
+  [ -z "$(board "$home" lookup fm-second)" ] || fail "an uncarded placement recorded a link"
+  out=$(board "$home" place harbourlight fm-second 'A second follow-on' 'body' --parent "$parent")
+  assert_contains "$out" 'placed harbourlight' "the repeat run did not finish the placement"
+  [ "$(issues_created "$home")" = 2 ] \
+    || fail "the repeat run filed the same work under the programme a second time"
+  pass "work placed under a programme is attached to it in that same operation, through GitHub's own sub-issue relationship"
+}
+
+test_placing_under_a_programme_refuses_rather_than_inventing_one() {
+  local home parent ordinary out rc before
+  home=$(new_home placing_under_a_programme_refuses_rather_than_inventing_one)
+  roadmap_board "$home"
+
+  # An issue nothing has recorded as a container is not one. Deciding that it is
+  # one is the judgement `promote` owns, made before anything binds, so this is
+  # refused rather than quietly becoming a second route to the same record.
+  parent=https://github.com/harbour-collective/app/issues/410
+  out=$(board "$home" place harbourlight fm-orphan 'Work' 'body' --parent "$parent" 2>&1) \
+    && rc=0 || rc=$?
+  expect_code 3 "$rc" "an unjudged issue became a container by having work placed under it"
+  assert_contains "$out" 'not a recorded container' "the refusal did not say why"
+  [ "$(issues_created "$home")" = 0 ] || fail "a refused placement filed an issue anyway"
+  assert_absent "$home/data/board-decompositions.tsv" "a refused placement recorded a container"
+  [ -z "$(board "$home" links)" ] || fail "a refused placement recorded a link"
+
+  # Nor can work that already holds a task become a container from this side.
+  ordinary=https://github.com/harbour-collective/app/issues/411
+  item "$home" PVTI_o Issue "$ordinary" Todo firstmate - 'Ordinary work' -
+  board "$home" import harbourlight "$ordinary" fm-ordinary >/dev/null
+  out=$(board "$home" place harbourlight fm-under-a-task 'Work' 'body' --parent "$ordinary" 2>&1) \
+    && rc=0 || rc=$?
+  expect_code 3 "$rc" "work that already holds a task was accepted as a programme"
+  assert_contains "$out" 'ordinary work' "the refusal did not say why the task cannot be a container"
+
+  # A task already bound to an issue the container does not name is refused, not
+  # reported as already done over the top of the parent it was asked for.
+  parent=https://github.com/harbour-collective/app/issues/412
+  item "$home" PVTI_p Issue "$parent" 'Big Picture Processed' firstmate - 'A programme' -
+  board "$home" poll >/dev/null
+  before=$(board "$home" decompositions | sort)
+  out=$(board "$home" place harbourlight fm-ordinary 'Already bound' 'body' --parent "$parent" 2>&1) \
+    && rc=0 || rc=$?
+  expect_code 3 "$rc" "a task bound to another issue was quietly re-parented"
+  assert_contains "$out" 'does not record as a child' "the refusal did not say why"
+  [ "$(board "$home" decompositions | sort)" = "$before" ] \
+    || fail "a refused placement disturbed the container record"
+
+  # And a board with no container lane has no programmes to place under at all.
+  home=$(new_home placing_under_a_programme_needs_the_lane)
+  processed_board "$home"
+  out=$(board "$home" place harbourlight fm-nolane 'Work' 'body' \
+    --parent https://github.com/harbour-collective/app/issues/413 2>&1) && rc=0 || rc=$?
+  expect_code 2 "$rc" "a board with no container lane accepted a parent"
+  assert_contains "$out" 'big-picture' "the refusal did not name the missing lane"
+  [ "$(issues_created "$home")" = 0 ] || fail "a refused placement filed an issue anyway"
+  pass "placing under a programme refuses loudly rather than inventing a container or re-parenting bound work"
+}
+
+test_placing_cleared_work_records_the_go_in_the_same_operation() {
+  local home out issue
+  home=$(new_home placing_cleared_work_records_the_go_in_the_same_operation)
+  roadmap_board "$home"
+
+  # Work the captain cleared in chat, whose only remaining obstacle is another
+  # task landing first, is filed as cleared by the command that files the card.
+  out=$(board "$home" place harbourlight fm-cleared 'Cleared, waiting on another task' \
+    'body' --cleared)
+  assert_contains "$out" 'placed harbourlight' "cleared work was not placed"
+  issue=$(printf '%s' "$out" | cut -d' ' -f3)
+  assert_contains "$out" 'fm-cleared queued' "the placement did not report the state it filed"
+  assert_contains "$(gh_log "$home")" '--single-select-option-id opt_queued' \
+    "the go was not written to this board's own go column"
+  assert_contains "$(board "$home" lookup fm-cleared)" "	queued	queued	" \
+    "the record did not carry the go the card was filed with"
+
+  # The board and the record agree, so the next cycle reads it as settled work
+  # rather than as a go firstmate never gave.
+  out=$(board "$home" poll)
+  assert_contains "$out" "linked harbourlight $issue fm-cleared queued" \
+    "a card firstmate placed as cleared was not reported as settled"
+  assert_not_contains "$out" 'divergence' "work firstmate placed as cleared read back as a divergence"
+
+  # Filing a card is not by itself the captain's go, so an unstated call still
+  # files internalized work exactly as it did before the flag existed.
+  : > "$home/gh.log"
+  out=$(board "$home" place harbourlight fm-not-cleared 'Filed, not cleared' 'body')
+  assert_contains "$out" 'fm-not-cleared processed' "an unstated placement invented a go"
+  assert_not_contains "$(gh_log "$home")" 'opt_queued' "an unstated placement wrote the go column"
+  pass "work the captain already cleared is placed as cleared, and work that is not stays internalized"
+}
+
+test_a_board_with_no_go_column_never_grows_one() {
+  local home out
+  home=$(new_home a_board_with_no_go_column_never_grows_one)
+  repo_board "$home"
+  assert_contains "$(board "$home" boards)" 'queued=-' "the fixture board configured a go column"
+
+  out=$(board "$home" place harbourlight fm-cleared-nowhere 'Cleared work' 'body' --cleared)
+  assert_contains "$out" 'fm-cleared-nowhere todo' \
+    "a board with neither optional column did not fall back to the inbox"
+  assert_contains "$(gh_log "$home")" '--single-select-option-id opt_todo' \
+    "the card was not filed in a column this board actually configures"
+  assert_not_contains "$(gh_log "$home")" 'opt_queued' "a board grew a go column it never configured"
+
+  # With the internalized column configured and no go column, it falls back one
+  # step rather than inventing the other.
+  home=$(new_home a_board_with_only_the_internalized_column)
+  cat > "$home/config/boards" <<'EOF'
+project = harbourlight
+owner = harbour-collective
+number = 4
+repo = harbour-collective/app
+label = firstmate
+processed = Processed
+EOF
+  fields "$home" PVTSSF_status opt_todo:Todo opt_processed:Processed \
+    'opt_prog:In Progress' opt_done:Done
+  out=$(board "$home" place harbourlight fm-cleared-somewhere 'Cleared work' 'body' --cleared)
+  assert_contains "$out" 'fm-cleared-somewhere processed' \
+    "a board with no go column did not fall back to its internalized column"
+  assert_contains "$(gh_log "$home")" '--single-select-option-id opt_processed' \
+    "the card was not filed in a column this board actually configures"
+  assert_not_contains "$(gh_log "$home")" 'opt_queued' "a board grew a go column it never configured"
+  pass "a board with no go column reports the state it could file and never grows a column it did not ask for"
+}
+
 # --- run --------------------------------------------------------------------
 
 test_boards_are_configuration_not_convention
@@ -1688,3 +1893,7 @@ test_firstmate_promotes_a_filed_card_to_a_programme
 test_a_bound_issue_can_never_become_a_container
 test_a_promotion_the_board_did_not_take_is_still_a_container
 test_promotion_needs_a_container_lane_and_converges
+test_placing_work_under_a_programme_attaches_it_there
+test_placing_under_a_programme_refuses_rather_than_inventing_one
+test_placing_cleared_work_records_the_go_in_the_same_operation
+test_a_board_with_no_go_column_never_grows_one
