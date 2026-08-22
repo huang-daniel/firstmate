@@ -116,6 +116,38 @@ case "$1 $2" in
       "$a_id" "$a_url" "${a_labels:--}" "${a_title:--}" >> "$GH_ITEMS"
     printf '%s\n' "$a_id"
     ;;
+  "api repos/"*)
+    api_path=$2
+    case "$api_path" in
+      repos/*/issues/*/sub_issues)
+        api_repo=${api_path#repos/}
+        api_repo=${api_repo%/issues/*}
+        api_parent_number=${api_path%/sub_issues}
+        api_parent_number=${api_parent_number##*/}
+        api_parent="https://github.com/$api_repo/issues/$api_parent_number"
+        if [ "${3:-}" = --method ]; then
+          api_child_id=''
+          while [ "$#" -gt 0 ]; do
+            case "$1" in
+              sub_issue_id=*) api_child_id=${1#sub_issue_id=} ;;
+            esac
+            shift
+          done
+          api_tmp=$(mktemp)
+          awk -F'\t' -v OFS='\t' -v id="$api_child_id" -v p="$api_parent" \
+            '$2 ~ ("/issues/" id "$") { $6 = p } { print }' "$GH_ISSUES" > "$api_tmp"
+          mv "$api_tmp" "$GH_ISSUES"
+        else
+          awk -F'\t' -v p="$api_parent" '$6 == p { print $2 }' "$GH_ISSUES"
+        fi
+        ;;
+      repos/*/issues/*)
+        api_number=${api_path##*/}
+        printf '%s\n' "$api_number"
+        ;;
+      *) exit 9 ;;
+    esac
+    ;;
   *)
     printf 'unexpected gh call: %s\n' "$*" >&2
     exit 9
@@ -1726,6 +1758,33 @@ test_placing_work_under_a_programme_attaches_it_there() {
   pass "work placed under a programme is attached to it in that same operation, through GitHub's own sub-issue relationship"
 }
 
+test_parenting_recovers_an_issue_created_without_a_parent() {
+  local home parent out child before
+  home=$(new_home parenting_recovers_an_issue_created_without_a_parent)
+  roadmap_board "$home"
+  parent=https://github.com/harbour-collective/app/issues/405
+  item "$home" PVTI_p Issue "$parent" 'Big Picture Processed' firstmate - 'Rebuild the harbour' -
+  board "$home" poll >/dev/null
+
+  out=$(GH_FAIL="project item-add" board "$home" place harbourlight fm-recovered \
+    'Recovered follow-on' 'body')
+  assert_contains "$out" 'placed-partial' "the parentless setup placement did not stop after filing"
+  child=$(cut -f2 "$home/issues")
+  [ "$(cut -f6 "$home/issues")" = - ] || fail "the setup issue already had a native parent"
+  before=$(board "$home" decompositions)
+
+  out=$(board "$home" place harbourlight fm-recovered 'Recovered follow-on' 'body' --parent "$parent")
+  assert_contains "$out" 'placed harbourlight' "the parented retry did not recover the existing issue"
+  [ "$(cut -f6 "$home/issues")" = "$parent" ] \
+    || fail "the recovered issue was recorded without its native sub-issue relationship"
+  assert_contains "$(board "$home" decompositions)" "fm-recovered=$child" \
+    "the attached recovered issue was not recorded as the container's child"
+  assert_not_contains "$before" 'fm-recovered=' "the setup unexpectedly recorded a child"
+  assert_contains "$(gh_log "$home")" "--method POST -F sub_issue_id=${child##*/}" \
+    "the retry did not attach the recovered issue through GitHub's sub-issue API"
+  pass "a parented retry attaches a recovered parentless issue before recording the child"
+}
+
 test_placing_under_a_programme_refuses_rather_than_inventing_one() {
   local home parent ordinary out rc before
   home=$(new_home placing_under_a_programme_refuses_rather_than_inventing_one)
@@ -1894,6 +1953,7 @@ test_a_bound_issue_can_never_become_a_container
 test_a_promotion_the_board_did_not_take_is_still_a_container
 test_promotion_needs_a_container_lane_and_converges
 test_placing_work_under_a_programme_attaches_it_there
+test_parenting_recovers_an_issue_created_without_a_parent
 test_placing_under_a_programme_refuses_rather_than_inventing_one
 test_placing_cleared_work_records_the_go_in_the_same_operation
 test_a_board_with_no_go_column_never_grows_one

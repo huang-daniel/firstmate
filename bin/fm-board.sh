@@ -1104,6 +1104,59 @@ issue_create() {
   issue_canonical "$url"
 }
 
+issue_parent_has_child() {
+  local parent=$1 child=$2 repo number tmp url found=1
+  repo=$(issue_repo "$parent")
+  number=${parent##*/}
+  tmp=$(mktemp) || return 2
+  if ! "$GH" api "repos/$repo/issues/$number/sub_issues" --paginate \
+    --jq '.[].html_url' > "$tmp" </dev/null; then
+    rm -f "$tmp"
+    return 2
+  fi
+  while IFS= read -r url; do
+    url=$(issue_canonical "$url") || continue
+    if [ "$url" = "$child" ]; then
+      found=0
+      break
+    fi
+  done < "$tmp"
+  rm -f "$tmp"
+  return "$found"
+}
+
+issue_parent_ensure() {
+  local parent=$1 child=$2 child_repo child_number child_id rc=0
+  issue_parent_has_child "$parent" "$child" || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    1) ;;
+    *)
+      warn "could not read the sub-issues of $parent"
+      return 1
+      ;;
+  esac
+  child_repo=$(issue_repo "$child")
+  child_number=${child##*/}
+  child_id=$("$GH" api "repos/$child_repo/issues/$child_number" --jq '.id' </dev/null) || {
+    warn "could not resolve $child before attaching it to $parent"
+    return 1
+  }
+  [ -n "$child_id" ] || {
+    warn "resolving $child returned no issue id"
+    return 1
+  }
+  if "$GH" api "repos/$(issue_repo "$parent")/issues/${parent##*/}/sub_issues" \
+    --method POST -F "sub_issue_id=$child_id" >/dev/null </dev/null; then
+    return 0
+  fi
+  if issue_parent_has_child "$parent" "$child"; then
+    return 0
+  fi
+  warn "could not attach $child to $parent"
+  return 1
+}
+
 # board_comment <issue-url> <body>
 # Runs from inside poll's item loop, so it never inherits the board read on
 # stdin.
@@ -1467,6 +1520,9 @@ issue_ensure() {
   url=$(issue_find_by_marker "$repo" "$task") || rc=$?
   case "$rc" in
     0)
+      if [ "$parent" != - ] && ! issue_parent_ensure "$parent" "$url"; then
+        return 1
+      fi
       printf '%s\n' "$url"
       return 0
       ;;
