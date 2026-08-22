@@ -206,7 +206,8 @@ A task with no board link is never passed to any of them; they refuse it outrigh
 Firstmate's own execution events are what move a card, and the ones that matter most happen on their own:
 
 - **Dispatch and merge need no command.** `bin/fm-spawn.sh` places the card if the project has a board and the task has none, then marks it in progress; `bin/fm-pr-check.sh` attaches the PR to its originating issue; `bin/fm-pr-merge.sh` closes the card after a merge that actually landed. A task with no board, and every task in a home with no board configured, is untouched by all three.
-- **Cleared to launch:** `bin/fm-board.sh mark <task-id> queued` when the captain's go, given in chat, releases a held item already on the board and the board configures that column. Work being placed after the go is already given carries it on the placement itself instead.
+- **Cleared to launch:** `bin/fm-board.sh mark <task-id> queued` when the captain's go, given in chat, releases a held item already on the board and the board configures that column.
+  Work being placed after the go is already given carries it on the placement itself instead.
 - **Blocked:** `bin/fm-board.sh note <task-id> "Blocked: <what is needed>"`, alongside the ordinary captain escalation when the blocker needs the captain.
 - Run `mark` by hand only to correct a card, for instance after a divergence or when work leaves the cleared set.
 
