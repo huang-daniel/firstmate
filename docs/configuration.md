@@ -88,7 +88,7 @@ Configure them and ownership of a card alternates between you and firstmate, whi
 | --- | --- | --- |
 | Todo | Your inbox: a card you filed that firstmate has not picked up yet. | firstmate |
 | `processed` | Firstmate has taken it into the backlog and worked out how it ships. | you |
-| `queued` | You gave the go; firstmate launches it as soon as it can. | firstmate |
+| `queued` | You gave the go and the only thing left is for the work to become runnable, including while it waits on another task to land. | firstmate |
 | In Progress | Started and not yet landed: a worker running, or a PR open awaiting merge. | firstmate |
 | Done | Merged and verified. | - |
 
@@ -105,13 +105,15 @@ The **label** is the authoritative trigger and defaults to `firstmate`, so add a
 An issue is imported once and the link is kept forever, so the same issue can never produce two backlog items even after its task is finished and cleaned up.
 Work you file on the board is never started just because it arrived: firstmate imports it, tells you it is there, and waits for your go before dispatching anything.
 You give that go in chat, and firstmate then moves the card; the board reports the go rather than issuing it.
+When you gave it before the card existed, the card is filed in the go column as it is created, so the go is never a separate step that can be missed.
 
 Work can also go the other way. Firstmate puts a task it already holds onto the board, filing the issue and carding it, so the roadmap shows work that started in the backlog as well as work that started on the board.
 That happens automatically when it dispatches a task whose project has a board, and can be done deliberately for any task the first mate judges belongs on that roadmap.
+A card placed deliberately carries what firstmate already knows about the work as it is filed: the big-picture item it belongs under, as a GitHub sub-issue of it, and the go when you have already given one.
 There is no bulk operation that sweeps existing work onto a board; cards are placed one at a time.
 
 Cards then move on firstmate's own execution events, without anyone remembering a step: Processed when it takes a card you filed into the backlog, In Progress when a worker is dispatched, the working PR attached to the originating issue when it opens, and Done after a confirmed merge.
-A blocked item stays in the column it is already in with the blocker recorded as an issue comment.
+Work that becomes blocked after it has started stays in the column it is already in, with the blocker recorded as an issue comment; approved work whose only obstacle is another task landing first sits in the go column instead.
 A board update that fails never blocks a dispatch, a merge, or cleanup - the board simply goes stale and the next cycle reconciles it.
 
 ### Who says what

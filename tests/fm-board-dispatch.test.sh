@@ -40,6 +40,7 @@ case "$1 $2" in
   "project field-list")
     printf 'field\tPVTSSF_status\n'
     printf 'option\topt_todo\tTodo\n'
+    printf 'option\topt_queued\tQueued\n'
     printf 'option\topt_prog\tIn Progress\n'
     printf 'option\topt_done\tDone\n'
     ;;
@@ -92,6 +93,7 @@ case "$1 $2" in
     done
     case "$eopt" in
       opt_todo) name=Todo ;;
+      opt_queued) name=Queued ;;
       opt_prog) name='In Progress' ;;
       *) name=Done ;;
     esac
@@ -279,6 +281,31 @@ test_a_board_that_refuses_every_write_never_fails_the_dispatch() {
   pass "a board write that cannot land leaves a stale card and never blocks a dispatch"
 }
 
+test_a_dispatch_never_states_a_go_the_captain_did_not_give() {
+  local rec out id
+  id=fm-dispatch-go
+  rec=$(make_case dispatch-go "$id")
+  read_case "$rec"
+  # A board that does carry the captain's go column, so writing it would be
+  # possible if anything here inferred one.
+  cat > "$HOME_DIR/config/boards" <<'EOF'
+project = harbourlight
+owner = harbour-collective
+number = 4
+repo = harbour-collective/app
+label = firstmate
+queued = Queued
+EOF
+
+  out=$(run_spawn "$id" "$PROJ_DIR")
+  assert_contains "$out" "spawned $id harness=claude" "the dispatch itself did not complete"
+  assert_contains "$(run_board lookup "$id")" 'in-progress' \
+    "dispatching did not leave the task's card in the dispatched column"
+  assert_not_contains "$(cat "$CASE_DIR/gh.log")" 'opt_queued' \
+    "a dispatch wrote the captain's go column from a go it was never given"
+  pass "a dispatch places and moves its own card and never states a go on the captain's behalf"
+}
+
 test_dispatching_a_scout_places_nothing() {
   local rec out id
   id=fm-scout-work
@@ -305,3 +332,4 @@ test_a_home_with_no_board_is_completely_unaffected
 test_a_project_with_no_stanza_is_never_placed
 test_a_board_that_refuses_every_write_never_fails_the_dispatch
 test_dispatching_a_scout_places_nothing
+test_a_dispatch_never_states_a_go_the_captain_did_not_give

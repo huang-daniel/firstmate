@@ -14,7 +14,8 @@
 #   fm-board.sh boards [<project>]
 #   fm-board.sh poll [<project>] [--limit <n>]
 #   fm-board.sh import <project> <issue-url> <task-id> [--limit <n>]
-#   fm-board.sh place <project> <task-id> <title> [<body>] [--lands-in <owner/name>]
+#   fm-board.sh place <project> <task-id> <title> [<body>]
+#     [--lands-in <owner/name>] [--parent <issue-url>] [--cleared]
 #   fm-board.sh promote <project> <issue-url> [--limit <n>]
 #   fm-board.sh child-add <project> <parent-issue-url> <title> <body> <task-id>
 #   fm-board.sh decomposed <project> <parent-issue-url>
@@ -207,19 +208,49 @@
 # the linkage record's own two columns do.
 #
 # PLACEMENT, the inverse of import. `place` puts a task firstmate already holds
-# onto the board: it creates the issue, cards it, sets it to the column a card
-# firstmate itself files belongs in, and records the link, after which dispatch, PR attachment, and merge all reflect through
-# the ordinary events with no further special casing. `child-add` is the same
-# operation with a parent - it additionally creates the issue as a native GitHub
-# sub-issue of the container and records the child against it - so both verbs run
-# one shared implementation rather than two that can drift.
+# onto the board: it creates the issue, cards it, sets it to the column that work
+# belongs in, and records the link, after which dispatch, PR attachment, and
+# merge all reflect through the ordinary events with no further special casing.
+# `child-add` is the same operation with a parent - it additionally creates the
+# issue as a native GitHub sub-issue of the container and records the child
+# against it - so both verbs run one shared implementation rather than two that
+# can drift.
 #
-# Both create the issue in the board's configured repo (a board with no `repo`
-# key uses the parent's repo for a child, and refuses `place` because it has no
-# repo to choose), carrying the trigger label. `place` takes an optional
-# `--lands-in <owner/name>` that states on the card which repository the change
-# actually lands in; pass it whenever that is not the repository the issue itself
-# is filed in, so a roadmap never implies a diff is somewhere it is not.
+# Two facts firstmate holds at the moment it places a card are stated on that
+# same call rather than left to a second command someone has to remember, which
+# is the only shape that has ever reflected onto a board reliably:
+#
+#   --parent <issue-url>  the programme this work belongs to. The issue is
+#     created as a native GitHub sub-issue of that container and recorded as its
+#     child in the same call, so work attached this way feeds exactly the books
+#     PARENT STATUS below derives from. GitHub's own sub-issue relationship is
+#     the whole of it: no label scheme, no naming convention, no second record.
+#   --cleared             the captain has already given their go, so the card
+#     enters the configured `queued` column instead of Processed.
+#
+# Neither is inferred. `--cleared` is stated per call because filing a card is
+# not by itself the captain's go: an unstated call enters internalized exactly as
+# it did before the flag existed, and a go derived from a proxy would turn a
+# filed card into a launch authorization the moment the proxy was wrong. A board
+# with no `queued` key has no such column, so the cleared state falls back
+# through internalized to the inbox, and the `placed` line names the state
+# actually filed so a fact the board cannot show is visible rather than silent.
+#
+# `--parent` attaches work to a container that already exists and never creates
+# one: an issue this board has not already recorded as a container is refused, so
+# `poll` first-sighting a card in the container lane and `promote` stay the only
+# two routes by which the container-or-task judgement is made. It refuses a
+# parent that already holds a task exactly as `child-add` does, and refuses a
+# task already bound to an issue that container does not record as its child
+# rather than reporting `already-placed` over the top of it.
+#
+# Both create the issue in the board's configured repo, carrying the trigger
+# label; a board with no `repo` key uses the parent's repo when there is a parent
+# and otherwise refuses `place`, because it has no repository to choose. `place`
+# also takes an optional `--lands-in <owner/name>` that states on the card which
+# repository the change actually lands in; pass it whenever that is not the
+# repository the issue itself is filed in, so a roadmap never implies a diff is
+# somewhere it is not.
 #
 # Work firstmate creates itself never sat in the captain's inbox and is already
 # internalized by the time its card exists, so `place` and `child-add` file it
@@ -241,7 +272,9 @@
 # land writes nothing, reports the failure, and exits 1 - there is nothing to
 # converge toward and firstmate must not build a backlog item on it. Every step
 # after creation degrades fail-soft: the command prints `placed-partial` or
-# `child-partial` naming the first step that did not land, and exits 0.
+# `child-partial` naming the first step that did not land, and exits 0. `placed`
+# and `placed-partial` both carry the entry state as their fourth field, exactly
+# as `import` reports the state it internalized a card into.
 #
 # Repeating either command converges instead of filing a second issue for the
 # same work, through three guards in falling order of cost. A task that already
@@ -1071,6 +1104,59 @@ issue_create() {
   issue_canonical "$url"
 }
 
+issue_parent_has_child() {
+  local parent=$1 child=$2 repo number tmp url found=1
+  repo=$(issue_repo "$parent")
+  number=${parent##*/}
+  tmp=$(mktemp) || return 2
+  if ! "$GH" api "repos/$repo/issues/$number/sub_issues" --paginate \
+    --jq '.[].html_url' > "$tmp" </dev/null; then
+    rm -f "$tmp"
+    return 2
+  fi
+  while IFS= read -r url; do
+    url=$(issue_canonical "$url") || continue
+    if [ "$url" = "$child" ]; then
+      found=0
+      break
+    fi
+  done < "$tmp"
+  rm -f "$tmp"
+  return "$found"
+}
+
+issue_parent_ensure() {
+  local parent=$1 child=$2 child_repo child_number child_id rc=0
+  issue_parent_has_child "$parent" "$child" || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    1) ;;
+    *)
+      warn "could not read the sub-issues of $parent"
+      return 1
+      ;;
+  esac
+  child_repo=$(issue_repo "$child")
+  child_number=${child##*/}
+  child_id=$("$GH" api "repos/$child_repo/issues/$child_number" --jq '.id' </dev/null) || {
+    warn "could not resolve $child before attaching it to $parent"
+    return 1
+  }
+  [ -n "$child_id" ] || {
+    warn "resolving $child returned no issue id"
+    return 1
+  }
+  if "$GH" api "repos/$(issue_repo "$parent")/issues/${parent##*/}/sub_issues" \
+    --method POST -F "sub_issue_id=$child_id" >/dev/null </dev/null; then
+    return 0
+  fi
+  if issue_parent_has_child "$parent" "$child"; then
+    return 0
+  fi
+  warn "could not attach $child to $parent"
+  return 1
+}
+
 # board_comment <issue-url> <body>
 # Runs from inside poll's item loop, so it never inherits the board read on
 # stdin.
@@ -1146,6 +1232,38 @@ board_entry_column() {
     printf '%s\n' "$1"
   else
     printf '%s\n' "$2"
+  fi
+}
+
+# Work the captain has already cleared to launch enters in the cleared state, so
+# that fact reaches the board from the command that already knows it rather than
+# from a second command someone has to remember. It is stated per call and never
+# inferred from the absence of a hold, from the task existing, or from any other
+# proxy: filing a card is not by itself the captain's go, so an unstated call
+# still enters internalized exactly as it did before the flag existed.
+#
+# A board with no `queued` key has no column for it, so the cleared state falls
+# back through internalized to the inbox exactly as internalized falls back on
+# its own. The caller is told which state was filed rather than left to assume,
+# which is what keeps a fact the board cannot show visible instead of silent.
+
+# place_entry_state <cleared> <queued-column> <processed-column>
+place_entry_state() {
+  local cleared=${1:-0} queued=${2:--} processed=${3:--}
+  if [ "$cleared" = 1 ] && [ "$queued" != - ]; then
+    printf 'queued\n'
+  else
+    board_entry_state "$processed"
+  fi
+}
+
+# place_entry_column <state> <todo-column> <queued-column> <processed-column>
+place_entry_column() {
+  local state=$1 todo=$2 queued=$3 processed=$4
+  if [ "$state" = queued ]; then
+    printf '%s\n' "$queued"
+  else
+    board_entry_column "$todo" "$processed"
   fi
 }
 
@@ -1402,6 +1520,9 @@ issue_ensure() {
   url=$(issue_find_by_marker "$repo" "$task") || rc=$?
   case "$rc" in
     0)
+      if [ "$parent" != - ] && ! issue_parent_ensure "$parent" "$url"; then
+        return 1
+      fi
       printf '%s\n' "$url"
       return 0
       ;;
@@ -1413,11 +1534,127 @@ issue_ensure() {
   issue_create "$repo" "$label" "$title" "$body" "$parent"
 }
 
+PLACE_USAGE='usage: fm-board.sh place <project> <task-id> <title> [<body>] [--lands-in <owner/name>] [--parent <issue-url>] [--cleared]'
+CHILD_ADD_USAGE='usage: fm-board.sh child-add <project> <parent-issue-url> <title> <body> <task-id>'
+
+# `place` and `child-add` are one operation with different parents and different
+# vocabulary, so they run one implementation from here rather than two that can
+# drift. Callers read the outcome from these.
+PLACE_ISSUE=- PLACE_PROJECT=- PLACE_STATE=- PLACE_REPO=- PLACE_STEP=
+
+# container_open <project> <parent-issue> <require-recorded>
+# Settle the container a child is being filed under, leaving its record in the
+# DECOMP_ variables and defaulting one this project has not recorded yet. Every
+# way the parent can be wrong is refused rather than degraded: a parent that
+# already holds a task is ordinary work, and a parent another board owns stays
+# that board's.
+#
+# With <require-recorded> set the parent must already be a recorded container,
+# which is what stops `place --parent` becoming a second route by which an
+# unjudged issue silently turns into one. `poll` first-sighting a card in the
+# container lane and `promote` remain the only two, so the container-or-task
+# judgement is still made exactly where it always was.
+container_open() {
+  local project=$1 parent=$2 require=$3
+  if links_find issue "$parent" >/dev/null; then
+    die "$parent is linked to task $LINK_TASK, so it is ordinary work rather than a container" 3
+  fi
+  if decomps_find "$parent" >/dev/null; then
+    [ "$DECOMP_PROJECT" = "$project" ] \
+      || die "$parent is already decomposed under project $DECOMP_PROJECT" 3
+    return 0
+  fi
+  [ "$require" != 1 ] \
+    || die "$parent is not a recorded container on board \"$project\"; poll the board or promote it before filing work under it" 3
+  decomp_clear
+  DECOMP_PROJECT=$project
+  DECOMP_PARENT=$parent
+  DECOMP_STATE=open
+  return 0
+}
+
+# place_bind <board-row> <task> <title> <body> <lands-in|-> <parent|-> <cleared>
+#            <require-recorded-container>
+# File the issue, card it in the column its entry state names, and record the
+# link. With a parent it also creates the issue as a native GitHub sub-issue and
+# records the child against that container in the same call, so work attached
+# this way feeds exactly the books PARENT STATUS derives from rather than a
+# second set.
+#
+# Returns 0 placed; 1 with the card write still outstanding and PLACE_STEP naming
+# the step that did not land; 2 already bound, with PLACE_ISSUE and PLACE_PROJECT
+# naming what it is bound to; and 3 for an issue that could not be created. Every
+# refusal exits from here rather than returning, so no caller can report one as a
+# soft outcome.
+place_bind() {
+  local board=$1 task=$2 title=$3 body=$4 lands_in=$5 parent=$6 cleared=$7 require=$8
+  local project owner number repo label status_field todo bp_todo queued processed
+  local children known column issue
+
+  project=$(printf '%s' "$board" | cut -f1)
+  owner=$(printf '%s' "$board" | cut -f2)
+  number=$(printf '%s' "$board" | cut -f3)
+  repo=$(printf '%s' "$board" | cut -f4)
+  label=$(printf '%s' "$board" | cut -f5)
+  status_field=$(printf '%s' "$board" | cut -f8)
+  todo=$(printf '%s' "$board" | cut -f9)
+  bp_todo=$(printf '%s' "$board" | cut -f12)
+  queued=$(printf '%s' "$board" | cut -f15)
+  processed=$(printf '%s' "$board" | cut -f16)
+
+  PLACE_ISSUE=- PLACE_PROJECT=$project PLACE_REPO=$repo PLACE_STEP=
+  PLACE_STATE=$(place_entry_state "$cleared" "$queued" "$processed")
+  children=- known=-
+  if [ "$parent" != - ]; then
+    [ "$bp_todo" != - ] \
+      || die "board \"$project\" has no big-picture columns configured, so it has no containers to decompose"
+    container_open "$project" "$parent" "$require"
+    children=$DECOMP_CHILDREN
+    known=$(children_child_for "$children" "$task") || known=-
+    [ "$repo" != - ] || repo=$(issue_repo "$parent")
+    PLACE_REPO=$repo
+  fi
+
+  # A task that already holds a link is finished, and says so without a single
+  # network call: the link is written last precisely so that holding one proves
+  # every earlier step landed. Under a parent it has to be that container's own
+  # recorded child, because an issue's one binding is permanent and re-parenting
+  # a bound issue is not this command's to do - so that case is refused rather
+  # than reported as already done over the top of it.
+  if links_find task "$task" >/dev/null; then
+    PLACE_ISSUE=$LINK_ISSUE
+    PLACE_PROJECT=$LINK_PROJECT
+    if [ "$parent" = - ] || [ "$known" = "$LINK_ISSUE" ]; then
+      return 2
+    fi
+    die "task $task is already linked to $LINK_ISSUE, which $parent does not record as a child" 3
+  fi
+  [ "$repo" != - ] \
+    || die "board \"$project\" has no repo key, so there is no repository to file a card in"
+
+  issue=$(issue_ensure "$repo" "$label" "$title" \
+    "$(issue_body "$body" "$task" "$lands_in")" "$task" "$parent" "$known") || return 3
+  PLACE_ISSUE=$issue
+  if [ "$parent" != - ]; then
+    # Recorded against the container the instant the child exists, so a run
+    # interrupted before the card lands is resumed rather than repeated, and the
+    # derived parent status carries the child from that same instant.
+    children=$(children_add "$children" "$task" "$issue")
+    decomps_put "$project" "$parent" "$DECOMP_STATE" "$DECOMP_DESIRED" \
+      "$DECOMP_SYNCED" "$children"
+  fi
+  column=$(place_entry_column "$PLACE_STATE" "$todo" "$queued" "$processed")
+  if card_ensure "$project" "$owner" "$number" "$status_field" "$PLACE_STATE" \
+    "$column" "$issue" "$task"; then
+    return 0
+  fi
+  PLACE_STEP=$CARD_STEP
+  return 1
+}
+
 cmd_place() {
-  local project='' task='' title='' body=- lands_in=-
-  local board owner number repo label status_field todo processed issue
-  local entry entry_column
-  local PLACE_USAGE='usage: fm-board.sh place <project> <task-id> <title> [<body>] [--lands-in <owner/name>]'
+  local project='' task='' title='' body=- lands_in=- raw_parent=- parent=- cleared=0
+  local board rc=0
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -1428,6 +1665,19 @@ cmd_place() {
         ;;
       --lands-in=*)
         lands_in=${1#--lands-in=}
+        shift
+        ;;
+      --parent)
+        [ "$#" -gt 1 ] || die "--parent needs a value"
+        raw_parent=$2
+        shift 2
+        ;;
+      --parent=*)
+        raw_parent=${1#--parent=}
+        shift
+        ;;
+      --cleared)
+        cleared=1
         shift
         ;;
       -*) die "unknown option \"$1\"" ;;
@@ -1458,110 +1708,54 @@ cmd_place() {
       *) die "--lands-in \"$lands_in\" is not owner/name" ;;
     esac
   fi
+  if [ "$raw_parent" != - ]; then
+    parent=$(issue_canonical "$raw_parent") || die "--parent \"$raw_parent\" is not an issue URL"
+  fi
 
   board=$(board_for "$project")
-  owner=$(printf '%s' "$board" | cut -f2)
-  number=$(printf '%s' "$board" | cut -f3)
-  repo=$(printf '%s' "$board" | cut -f4)
-  label=$(printf '%s' "$board" | cut -f5)
-  status_field=$(printf '%s' "$board" | cut -f8)
-  todo=$(printf '%s' "$board" | cut -f9)
-  processed=$(printf '%s' "$board" | cut -f16)
-  entry=$(board_entry_state "$processed")
-  entry_column=$(board_entry_column "$todo" "$processed")
-
-  # A task that already holds a link is finished, and says so without a single
-  # network call: the link is written last precisely so that holding one proves
-  # every earlier step landed.
-  if links_find task "$task" >/dev/null; then
-    printf 'already-placed %s %s %s\n' "$LINK_PROJECT" "$LINK_ISSUE" "$task"
-    return 0
-  fi
-  [ "$repo" != - ] \
-    || die "board \"$project\" has no repo key, so there is no repository to file a card in"
-
-  issue=$(issue_ensure "$repo" "$label" "$title" \
-    "$(issue_body "$body" "$task" "$lands_in")" "$task" - -) || {
-    printf 'error: could not create the issue for task %s in %s\n' "$task" "$repo" >&2
-    return 1
-  }
-  if card_ensure "$project" "$owner" "$number" "$status_field" "$entry" \
-    "$entry_column" "$issue" "$task"; then
-    printf 'placed %s %s %s\n' "$project" "$issue" "$task"
-  else
-    printf 'placed-partial %s %s %s %s\n' "$project" "$issue" "$task" "$CARD_STEP"
-  fi
+  place_bind "$board" "$task" "$title" "$body" "$lands_in" "$parent" "$cleared" 1 || rc=$?
+  case "$rc" in
+    0) printf 'placed %s %s %s %s\n' "$project" "$PLACE_ISSUE" "$task" "$PLACE_STATE" ;;
+    1)
+      printf 'placed-partial %s %s %s %s %s\n' \
+        "$project" "$PLACE_ISSUE" "$task" "$PLACE_STATE" "$PLACE_STEP"
+      ;;
+    2) printf 'already-placed %s %s %s\n' "$PLACE_PROJECT" "$PLACE_ISSUE" "$task" ;;
+    *)
+      printf 'error: could not create the issue for task %s in %s\n' "$task" "$PLACE_REPO" >&2
+      return 1
+      ;;
+  esac
   return 0
 }
 
 cmd_child_add() {
-  local project=${1:?usage: fm-board.sh child-add <project> <parent-issue-url> <title> <body> <task-id>}
-  local raw_parent=${2:?usage: fm-board.sh child-add <project> <parent-issue-url> <title> <body> <task-id>}
-  local title=${3:?usage: fm-board.sh child-add <project> <parent-issue-url> <title> <body> <task-id>}
-  local body=${4:?usage: fm-board.sh child-add <project> <parent-issue-url> <title> <body> <task-id>}
-  local task=${5:?usage: fm-board.sh child-add <project> <parent-issue-url> <title> <body> <task-id>}
-  local board owner number repo label status_field todo processed bp_todo
-  local parent known child state desired synced children entry entry_column
+  local project=${1:?$CHILD_ADD_USAGE}
+  local raw_parent=${2:?$CHILD_ADD_USAGE}
+  local title=${3:?$CHILD_ADD_USAGE}
+  local body=${4:?$CHILD_ADD_USAGE}
+  local task=${5:?$CHILD_ADD_USAGE}
+  local board parent rc=0
 
   board=$(board_for "$project")
-  owner=$(printf '%s' "$board" | cut -f2)
-  number=$(printf '%s' "$board" | cut -f3)
-  repo=$(printf '%s' "$board" | cut -f4)
-  label=$(printf '%s' "$board" | cut -f5)
-  status_field=$(printf '%s' "$board" | cut -f8)
-  todo=$(printf '%s' "$board" | cut -f9)
-  processed=$(printf '%s' "$board" | cut -f16)
-  entry=$(board_entry_state "$processed")
-  entry_column=$(board_entry_column "$todo" "$processed")
-  bp_todo=$(printf '%s' "$board" | cut -f12)
-  [ "$bp_todo" != - ] \
-    || die "board \"$project\" has no big-picture columns configured, so it has no containers to decompose"
   parent=$(issue_canonical "$raw_parent") || die "\"$raw_parent\" is not an issue URL"
   task_id_valid "$task" || die "\"$task\" is not a task id"
-  # A container is work nobody can ship, so it must never hold the one binding an
-  # issue has. Refusing here is the other half of poll never offering a
-  # big-picture card for import.
-  if links_find issue "$parent" >/dev/null; then
-    die "$parent is linked to task $LINK_TASK, so it is ordinary work rather than a container" 3
-  fi
-  [ "$repo" != - ] || repo=$(issue_repo "$parent")
-
-  if decomps_find "$parent" >/dev/null; then
-    [ "$DECOMP_PROJECT" = "$project" ] \
-      || die "$parent is already decomposed under project $DECOMP_PROJECT" 3
-    state=$DECOMP_STATE
-    desired=$DECOMP_DESIRED
-    synced=$DECOMP_SYNCED
-    children=$DECOMP_CHILDREN
-  else
-    state=open desired=- synced=- children=-
-  fi
-
-  known=$(children_child_for "$children" "$task") || known=-
-  if [ "$known" = - ] && links_find task "$task" >/dev/null; then
-    die "task $task is already linked to $LINK_ISSUE" 3
-  fi
-  if [ "$known" != - ] && links_find task "$task" >/dev/null; then
-    printf 'already-child %s %s %s %s\n' "$project" "$parent" "$known" "$task"
-    return 0
-  fi
-
-  child=$(issue_ensure "$repo" "$label" "$title" \
-    "$(issue_body "$body" "$task" -)" "$task" "$parent" "$known") || {
-    printf 'error: could not create the child issue for task %s under %s\n' "$task" "$parent" >&2
-    return 1
-  }
-  # Recorded against the parent the instant it exists, so a run interrupted
-  # before the card lands is resumed rather than repeated.
-  children=$(children_add "$children" "$task" "$child")
-  decomps_put "$project" "$parent" "$state" "$desired" "$synced" "$children"
-
-  if card_ensure "$project" "$owner" "$number" "$status_field" "$entry" \
-    "$entry_column" "$child" "$task"; then
-    printf 'child %s %s %s %s\n' "$project" "$parent" "$child" "$task"
-  else
-    printf 'child-partial %s %s %s %s %s\n' "$project" "$parent" "$child" "$task" "$CARD_STEP"
-  fi
+  # A container the board itself has never shown is still broken down here, so
+  # this route defaults the record rather than requiring one.
+  place_bind "$board" "$task" "$title" "$body" - "$parent" 0 0 || rc=$?
+  case "$rc" in
+    0) printf 'child %s %s %s %s\n' "$project" "$parent" "$PLACE_ISSUE" "$task" ;;
+    1)
+      printf 'child-partial %s %s %s %s %s\n' \
+        "$project" "$parent" "$PLACE_ISSUE" "$task" "$PLACE_STEP"
+      ;;
+    2) printf 'already-child %s %s %s %s\n' "$project" "$parent" "$PLACE_ISSUE" "$task" ;;
+    *)
+      printf 'error: could not create the child issue for task %s under %s\n' \
+        "$task" "$parent" >&2
+      return 1
+      ;;
+  esac
   return 0
 }
 
