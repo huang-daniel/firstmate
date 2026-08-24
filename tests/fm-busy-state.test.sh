@@ -127,6 +127,49 @@ test_retire_missing_sidecar_is_idempotent() {
   pass "retire treats only an absent sidecar as already retired"
 }
 
+# --- abandoned writer lock ------------------------------------------------------
+#
+# The stale-lock branch only runs after the acquire loop has spun 40 times, so it
+# is reached here by holding the lock for the whole spin. Both cases drive the
+# branch's mtime read: an epoch it cannot parse would either abort the writer or
+# silently read as age 0, which the break case detects and the live-holder case
+# would mask.
+
+test_stale_lock_is_broken_and_apply_proceeds() {
+  local state gen out rc=0 err="$TMP_ROOT/stale-lock.err"
+  state=$(new_state_dir stale-lock)
+  gen=$("$EV" arm "$state" t1)
+  mkdir "$state/t1.busy-state.lock"
+  touch -t 200001010000 "$state/t1.busy-state.lock"
+
+  FM_BUSY_LOCK_STALE_SECS=30 "$EV" apply "$state" t1 idle --gen "$gen" \
+    --source claude-hook --event stop 2>"$err" || rc=$?
+  [ "$rc" = 0 ] || fail "apply over an abandoned lock failed (rc=$rc): $(cat "$err")"
+  [ ! -s "$err" ] || fail "apply over an abandoned lock reported: $(cat "$err")"
+  out=$(fm_busy_classify tmux w1 claude t1 "$state")
+  [ "$out" = "idle claude-hook" ] || fail "expected 'idle claude-hook' after the break, got '$out'"
+  [ ! -e "$state/t1.busy-state.lock" ] || fail "apply left the writer lock held"
+  pass "an abandoned writer lock older than the stale window is broken and the event applies"
+}
+
+test_live_lock_holder_is_not_broken() {
+  local state gen out rc=0 err="$TMP_ROOT/live-lock.err"
+  state=$(new_state_dir live-lock)
+  gen=$("$EV" arm "$state" t1)
+  mkdir "$state/t1.busy-state.lock"
+
+  FM_BUSY_LOCK_STALE_SECS=30 "$EV" apply "$state" t1 idle --gen "$gen" \
+    --source claude-hook --event stop 2>"$err" || rc=$?
+  [ "$rc" = 1 ] || fail "apply against a live lock holder should be refused, got rc=$rc"
+  grep -q "busy-state lock timeout" "$err" \
+    || fail "expected a lock-timeout refusal, got: $(cat "$err")"
+  [ -d "$state/t1.busy-state.lock" ] || fail "a live holder's lock was broken"
+  out=$(fm_busy_classify tmux w1 claude t1 "$state")
+  [ "$out" = "busy fm-spawn" ] || fail "refused apply changed the record, got '$out'"
+  rmdir "$state/t1.busy-state.lock"
+  pass "a lock held inside the stale window is left alone and the writer refuses cleanly"
+}
+
 # --- stale event rejection ----------------------------------------------------
 
 test_stale_gen_event_rejected() {
@@ -387,6 +430,8 @@ test_apply_current_gen_reset
 test_apply_unarmed_refused
 test_retire_serializes_and_rejects_stale_gen
 test_retire_missing_sidecar_is_idempotent
+test_stale_lock_is_broken_and_apply_proceeds
+test_live_lock_holder_is_not_broken
 test_stale_gen_event_rejected
 test_stale_gen_record_unknown
 test_missing_record_unknown_not_idle

@@ -418,7 +418,17 @@ fmx_request_relay_context() {
 
 fmx_context_registry_mtime() {
   local file=$1 mtime
-  mtime=$(stat -f '%m' "$file" 2>/dev/null) || mtime=$(stat -c '%Y' "$file" 2>/dev/null) || return 1
+  # Select the stat dialect the way the rest of this file does, rather than
+  # chaining BSD into GNU: on Linux `stat -f` is FILE SYSTEM status, so the BSD
+  # form dumps filesystem prose to stdout before failing. Here the fallback's
+  # separate assignment happened to overwrite that prose, so this read returned
+  # the right epoch; the same chain written inside one command substitution
+  # concatenates instead, which is the crash fixed in bin/fm-busy-event.sh.
+  if [ "$(uname)" = Darwin ]; then
+    mtime=$(stat -f '%m' "$file" 2>/dev/null) || return 1
+  else
+    mtime=$(stat -c '%Y' "$file" 2>/dev/null) || return 1
+  fi
   case "$mtime" in
     ''|*[!0-9]*) return 1 ;;
   esac
