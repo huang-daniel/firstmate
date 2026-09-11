@@ -499,7 +499,7 @@ _fm_status_read_span() {  # <status-file> <start-offset> <byte-length>
 status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
   local f=$1 captured_end=${2:-} cf offset ident open='' trusted_open='' cursor_data first rest offset_line ident_line
   local version='' size actual_size cur_ident resolve held chunk_file chunk_size line cursor_dirty=0
-  local target_cursor nl_count complete_file complete_size partial_file emit=''
+  local target_cursor complete_size partial_file emit=''
   [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || return 0
   cf=$(_fm_open_decisions_cursor_path "$f")
   offset=0
@@ -598,30 +598,20 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
     # folded into the RETURNED set alone. See the line-boundary paragraph in
     # this function's header for why committing mid-line is what makes the two
     # folds disagree.
-    nl_count=$(LC_ALL=C tr -cd '\n' < "$chunk_file" | LC_ALL=C wc -c 2>/dev/null) \
+    complete_size=$(LC_ALL=C awk -v size="$chunk_size" '
+      { offset += length($0) + 1; if (offset <= size) complete = offset }
+      END { printf "%.0f\n", complete + 0 }
+    ' "$chunk_file") \
       || { rm -f "$chunk_file"; printf '%s' "$trusted_open"; return 0; }
-    nl_count=${nl_count//[[:space:]]/}
-    case "$nl_count" in
+    case "$complete_size" in
       ''|*[!0-9]*) rm -f "$chunk_file"; printf '%s' "$trusted_open"; return 0 ;;
     esac
-    if [ "$nl_count" -gt 0 ]; then
-      complete_file="$cf.complete.$$"
-      LC_ALL=C head -n "$nl_count" "$chunk_file" > "$complete_file" 2>/dev/null \
-        || { rm -f "$chunk_file" "$complete_file"; printf '%s' "$trusted_open"; return 0; }
-      complete_size=$(LC_ALL=C wc -c < "$complete_file" 2>/dev/null) \
-        || { rm -f "$chunk_file" "$complete_file"; printf '%s' "$trusted_open"; return 0; }
-      complete_size=${complete_size//[[:space:]]/}
-      case "$complete_size" in
-        ''|*[!0-9]*) rm -f "$chunk_file" "$complete_file"; printf '%s' "$trusted_open"; return 0 ;;
-      esac
-      while IFS= read -r line || [ -n "$line" ]; do
+    if [ "$complete_size" -gt 0 ]; then
+      while IFS= read -r line; do
         open=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held")
-      done < "$complete_file"
-      rm -f "$complete_file"
+      done < "$chunk_file"
       offset=$((offset + complete_size))
       cursor_dirty=1
-    else
-      complete_size=0
     fi
     emit=$open
     if [ "$complete_size" -lt "$chunk_size" ]; then

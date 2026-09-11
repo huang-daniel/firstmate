@@ -15,6 +15,47 @@ DRAIN="$ROOT/bin/fm-wake-drain.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-wake-drain-open-decisions-tests)
 
+test_trailing_token_lists_answerable_default_key() {
+  local dir state out row key padding
+  dir=$(make_bordered_case trailing-token)
+  state="$dir/state"
+  out="$dir/drain.out"
+  fm_write_meta "$state/task-default.meta" "window=sess:fm-default" "kind=ship"
+  printf 'needs-decision: ask-user findings=F1,F2 file=data/task/nm-run-findings.txt [key=nm-run-review]\n' > "$state/task-default.status"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "trailing-token drain failed"
+  row=$(grep '^task-default ' "$out")
+  case "$row" in
+    'task-default [key=default] needs-decision: '*'[key=nm-run-review]') : ;;
+    *) fail "the folded row key is missing or confused with the note token: $row" ;;
+  esac
+  key=$(printf '%s\n' "$row" | sed -n 's/^task-default \[key=\([^]]*\)\] needs-decision:.*/\1/p')
+  [ "$key" = default ] || fail "the printed row key is not default"
+  grep -F "bin/fm-send.sh <task> --resolve-key <key> '<answer>'" "$out" >/dev/null \
+    || fail "the advertised close command is missing"
+
+  padding=$(awk 'BEGIN { while (i++ < 200) printf " extra" }')
+  printf 'needs-decision: ask-user findings=F1,F2 file=data/task/nm-run-findings.txt %s [key=nm-run-review]\n' "$padding" >> "$state/task-default.status"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "long trailing-token drain failed"
+  row=$(grep '^task-default ' "$out")
+  case "$row" in
+    'task-default [key=default] needs-decision: '*' [truncated]') : ;;
+    *) fail "the row key did not survive the note cap: $row" ;;
+  esac
+  [ "${#row}" -le 219 ] || fail "the row exceeded its byte cap"
+
+  env PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" \
+    FM_FAKE_COMPOSER="$dir/composer" FM_FAKE_SENT="$dir/sent" FM_SEND_SETTLE=0 \
+    "$ROOT/bin/fm-send.sh" task-default --resolve-key "$key" 'use the reviewed fix' \
+    > "$dir/send.out" 2> "$dir/send.err" || fail "the printed key was refused: $(cat "$dir/send.err")"
+  grep -F 'use the reviewed fix' "$dir/sent" >/dev/null || fail "the answer was not delivered"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "post-resolution drain failed"
+  if grep -F 'OPEN DECISIONS' "$out" >/dev/null; then
+    fail "resolving the printed key left the decision listed: $(cat "$out")"
+  fi
+  pass "the trailing note token keeps an answerable default row key through truncation"
+}
+
 test_buried_decision_still_surfaces() {
   local dir state out
   dir=$(make_case buried)
@@ -215,6 +256,7 @@ test_over_long_decision_note_is_capped_with_a_marker() {
   pass "an over-long open decision is cut to its per-item budget with the shared truncation marker"
 }
 
+test_trailing_token_lists_answerable_default_key
 test_buried_decision_still_surfaces
 test_over_long_decision_note_is_capped_with_a_marker
 test_explicit_resolution_closes_it
