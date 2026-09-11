@@ -35,14 +35,33 @@ if [ -n "${GH_REFUSE_WRITES:-}" ]; then
     "project item-add" | "project item-edit" | "issue create") exit 1 ;;
   esac
 fi
-case "$1 $2" in
-  "project view") printf 'PVT_fixture\n' ;;
-  "project field-list")
+kind="$1 $2"
+if [ "$kind" = "api graphql" ]; then
+  case "$*" in
+    *projectItems*) kind="graphql card" ;;
+    *repositoryOwner*) kind="graphql ids" ;;
+  esac
+fi
+case "$kind" in
+  "graphql ids")
+    printf 'project\tPVT_fixture\n'
     printf 'field\tPVTSSF_status\n'
     printf 'option\topt_todo\tTodo\n'
     printf 'option\topt_queued\tQueued\n'
     printf 'option\topt_prog\tIn Progress\n'
     printf 'option\topt_done\tDone\n'
+    ;;
+  "graphql card")
+    g_owner=''; g_name=''; g_number=''
+    for g_arg in "$@"; do
+      case "$g_arg" in
+        owner=*) g_owner=${g_arg#owner=} ;;
+        name=*) g_name=${g_arg#name=} ;;
+        number=*) g_number=${g_arg#number=} ;;
+      esac
+    done
+    awk -F'\t' -v u="https://github.com/$g_owner/$g_name/issues/$g_number" \
+      '$3 == u { print $1; exit }' "$GH_ITEMS"
     ;;
   "project item-list") cat "$GH_ITEMS" ;;
   "issue list")

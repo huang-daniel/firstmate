@@ -109,10 +109,15 @@ case "\${1:-} \${2:-}" in
       *headRefOid*) printf '%s\n' '5555555555555555555555555555555555555555' ;;
     esac
     ;;
-  "project view") printf 'PVT_fixture\n' ;;
-  "project field-list")
-    printf 'field\tPVTSSF_status\n'
-    printf 'option\topt_done\tDone\n'
+  "api graphql")
+    case " \$* " in
+      *repositoryOwner*)
+        printf 'project\tPVT_fixture\n'
+        printf 'field\tPVTSSF_status\n'
+        printf 'option\topt_done\tDone\n'
+        ;;
+      *projectItems*) printf 'PVTI_a\n' ;;
+    esac
     ;;
   "project item-list")
     printf 'PVTI_a\tIssue\t%s\tIn Progress\t-\t-\tcard\t-\n' '$issue'

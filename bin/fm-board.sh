@@ -12,27 +12,30 @@
 #
 # Usage:
 #   fm-board.sh boards [<project>]
-#   fm-board.sh poll [<project>] [--limit <n>]
-#   fm-board.sh import <project> <issue-url> <task-id> [--limit <n>]
+#   fm-board.sh poll [<project>] [--limit <n>] [--all]
+#   fm-board.sh import <project> <issue-url> <task-id>
 #   fm-board.sh place <project> <task-id> <title> [<body>]
 #     [--lands-in <owner/name>] [--parent <issue-url>] [--cleared]
-#   fm-board.sh promote <project> <issue-url> [--limit <n>]
+#   fm-board.sh promote <project> <issue-url>
 #   fm-board.sh child-add <project> <parent-issue-url> <title> <body> <task-id>
 #   fm-board.sh decomposed <project> <parent-issue-url>
 #   fm-board.sh decompositions [<project>]
 #   fm-board.sh links [<project>]
 #   fm-board.sh lookup <issue-url|task-id>
-#   fm-board.sh mark <task-id> todo|processed|queued|in-progress|done [--limit <n>]
+#   fm-board.sh mark <task-id> todo|processed|queued|in-progress|done
 #   fm-board.sh pr <task-id> <pr-url>
 #   fm-board.sh note <task-id> <text>
 #   fm-board.sh ack <task-id>
 #   fm-board.sh -h | --help
 #
-# `--limit` caps how many cards one board read returns and defaults to 200, on
-# `poll` and on the card lookup `mark`, `import`, and `promote` need. A board
-# carrying more cards than the limit needs it raised: `poll` says so with a
-# `truncated` line, and the other three cannot find a card sitting past the
-# limit at all.
+# `--limit` caps how many cards one board read returns and defaults to 200. It
+# belongs to `poll` alone, because `poll` is the only verb that reads the board;
+# a board carrying more cards than the limit needs it raised, and `poll` says so
+# with a `truncated` line. `mark`, `import`, and `promote` find a card through
+# the issue that holds it rather than by paging the board, so no card is out of
+# their reach however large the board grows and they take no limit at all.
+#
+# `--all` turns off `poll`'s default silence about settled cards. See RECORDS.
 #
 # CONFIGURATION - config/boards, local and gitignored (docs/configuration.md
 # owns the operator-facing description). Plain text, one stanza per board, each
@@ -264,8 +267,8 @@
 # there.
 #
 # Because the created issue carries the label and holds a link before the next
-# cycle reads the board, `poll` reports it as `linked` and can never offer it as
-# `new`.
+# cycle reads the board, `poll` treats it as an ordinary linked card and can
+# never offer it as `new`.
 #
 # The failure contract has two halves, split at the one irreversible step.
 # Creating the issue is the command's whole purpose, so a creation that does not
@@ -354,15 +357,55 @@
 # discarding unlanded work: hard rule 3 stands, and this adapter touches no
 # branch, worktree, or repository.
 #
+# RECORDS. Every line `poll` prints is something firstmate has to act on, which
+# is the whole of the rule about what it says. The kinds are `new`, `decompose`,
+# `divergence`, `foreign`, `cancelled`, `synced`, `stale`, `truncated`, and
+# `error`; each is owned by the section above that describes the situation it
+# reports. A card already showing what firstmate recorded is not one of them: it
+# prints nothing, exactly as a reconciled container has always printed nothing.
+# So a fully reconciled board polls to no output at all, and a board that grows
+# to hundreds of settled cards stays as quiet as one holding none. `--all` adds
+# back the `linked` record for every settled card; it exists to inspect what a
+# silent cycle actually saw and changes nothing else about the cycle, including
+# every durable record it writes.
+#
 # COST. Board and Projects work is GraphQL with its own hourly budget, and a
-# full board read inside a per-item loop is what exhausts it. So one
-# reconciliation cycle reads the board exactly once and every write it then makes
-# reuses a card id from that one read; `place` and `child-add` read no board at
+# full board read inside a per-item loop is what exhausts it: one such read is
+# around a hundred points of an hourly five thousand, so a loop that made one
+# per card rate-limited the account at forty-five cards.
+#
+# Nothing here reads the board to resolve a single card. One reconciliation
+# cycle reads it exactly once, and every write that cycle then makes reuses a
+# card id from that one read. Outside a cycle, `mark`, `import`, and `promote`
+# resolve their card from the issue that holds it - GitHub answers a card's id
+# from the issue's own node, so the request is the same size whether the board
+# carries ten cards or a thousand - and `place` and `child-add` read nothing at
 # all, taking their card id from what the add itself returned, because a freshly
 # added card is not immediately visible in a board listing anyway. The project,
-# field, and option node IDs are resolved once per invocation and cached. Their
-# cost is therefore a small constant per card rather than a function of how many
-# cards the board carries.
+# field, and option node IDs come back in one request and are cached for the
+# rest of the invocation.
+#
+# Two properties follow, and tests/fm-board.test.sh pins both. Per-card cost is
+# a small constant rather than a function of how many cards the board carries,
+# so a board that grows does not make every write on it dearer. And the number
+# of requests one invocation makes does not change when the board grows, so a
+# board read cannot reappear inside a per-item loop without a test failing.
+#
+# BATCHING. One GraphQL document carries the project id, the status field id,
+# and every one of that field's options, which the CLI's `project view` plus
+# `project field-list` answer in two requests, the second of them paging every
+# field on the board to reach the one that is wanted. Both reads were measured;
+# docs/verification/board-cost.md carries the figures.
+#
+# The per-card status write is deliberately left unbatched, and the reason is
+# not that GitHub forbids it: aliased mutations would go in one document. It is
+# that a batch answers once for the whole document, while this adapter's whole
+# retry contract turns on knowing which individual cards the board took and
+# which are still owed - that is what `synced` and `stale` report per card and
+# what the next cycle retries. Collapsing k writes would trade that for a
+# saving in requests that has not been measured against GitHub's own per-
+# mutation charge. The dear call was always the read beside the write, and it
+# is the read that this file batches.
 #
 # GITHUB CLI. This adapter calls `gh` rather than `gh-axi`, and adds no new
 # dependency because `gh` is already part of firstmate's universal toolchain
@@ -370,10 +413,12 @@
 # needed here, but it renders project reads as truncated agent-readable output
 # with no machine-stable shape, while the status write needs the exact project,
 # field, and option node IDs that only the JSON surface returns - the same
-# `gh ... --format json` surface gh-axi itself calls. `gh` also carries an
-# embedded jq, so shaping that JSON needs no external jq either. Firstmate's own
-# conversational GitHub work stays on gh-axi. Board commands need gh's `project`
-# OAuth scope (`gh auth refresh -s project`).
+# `gh ... --format json` surface gh-axi itself calls. The two card and id reads
+# go through `gh api graphql` for the same reason: no CLI verb asks GitHub for
+# one issue's card, or for a project's id and one field's options together.
+# `gh` also carries an embedded jq, so shaping that JSON needs no external jq
+# either. Firstmate's own conversational GitHub work stays on gh-axi. Board
+# commands need gh's `project` OAuth scope (`gh auth refresh -s project`).
 #
 # Overrides for tests and specialized setups: FM_HOME, FM_CONFIG_OVERRIDE,
 # FM_DATA_OVERRIDE, and FM_BOARD_GH (the GitHub CLI to invoke).
@@ -391,7 +436,7 @@ GH="${FM_BOARD_GH:-gh}"
 TAB=$'\t'
 # One board read's ceiling, shared by `poll` and the card lookup `mark` needs.
 DEFAULT_LIMIT=200
-MARK_USAGE='usage: fm-board.sh mark <task-id> todo|processed|queued|in-progress|done [--limit <n>]'
+MARK_USAGE='usage: fm-board.sh mark <task-id> todo|processed|queued|in-progress|done'
 
 limit_valid() {
   case "${1:-}" in
@@ -877,19 +922,57 @@ def names:
 JQ
 }
 
-# The field read's columns: "field"<TAB>id, then "option"<TAB>id<TAB>name.
+# The batched id read's columns, drawn from the one document below:
+#   "project"<TAB>id, "field"<TAB>id, then "option"<TAB>id<TAB>name.
+# The wanted field is picked out here rather than in the query because GitHub's
+# own `field(name:)` lookup is an exact, case-sensitive match, while a
+# `status-field` key spelled "status" has always resolved a board field named
+# "Status". Filtering the field list keeps that tolerance.
+#
+# The one request behind this already returns every single-select field on the
+# board with its options, so a second synchronized field needs a second filter
+# and a second cached id here, never a second read.
 fields_jq() {
   local field_key
   field_key=$(json_string "$(norm_name "$1")")
   cat <<JQ
-.fields[]
-| select((.name | ascii_downcase | gsub(" "; "")) == $field_key)
-| (["field", (.id // "" | tostring)] | @tsv),
-  ((.options // [])[] | ["option", (.id // "" | tostring), (.name // "" | tostring)] | @tsv)
+(.data.repositoryOwner.projectV2 // empty)
+| (["project", (.id // "" | tostring)] | @tsv),
+  ( ((.fields.nodes // [])[]
+     | select(((.name // "") | ascii_downcase | gsub(" "; "")) == $field_key)
+     | (["field", (.id // "" | tostring)] | @tsv),
+       ((.options // [])[] | ["option", (.id // "" | tostring), (.name // "" | tostring)] | @tsv)
+    ) )
+JQ
+}
+
+# The card lookup's filter: this one board's card, out of every board the issue
+# sits on. Owner logins carry no spaces, but they are normalized on both sides
+# so the comparison cannot drift from how every other name here is matched.
+card_jq() {
+  local owner_key number_key
+  owner_key=$(json_string "$(norm_name "$1")")
+  number_key=$(json_string "$2")
+  cat <<JQ
+[ ((.data.repository.issue.projectItems.nodes // [])[]
+   | select((((.project.owner.login // "") | ascii_downcase | gsub(" "; "")) == $owner_key)
+            and (((.project.number // "") | tostring) == $number_key))
+   | (.id // "" | tostring)
+   | select(. != "")) ]
+| first // empty
 JQ
 }
 
 # board_items <owner> <number> <status_field> <limit> <outfile>
+# The whole-board read, and the only call in this file whose cost grows with how
+# many cards the board carries. One reconciliation cycle makes it exactly once;
+# nothing below ever reaches for it to resolve a single card.
+#
+# What this read does not carry is an issue's open or closed state: `gh project
+# item-list` answers `content` with body, number, repository, title, type, and
+# url alone. Anything needing that state belongs in this one read - widened here
+# or asked for in GraphQL, which returns it beside the card - and never in a
+# per-card lookup, which is the shape the cost guard exists to refuse.
 board_items() {
   local owner=$1 number=$2 status_field=$3 limit=$4 out=$5
   "$GH" project item-list "$number" --owner "$owner" --limit "$limit" \
@@ -898,28 +981,84 @@ board_items() {
 
 # --- board writes -----------------------------------------------------------
 
-# board_item_id <owner> <number> <status_field> <limit> <issue-url>
-board_item_id() {
-  local owner=$1 number=$2 status_field=$3 limit=$4 issue=$5
-  local tmp id url canonical rc=1
-  tmp=$(mktemp) || return 1
-  if board_items "$owner" "$number" "$status_field" "$limit" "$tmp"; then
-    while IFS=$'\t' read -r id _ url _ _ _ _ _; do
-      canonical=$(issue_canonical "$url" 2>/dev/null) || continue
-      [ "$canonical" = "$issue" ] || continue
-      printf '%s\n' "$id"
-      rc=0
-      break
-    done < "$tmp"
-  fi
-  rm -f "$tmp"
-  return "$rc"
+# How many of the boards one issue sits on the card lookup enumerates. This
+# bounds a card's own memberships, not a board's cards, so it is small on
+# purpose: an issue on more boards than this is outside what a single-board
+# adapter can resolve unambiguously anyway.
+CARD_PROJECTS_LIMIT=20
+# GraphQL names its own variables with `$`, so this document is deliberately
+# unexpanded; the values travel beside it as `-f`/`-F` arguments.
+# shellcheck disable=SC2016
+CARD_QUERY='query($owner: String!, $name: String!, $number: Int!, $projects: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      projectItems(first: $projects, includeArchived: false) {
+        nodes {
+          id
+          project {
+            number
+            owner {
+              ... on Organization { login }
+              ... on User { login }
+            }
+          }
+        }
+      }
+    }
+  }
+}'
+
+# board_card_id <owner> <number> <issue-url>: the id of the card this issue
+# holds on this one board, read from the issue's own node rather than by
+# scanning the board for it.
+#
+# This is the whole reason a per-card write no longer costs what a board read
+# costs. GitHub answers a card's id from the issue itself, so the request is the
+# same size whether the board carries ten cards or a thousand, and a caller
+# holding only an issue URL never has to page the board to find its card.
+# Archived cards are excluded so this agrees with the board read, which does not
+# list them either.
+board_card_id() {
+  local owner=$1 number=$2 issue=$3 repo id
+  repo=$(issue_repo "$issue")
+  id=$("$GH" api graphql \
+    -f query="$CARD_QUERY" \
+    -f owner="${repo%%/*}" -f name="${repo#*/}" \
+    -F number="${issue##*/}" -F projects="$CARD_PROJECTS_LIMIT" \
+    --jq "$(card_jq "$owner" "$number")" </dev/null) || return 1
+  [ -n "$id" ] || return 1
+  printf '%s\n' "$id"
 }
 
 # The project, field, and option node IDs are the same for every card on one
 # board, so they are read once per board and reused by every write in this run.
-# Resolving them per write would turn a cheap cycle into three project reads for
-# each outstanding write it retries.
+# Resolving them per write would turn a cheap cycle into a project read for each
+# outstanding write it retries.
+#
+# All three come back in one request. That is the batching GitHub genuinely
+# permits here: the CLI's `project view` and `project field-list` are two round
+# trips for what the API answers in one, and the second of them pages every
+# field on the board to reach the single field that is wanted.
+BOARD_FIELDS_LIMIT=100
+# shellcheck disable=SC2016
+BOARD_IDS_QUERY='query($owner: String!, $number: Int!, $fields: Int!) {
+  repositoryOwner(login: $owner) {
+    ... on ProjectV2Owner {
+      projectV2(number: $number) {
+        id
+        fields(first: $fields) {
+          nodes {
+            ... on ProjectV2SingleSelectField {
+              id
+              name
+              options { id name }
+            }
+          }
+        }
+      }
+    }
+  }
+}'
 BOARD_IDS_KEY=
 BOARD_PROJECT_ID=
 BOARD_FIELD_ID=
@@ -934,30 +1073,30 @@ board_status_ids() {
   if [ "$BOARD_IDS_KEY" = "$key" ]; then
     return 0
   fi
-  project_id=$("$GH" project view "$number" --owner "$owner" --format json --jq '.id' </dev/null) || {
+  tmp=$(mktemp) || return 1
+  if ! "$GH" api graphql \
+    -f query="$BOARD_IDS_QUERY" \
+    -f owner="$owner" -F number="$number" -F fields="$BOARD_FIELDS_LIMIT" \
+    --jq "$(fields_jq "$status_field")" > "$tmp" </dev/null; then
+    rm -f "$tmp"
     warn "could not read project $owner/$number"
     return 1
-  }
-  [ -n "$project_id" ] || {
-    warn "project $owner/$number reported no id"
-    return 1
-  }
-  tmp=$(mktemp) || return 1
-  if ! "$GH" project field-list "$number" --owner "$owner" --limit 100 \
-    --format json --jq "$(fields_jq "$status_field")" > "$tmp" </dev/null; then
-    rm -f "$tmp"
-    warn "could not read the fields of project $owner/$number"
-    return 1
   fi
+  project_id=''
   field_id=''
   options=''
   while IFS=$TAB read -r kind a b; do
     case "$kind" in
+      project) project_id=$a ;;
       field) field_id=$a ;;
       option) options="$options$(norm_name "${b:-}")$TAB$a"$'\n' ;;
     esac
   done < "$tmp"
   rm -f "$tmp"
+  if [ -z "$project_id" ]; then
+    warn "project $owner/$number reported no id"
+    return 1
+  fi
   if [ -z "$field_id" ]; then
     warn "project $owner/$number has no \"$status_field\" field"
     return 1
@@ -1001,12 +1140,14 @@ board_write_status() {
   return 0
 }
 
-# board_set_status <owner> <number> <status_field> <limit> <issue-url> <option-name>
+# board_set_status <owner> <number> <status_field> <issue-url> <option-name>
 # For a caller that holds only the issue URL and has to find its card first.
+# Two flat requests plus the write, none of them a board read, so this costs the
+# same on a board of a thousand cards as on a board of ten.
 board_set_status() {
-  local owner=$1 number=$2 status_field=$3 limit=$4 issue=$5 option_name=$6
+  local owner=$1 number=$2 status_field=$3 issue=$4 option_name=$5
   local item_id
-  item_id=$(board_item_id "$owner" "$number" "$status_field" "$limit" "$issue") || {
+  item_id=$(board_card_id "$owner" "$number" "$issue") || {
     warn "$issue is not a card on project $owner/$number"
     return 1
   }
@@ -1367,24 +1508,15 @@ cmd_lookup() {
   fi
 }
 
-IMPORT_USAGE='usage: fm-board.sh import <project> <issue-url> <task-id> [--limit <n>]'
+IMPORT_USAGE='usage: fm-board.sh import <project> <issue-url> <task-id>'
 
 cmd_import() {
-  local project='' raw_issue='' task='' limit=$DEFAULT_LIMIT
+  local project='' raw_issue='' task=''
   local issue board owner number repo status_field todo processed
   local entry entry_column
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --limit)
-        [ "$#" -gt 1 ] || die "--limit needs a value"
-        limit=$2
-        shift 2
-        ;;
-      --limit=*)
-        limit=${1#--limit=}
-        shift
-        ;;
       -*) die "unknown option \"$1\"" ;;
       *)
         if [ -z "$project" ]; then
@@ -1403,7 +1535,6 @@ cmd_import() {
   if [ -z "$project" ] || [ -z "$raw_issue" ] || [ -z "$task" ]; then
     die "$IMPORT_USAGE"
   fi
-  limit_valid "$limit" || die "--limit must be a positive number"
 
   board=$(board_for "$project")
   owner=$(printf '%s' "$board" | cut -f2)
@@ -1453,7 +1584,7 @@ cmd_import() {
   # ordinary outstanding write for `poll` to retry.
   entry_column=$(board_entry_column "$todo" "$processed")
   links_put "$project" "$issue" "$task" "$entry" todo - -
-  if board_set_status "$owner" "$number" "$status_field" "$limit" "$issue" "$entry_column"; then
+  if board_set_status "$owner" "$number" "$status_field" "$issue" "$entry_column"; then
     links_put "$project" "$issue" "$task" "$entry" "$entry" - -
     printf 'linked %s %s %s %s\n' "$project" "$issue" "$task" "$entry"
   else
@@ -1759,7 +1890,7 @@ cmd_child_add() {
   return 0
 }
 
-PROMOTE_USAGE='usage: fm-board.sh promote <project> <issue-url> [--limit <n>]'
+PROMOTE_USAGE='usage: fm-board.sh promote <project> <issue-url>'
 
 # Firstmate's own judgement that a card the captain filed as ordinary work is a
 # programme rather than one shippable task: the card moves into the container
@@ -1774,21 +1905,12 @@ PROMOTE_USAGE='usage: fm-board.sh promote <project> <issue-url> [--limit <n>]'
 # anything binds, because a container that already spent its binding is
 # recoverable only by abandoning that issue and filing a fresh one.
 cmd_promote() {
-  local project='' raw='' limit=$DEFAULT_LIMIT
+  local project='' raw=''
   local board owner number repo status_field bp_todo bp_in_progress bp_done
   local issue desired synced children column
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --limit)
-        [ "$#" -gt 1 ] || die "--limit needs a value"
-        limit=$2
-        shift 2
-        ;;
-      --limit=*)
-        limit=${1#--limit=}
-        shift
-        ;;
       -*) die "unknown option \"$1\"" ;;
       *)
         if [ -z "$project" ]; then
@@ -1805,7 +1927,6 @@ cmd_promote() {
   if [ -z "$project" ] || [ -z "$raw" ]; then
     die "$PROMOTE_USAGE"
   fi
-  limit_valid "$limit" || die "--limit must be a positive number"
 
   board=$(board_for "$project")
   owner=$(printf '%s' "$board" | cut -f2)
@@ -1851,7 +1972,7 @@ cmd_promote() {
   decomps_put "$project" "$issue" promoted "$desired" "$synced" "$children"
   column=$(bp_state_column "$desired" "$bp_todo" "$bp_in_progress" "$bp_done") \
     || die "board \"$project\" has no big-picture column for \"$desired\""
-  if board_set_status "$owner" "$number" "$status_field" "$limit" "$issue" "$column"; then
+  if board_set_status "$owner" "$number" "$status_field" "$issue" "$column"; then
     decomps_put "$project" "$issue" promoted "$desired" "$desired" "$children"
     printf 'promoted %s %s\n' "$project" "$issue"
   else
@@ -1896,21 +2017,12 @@ cmd_decompositions() {
 }
 
 cmd_mark() {
-  local task='' state='' limit=$DEFAULT_LIMIT
+  local task='' state=''
   local project issue synced pr pr_synced board
   local owner number status_field todo in_progress done_col queued processed column
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --limit)
-        [ "$#" -gt 1 ] || die "--limit needs a value"
-        limit=$2
-        shift 2
-        ;;
-      --limit=*)
-        limit=${1#--limit=}
-        shift
-        ;;
       -*) die "unknown option \"$1\"" ;;
       *)
         if [ -z "$task" ]; then
@@ -1927,7 +2039,6 @@ cmd_mark() {
   if [ -z "$task" ] || [ -z "$state" ]; then
     die "$MARK_USAGE"
   fi
-  limit_valid "$limit" || die "--limit must be a positive number"
   case "$state" in
     todo | in-progress | 'done') ;;
     queued | processed) ;;
@@ -1952,7 +2063,7 @@ cmd_mark() {
     || die "board \"$project\" has no $state column configured"
 
   links_put "$project" "$issue" "$task" "$state" "$synced" "$pr" "$pr_synced"
-  if board_set_status "$owner" "$number" "$status_field" "$limit" "$issue" "$column"; then
+  if board_set_status "$owner" "$number" "$status_field" "$issue" "$column"; then
     links_put "$project" "$issue" "$task" "$state" "$state" "$pr" "$pr_synced"
     printf 'synced %s %s %s %s\n' "$project" "$issue" "$task" "$state"
   else
@@ -2021,13 +2132,18 @@ cmd_ack() {
   printf 'acknowledged %s %s %s\n' "$project" "$issue" "$task"
 }
 
-# poll_board <board-row> <limit> <items-file>
+# poll_board <board-row> <limit> <items-file> <all>
 # Classifies every card from the one board read it is handed, reports what
 # firstmate has to act on, and retries writes the board has not taken yet. Every
 # write below reuses a card id from that same read, so nothing here refetches the
 # board per item.
+#
+# A settled card is not something to act on, so `all` is what decides whether it
+# is spoken about at all: empty prints only the records that call for a decision
+# or a follow-up, and non-empty adds the `linked` record for every card already
+# showing what firstmate recorded.
 poll_board() {
-  local board=$1 limit=$2 items=$3
+  local board=$1 limit=$2 items=$3 all=$4
   local project owner number repo label mention assignee status_field todo in_progress done_col
   local bp_todo bp_in_progress bp_done queued processed
   local id type url status labels assignees title body
@@ -2083,7 +2199,10 @@ poll_board() {
           links_put "$project" "$canonical" "$task" "$desired" "$desired" "$pr" "$pr_synced"
           synced=$desired
         fi
-        printf 'linked %s %s %s %s\n' "$project" "$canonical" "$task" "$desired"
+        # Reconciled and therefore silent, exactly as a reconciled container is.
+        # A board of settled cards would otherwise spend one record per card
+        # every cycle saying nothing changed.
+        [ -z "$all" ] || printf 'linked %s %s %s %s\n' "$project" "$canonical" "$task" "$desired"
       elif [ "$desired" != "$synced" ] && [ "$board_state" = "$synced" ]; then
         # A write is outstanding and the board still shows the value this adapter
         # last confirmed, so this is its own lag rather than a change to it.
@@ -2300,9 +2419,14 @@ poll_container() {
 }
 
 cmd_poll() {
-  local want='' limit=$DEFAULT_LIMIT board items project owner number status_field
+  local want='' limit=$DEFAULT_LIMIT all='' board items
+  local project owner number status_field
   while [ "$#" -gt 0 ]; do
     case "$1" in
+      --all)
+        all=1
+        shift
+        ;;
       --limit)
         [ "$#" -gt 1 ] || die "--limit needs a value"
         limit=$2
@@ -2335,7 +2459,7 @@ cmd_poll() {
     fi
     items=$(mktemp) || die "cannot stage the board read" 1
     if board_items "$owner" "$number" "$status_field" "$limit" "$items"; then
-      poll_board "$board" "$limit" "$items"
+      poll_board "$board" "$limit" "$items" "$all"
     else
       # A read failure never halts the cycle; the next one reconciles.
       printf 'error %s could not read project %s/%s\n' "$project" "$owner" "$number"

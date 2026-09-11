@@ -33,18 +33,49 @@ new_home() {
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$GH_LOG"
 l_prev=''
+# The adapter's two flat reads are both `gh api graphql`, so they are told apart
+# by what they ask for, exactly as a reader of the log has to tell them apart:
+# `graphql card` resolves one issue's card, `graphql ids` resolves the project
+# and its status field. GH_FAIL names either one.
+kind="$1 $2"
+if [ "$kind" = "api graphql" ]; then
+  case "$*" in
+    *projectItems*) kind="graphql card" ;;
+    *repositoryOwner*) kind="graphql ids" ;;
+  esac
+fi
+# One line per call, unlike the argument log, whose GraphQL documents span many.
+# Counting these is how the cost guard sees what an invocation actually spent.
+printf '%s\n' "$kind" >> "$GH_CALLS"
 if [ -n "${GH_FAIL:-}" ]; then
-  case "$1 $2" in
+  case "$kind" in
     $GH_FAIL)
       printf 'simulated GitHub failure\n' >&2
       exit 1
       ;;
   esac
 fi
-case "$1 $2" in
+case "$kind" in
   "project item-list") cat "$GH_ITEMS" ;;
-  "project view") printf 'PVT_fixture\n' ;;
-  "project field-list") cat "$GH_FIELDS" ;;
+  "graphql ids")
+    # What the adapter's own filter reduces the one batched document to.
+    printf 'project\tPVT_fixture\n'
+    cat "$GH_FIELDS"
+    ;;
+  "graphql card")
+    # One issue's card on this board. Every board a fixture home configures
+    # answers from the same card set, exactly as the whole-board read does.
+    g_owner=''; g_name=''; g_number=''
+    for g_arg in "$@"; do
+      case "$g_arg" in
+        owner=*) g_owner=${g_arg#owner=} ;;
+        name=*) g_name=${g_arg#name=} ;;
+        number=*) g_number=${g_arg#number=} ;;
+      esac
+    done
+    g_url="https://github.com/$g_owner/$g_name/issues/$g_number"
+    awk -F'\t' -v u="$g_url" '$3 == u { print $1; exit }' "$GH_ITEMS"
+    ;;
   "project item-edit")
     # Behave like the real board: the edit is visible to the next read.
     edit_id=''
@@ -156,6 +187,7 @@ esac
 SH
   chmod +x "$home/bin/gh"
   : > "$home/gh.log"
+  : > "$home/calls"
   : > "$home/items"
   : > "$home/fields"
   : > "$home/issues"
@@ -171,6 +203,7 @@ board() {
   FM_DATA_OVERRIDE="$home/data" \
   FM_BOARD_GH="$home/bin/gh" \
   GH_LOG="$home/gh.log" \
+  GH_CALLS="$home/calls" \
   GH_ITEMS="$home/items" \
   GH_FIELDS="$home/fields" \
   GH_ISSUES="$home/issues" \
@@ -198,6 +231,19 @@ fields() {
 
 gh_log() {
   cat "$1/gh.log"
+}
+
+# How many calls the adapter made, and how many of one kind.
+gh_calls() {
+  local n
+  n=$(wc -l < "$1/calls")
+  printf '%s\n' "$((n))"
+}
+
+gh_calls_of() {
+  local n
+  n=$(grep -c "^$2\$" "$1/calls" || true)
+  printf '%s\n' "$((n))"
 }
 
 # --- a board with an ordinary shape, and one with an unusual one -------------
@@ -479,9 +525,9 @@ EOF
   : > "$home/gh.log"
   board "$home" mark fm-onboard in-progress >/dev/null
   log=$(gh_log "$home")
-  assert_contains "$log" '--owner harbour-collective' "the event did not resolve its own project's board"
+  assert_contains "$log" 'owner=harbour-collective' "the event did not resolve its own project's board"
   assert_not_contains "$log" 'personal-account' "the event reached another project's board"
-  assert_not_contains "$log" 'project item-list 91' "the event read another project's board"
+  assert_not_contains "$log" 'project item-list' "an ordinary event read a whole board"
   pass "only a project with a configured board is mapped, and boards never cross"
 }
 
@@ -548,7 +594,7 @@ test_importing_the_same_issue_twice_is_a_no_op() {
   assert_contains "$out" 'already-linked' "the repeat import was not reported as already linked"
   [ "$(board "$home" links | wc -l)" = 1 ] || fail "re-importing produced a second linkage record"
 
-  out=$(board "$home" poll)
+  out=$(board "$home" poll --all)
   assert_not_contains "$out" 'new harbourlight' "an already-linked issue was offered for import again"
   assert_contains "$out" "linked harbourlight $issue fm-mooring todo" "the linked issue was not reported as linked"
 
@@ -665,7 +711,7 @@ test_a_blocker_is_recorded_on_the_issue() {
   assert_contains "$out" "noted harbourlight $issue fm-blocked" "the blocker was not recorded"
   assert_contains "$(gh_log "$home")" 'issue comment '"$issue"' --body Blocked: the staging credential expired' \
     "the blocker did not land on the issue"
-  out=$(board "$home" poll)
+  out=$(board "$home" poll --all)
   assert_contains "$out" "linked harbourlight $issue fm-blocked in-progress" \
     "a blocked item stopped being visible on the board"
   pass "a blocker is recorded on the issue while the item stays visible where it is"
@@ -914,7 +960,7 @@ number = 4
 repo = harbour-collective/somewhere-else
 label = firstmate
 EOF
-  out=$(board "$home" poll)
+  out=$(board "$home" poll --all)
   assert_not_contains "$out" 'cancelled' "a card the repo filter skips was reported as withdrawn"
   assert_contains "$out" "linked harbourlight $issue fm-filtered in-progress" \
     "a card the repo filter skips stopped being reconciled"
@@ -960,7 +1006,7 @@ EOF
   : > "$home/gh.log"
   board "$home" mark fm-owned 'done' >/dev/null
   log=$(gh_log "$home")
-  assert_contains "$log" '--owner harbour-collective' "a later event stopped resolving the owning board"
+  assert_contains "$log" 'owner=harbour-collective' "a later event stopped resolving the owning board"
   assert_not_contains "$log" 'personal-account' "a later event reached the board that does not own the issue"
   pass "an issue another board owns is named and left alone, never silently re-homed"
 }
@@ -996,27 +1042,177 @@ test_an_outstanding_pr_attachment_is_retried_on_the_next_cycle() {
   pass "an outstanding PR attachment is retried until the issue has it, then left alone"
 }
 
-test_mark_reads_the_board_under_the_limit_it_is_given() {
-  local home issue out rc
-  home=$(new_home mark_reads_the_board_under_the_limit_it_is_given)
+# A board read is the one call here whose price grows with the board, so the
+# verbs that move a single card must never make one. They find the card through
+# the issue that holds it instead, which is also why a board too large for one
+# read no longer puts a card out of their reach.
+test_a_single_card_event_never_reads_the_board() {
+  local home issue log out rc
+  home=$(new_home a_single_card_event_never_reads_the_board)
   ordinary_board "$home"
   issue=https://github.com/harbour-collective/app/issues/180
   item "$home" PVTI_a Issue "$issue" Todo firstmate - 'On a crowded board' -
+
+  : > "$home/gh.log"
   board "$home" import harbourlight "$issue" fm-crowded >/dev/null
+  assert_not_contains "$(gh_log "$home")" 'project item-list' "import read the whole board"
 
   : > "$home/gh.log"
   board "$home" mark fm-crowded in-progress >/dev/null
-  assert_contains "$(gh_log "$home")" 'project item-list 4 --owner harbour-collective --limit 200' \
-    "the default card lookup limit changed"
+  log=$(gh_log "$home")
+  assert_not_contains "$log" 'project item-list' "mark read the whole board"
+  assert_contains "$log" 'number=180' "mark did not resolve the card from its own issue"
+  assert_contains "$log" '--single-select-option-id opt_prog' "mark did not move the card"
+
+  # A card the board read would never have reached is still moved, because the
+  # lookup does not page the board at all.
+  out=$(board "$home" mark fm-crowded 'done' --limit 500 2>&1) && rc=0 || rc=$?
+  expect_code 2 "$rc" "mark still accepted a board-read ceiling it no longer uses"
+  assert_contains "$out" 'unknown option' "the refused option was not named"
+  pass "a single-card event resolves its card from the issue and never reads the board"
+}
+
+# --- silence, and what an invocation costs ----------------------------------
+
+test_a_reconciled_board_polls_to_silence() {
+  local home i issue out listed
+  home=$(new_home a_reconciled_board_polls_to_silence)
+  ordinary_board "$home"
+  i=1
+  while [ "$i" -le 12 ]; do
+    issue="https://github.com/harbour-collective/app/issues/$((400 + i))"
+    item "$home" "PVTI_s$i" Issue "$issue" Todo firstmate - "Settled work $i" -
+    board "$home" import harbourlight "$issue" "fm-settled-$i" >/dev/null
+    board "$home" mark "fm-settled-$i" in-progress >/dev/null
+    i=$((i + 1))
+  done
 
   : > "$home/gh.log"
-  board "$home" mark fm-crowded 'done' --limit 500 >/dev/null
-  assert_contains "$(gh_log "$home")" '--limit 500' "mark ignored the lookup limit it was given"
+  : > "$home/calls"
+  out=$(board "$home" poll)
+  [ -z "$out" ] || fail "a board with nothing to act on printed records: $out"
+  assert_not_contains "$(gh_log "$home")" 'item-edit' "a reconciled cycle wrote to the board"
+  [ "$(gh_calls "$home")" = 1 ] || \
+    fail "a reconciled cycle spent more than its one board read: $(cat "$home/calls")"
 
-  out=$(board "$home" mark fm-crowded todo --limit 0 2>&1) && rc=0 || rc=$?
-  expect_code 2 "$rc" "mark accepted a lookup limit of zero"
-  assert_contains "$out" 'positive number' "the refused lookup limit was not explained"
-  pass "mark looks a card up under a limit it exposes, the same way poll does"
+  # The full listing is still one flag away, and it is only a listing: it writes
+  # nothing the silent cycle did not already write.
+  out=$(board "$home" poll --all)
+  listed=$(printf '%s\n' "$out" | grep -c '^linked ' || true)
+  [ "$listed" = 12 ] || fail "--all did not list every settled card, listed $listed"
+  assert_contains "$out" "linked harbourlight https://github.com/harbour-collective/app/issues/401 fm-settled-1 in-progress" \
+    "--all did not carry each card's recorded state"
+  pass "a board with nothing to act on polls to no output, and --all still lists it"
+}
+
+# THE COST GUARD.
+#
+# WHAT IT CATCHES. The stub records one line per call the adapter makes, so this
+# counts them exactly. It fails the moment the number of calls one invocation
+# makes depends on how many cards the board carries: a whole-board read moved
+# back inside a per-item loop, a project or field id resolved per write instead
+# of once for the run, or a single card found by paging the board. That is the
+# defect worth a guard, because one board read costs around a hundred of the
+# hourly five thousand GraphQL points, so forty-five of them exhaust the budget
+# and rate-limit the account.
+#
+# WHAT IT DOES NOT CATCH. It counts calls, never points, so it says nothing
+# about one call growing dearer - a raised `--limit`, or a query asking for more
+# fields per card - and a board read is around a hundred times the price of the
+# flat reads beside it, so equal call counts are not equal spend. It bounds one
+# invocation, so a caller that loops a single-card verb still pays that verb's
+# constant once per card; what makes that affordable is only that the constant
+# no longer contains a board read. And it can only see the calls the stub
+# models, so it would not notice pagination the real API forces on a response
+# this fixture returns whole.
+#
+# The assertions are deliberately equalities rather than upper bounds, and there
+# are three of them because they fail on different regressions. Comparing two
+# boards an order of magnitude apart catches a read whose count follows the
+# board: a read per card seen took the large board from 5 calls to 65 while the
+# small one went to 11. That comparison alone is not enough, because a read per
+# CHANGED card costs the same on both boards, so the exact call count catches
+# that one: it went from 5 to 8 at three changed cards. And counting `project
+# item-list` alone catches a single-card verb resolving its card by paging the
+# board, which neither of the other two would see. Each of the three was
+# reintroduced on purpose and confirmed to fail exactly the assertion named here.
+
+# settled_board <home> <cards>: a board of that many cards, each imported,
+# moved, and confirmed, so a poll of it has nothing left to do.
+settled_board() {
+  local home=$1 cards=$2 i=1 issue
+  ordinary_board "$home"
+  while [ "$i" -le "$cards" ]; do
+    issue="https://github.com/harbour-collective/app/issues/$((7000 + i))"
+    item "$home" "PVTI_c$i" Issue "$issue" Todo firstmate - "Card $i" -
+    board "$home" import harbourlight "$issue" "fm-card-$i" >/dev/null
+    board "$home" mark "fm-card-$i" in-progress >/dev/null
+    i=$((i + 1))
+  done
+}
+
+# owing <home> <count>: leave that many of the board's cards owing a write, by
+# recording a move the board would not take.
+owing() {
+  local home=$1 count=$2 i=1
+  while [ "$i" -le "$count" ]; do
+    GH_FAIL='project item-edit' board "$home" mark "fm-card-$i" 'done' >/dev/null 2>&1
+    i=$((i + 1))
+  done
+}
+
+test_api_calls_do_not_grow_with_the_board() {
+  local small large k=3 small_calls large_calls
+  small=$(new_home api_calls_do_not_grow_small)
+  large=$(new_home api_calls_do_not_grow_large)
+  settled_board "$small" 6
+  settled_board "$large" 60
+  owing "$small" "$k"
+  owing "$large" "$k"
+
+  : > "$small/calls"
+  : > "$large/calls"
+  board "$small" poll >/dev/null
+  board "$large" poll >/dev/null
+  small_calls=$(gh_calls "$small")
+  large_calls=$(gh_calls "$large")
+  [ "$small_calls" = "$large_calls" ] || fail \
+    "a cycle over 60 cards cost $large_calls calls where 6 cards cost $small_calls, for the same $k changed"
+  # One board read, one id read for the run, one write per card that owes one.
+  [ "$large_calls" = "$((k + 2))" ] || fail \
+    "a cycle with $k changed cards cost $large_calls calls, not $((k + 2)): $(cat "$large/calls")"
+  [ "$(gh_calls_of "$large" 'project item-list')" = 1 ] || fail \
+    "the cycle read the board more than once"
+  [ "$(gh_calls_of "$large" 'graphql ids')" = 1 ] || fail \
+    "the project and field ids were resolved more than once in one cycle"
+  [ "$(gh_calls_of "$large" 'project item-edit')" = "$k" ] || fail \
+    "the cycle wrote to cards it did not owe a write"
+
+  # A cycle with nothing to do costs its one board read and nothing else, at
+  # either size.
+  : > "$small/calls"
+  : > "$large/calls"
+  board "$small" poll >/dev/null
+  board "$large" poll >/dev/null
+  [ "$(gh_calls "$small")" = 1 ] && [ "$(gh_calls "$large")" = 1 ] || fail \
+    "a settled cycle cost more than its one board read"
+
+  # And the same holds for a single-card event, which is where the measured
+  # exhaustion came from: forty-five of them in a row.
+  : > "$small/calls"
+  : > "$large/calls"
+  board "$small" mark fm-card-1 todo >/dev/null
+  board "$large" mark fm-card-1 todo >/dev/null
+  small_calls=$(gh_calls "$small")
+  large_calls=$(gh_calls "$large")
+  [ "$small_calls" = "$large_calls" ] || fail \
+    "moving one card cost $large_calls calls on 60 cards and $small_calls on 6"
+  # The card lookup, the ids, and the write itself.
+  [ "$large_calls" = 3 ] || fail \
+    "moving one card cost $large_calls calls, not 3: $(cat "$large/calls")"
+  [ "$(gh_calls_of "$large" 'project item-list')" = 0 ] || fail \
+    "moving one card read the whole board"
+  pass "what an invocation costs is set by the work it does, never by the board's size"
 }
 
 # --- containers and their children ------------------------------------------
@@ -1176,7 +1372,7 @@ test_a_child_is_created_linked_and_never_re_imported() {
   assert_contains "$(board "$home" lookup fm-moorings)" "$child" "the child did not record its issue-to-task link"
 
   # The next cycle sees an ordinary linked card, never new work.
-  out=$(board "$home" poll)
+  out=$(board "$home" poll --all)
   assert_contains "$out" "linked harbourlight $child fm-moorings todo" "the child was not reported as linked"
   assert_not_contains "$out" "new harbourlight $child" "the child was offered as fresh work to import"
   pass "a child is created labelled, linked to its parent, carded in Todo, and never re-imported"
@@ -1401,7 +1597,7 @@ test_internalizing_a_filed_card_moves_it_out_of_the_inbox() {
   # The card has left the inbox, so it is never offered as new work again and a
   # reconciled board says only that it agrees.
   : > "$home/gh.log"
-  out=$(board "$home" poll)
+  out=$(board "$home" poll --all)
   assert_not_contains "$out" 'new ' "an internalized card was offered as new work again"
   assert_contains "$out" "linked harbourlight $issue fm-filed processed" \
     "the internalized card was not reported as agreeing"
@@ -1854,7 +2050,7 @@ test_placing_cleared_work_records_the_go_in_the_same_operation() {
 
   # The board and the record agree, so the next cycle reads it as settled work
   # rather than as a go firstmate never gave.
-  out=$(board "$home" poll)
+  out=$(board "$home" poll --all)
   assert_contains "$out" "linked harbourlight $issue fm-cleared queued" \
     "a card firstmate placed as cleared was not reported as settled"
   assert_not_contains "$out" 'divergence' "work firstmate placed as cleared read back as a divergence"
@@ -1930,7 +2126,9 @@ test_a_truncated_read_reconciles_nothing
 test_a_card_an_intake_filter_skips_is_not_a_withdrawal
 test_an_issue_another_board_owns_is_skipped_not_re_homed
 test_an_outstanding_pr_attachment_is_retried_on_the_next_cycle
-test_mark_reads_the_board_under_the_limit_it_is_given
+test_a_single_card_event_never_reads_the_board
+test_a_reconciled_board_polls_to_silence
+test_api_calls_do_not_grow_with_the_board
 test_the_container_lane_does_not_exist_until_it_is_configured
 test_a_partial_container_configuration_is_refused
 test_a_container_is_offered_for_decomposition_and_never_imported
