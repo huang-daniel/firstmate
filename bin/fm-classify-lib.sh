@@ -858,8 +858,18 @@ EOF
 }
 
 status_commit_presentation_snapshot() {  # <state> <snapshot>
-  local state=$1 snapshot=$2 task endpoint ident f cur_ident size tmp prev
-  tmp="$state/.status-presentation-cursor.tmp.$$"
+  local state=$1 snapshot=$2 task endpoint ident f cur_ident size tmp prev manifest rows
+  manifest="$state/.status-presentation-cursor"
+  tmp="$manifest.tmp.$$"
+  # One read of the manifest for the whole commit: each row's previously
+  # committed offset is resolved from this copy, never by re-reading and
+  # re-parsing the manifest per task.
+  rows=''
+  if [ -e "$manifest" ] || [ -L "$manifest" ]; then
+    [ -f "$manifest" ] && [ -r "$manifest" ] && [ ! -L "$manifest" ] || return 1
+    rows=$(LC_ALL=C command cat "$manifest" 2>/dev/null) || return 1
+  fi
+  rows=$'\n'$rows
   : > "$tmp" || return 1
   while IFS=$(printf '\t') read -r task endpoint ident; do
     [ -n "$task" ] || continue
@@ -878,7 +888,14 @@ status_commit_presentation_snapshot() {  # <state> <snapshot>
     # next span starting mid-line, where the remainder no longer reads as a
     # status line and is dropped for good. Commit only through the last complete
     # line, exactly as the open-decisions cursor does.
-    prev=$(status_presentation_cursor_offset "$f") || { rm -f "$tmp"; return 1; }
+    prev=0
+    case "$rows" in
+      *$'\n'"$task"$'\t'"$ident"$'\t'*)
+        prev=${rows#*$'\n'"$task"$'\t'"$ident"$'\t'}
+        prev=${prev%%$'\n'*}
+        ;;
+    esac
+    case "$prev" in ''|*[!0-9]*) rm -f "$tmp"; return 1 ;; esac
     endpoint=$(_fm_status_line_boundary_end "$f" "$prev" "$endpoint") \
       || { rm -f "$tmp"; return 1; }
     printf '%s\t%s\t%s\n' "$task" "$ident" "$endpoint" >> "$tmp" \
@@ -886,7 +903,7 @@ status_commit_presentation_snapshot() {  # <state> <snapshot>
   done <<EOF
 $snapshot
 EOF
-  mv -f "$tmp" "$state/.status-presentation-cursor" || { rm -f "$tmp"; return 1; }
+  mv -f "$tmp" "$manifest" || { rm -f "$tmp"; return 1; }
 }
 
 scan_open_decisions_snapshot() {  # <state> <task-and-endpoint-snapshot>
@@ -996,8 +1013,12 @@ status_open_decisions_cursor_offset() {  # <status-file>
   printf '%s' "$offset"
 }
 
-# Print every non-blank status line whose bytes begin at or after the persisted
-# presentation offset. Does not write the cursor. A missing manifest row or
+# Print every non-blank COMPLETE status line whose bytes begin at or after the
+# persisted presentation offset. A trailing line the writer has not terminated
+# yet is not a line to show: it would read as a finished note while saying
+# something else ("use p" for "use plan B"), and the cursor commit stays behind
+# it, so it prints once, in full, on the next drain.
+# Does not write the cursor. A missing manifest row or
 # changed status identity reads the current file from offset 0; malformed or
 # unreadable cursor state fails the scan. Symlinks and unreadable status files
 # print nothing.
@@ -1021,7 +1042,7 @@ status_new_lines_since_cursor() {  # <status-file> [<captured-end-offset>]
   [ "$offset" -lt "$size" ] || return 0
   _fm_status_read_span "$f" "$offset" "$((size - offset))" > "$chunk_file" 2>/dev/null \
     || { rm -f "$chunk_file"; return 1; }
-  while IFS= read -r line || [ -n "$line" ]; do
+  while IFS= read -r line; do
     case "$line" in
       *[![:space:]]*) printf '%s\n' "$line" || { rc=1; break; } ;;
     esac

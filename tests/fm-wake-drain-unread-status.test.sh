@@ -62,12 +62,18 @@ test_half_written_line_is_surfaced_in_full_once_it_lands() {
   printf 'note: the captain says use p' >> "$status"
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed over a half-written line"
 
+  if grep -F 'the captain says use p' "$out" >/dev/null; then
+    fail "a half-written line was shown as if it were finished: $(cat "$out")"
+  fi
+
   printf 'lan B\n' >> "$status"
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed after the line finished landing"
 
   grep -F 'task9 note: the captain says use plan B' "$out" >/dev/null \
     || fail "the completed line was never surfaced in full: $(cat "$out")"
-  pass "a line observed half-written is surfaced in full once it lands"
+  [ "$(grep -cF 'the captain says use plan B' "$out")" = 1 ] \
+    || fail "the completed line was surfaced more than once: $(cat "$out")"
+  pass "a half-written line is held back, then surfaced once in full when it lands"
 }
 
 test_already_presented_notes_are_not_replayed() {

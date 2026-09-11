@@ -145,7 +145,7 @@ ok - main and secondmate captain actionability use the same blocker readiness
 $ bash tests/fm-send-resolve-key.test.sh
 ok - fm-send --resolve-key: the answer send itself closes the open decision
 ok - fm-send --resolve-key: a key that is not open refuses loudly before anything is sent
-(13 assertions total; the status-log ledger's behavior is unchanged)
+(14 assertions total; the status-log ledger's behavior is unchanged)
 
 $ bash tests/fm-brief.test.sh
 ok - fm-brief.sh: investigation and visual-review completions load the shared decision policy
