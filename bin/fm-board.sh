@@ -397,15 +397,15 @@
 # field on the board to reach the one that is wanted. Both reads were measured;
 # docs/verification/board-cost.md carries the figures.
 #
-# The per-card status write is deliberately left unbatched, and the reason is
-# not that GitHub forbids it: aliased mutations would go in one document. It is
-# that a batch answers once for the whole document, while this adapter's whole
-# retry contract turns on knowing which individual cards the board took and
-# which are still owed - that is what `synced` and `stale` report per card and
-# what the next cycle retries. Collapsing k writes would trade that for a
-# saving in requests that has not been measured against GitHub's own per-
-# mutation charge. The dear call was always the read beside the write, and it
-# is the read that this file batches.
+# The per-card status write is individual by choice. The normal case here is a
+# single-card event, where one write is the whole of the work, and writing each
+# card on its own keeps failure attribution exact: `synced` and `stale` name the
+# individual cards the board took and the ones still owed, which is what the
+# next cycle retries.
+#
+# Revisit that choice when either of two things changes: this path starts
+# routinely writing several cards per event, or GitHub request cost becomes
+# material again. Batch it then.
 #
 # GITHUB CLI. This adapter calls `gh` rather than `gh-axi`, and adds no new
 # dependency because `gh` is already part of firstmate's universal toolchain
@@ -434,7 +434,7 @@ LINKS="$DATA/board-links.tsv"
 DECOMPS="$DATA/board-decompositions.tsv"
 GH="${FM_BOARD_GH:-gh}"
 TAB=$'\t'
-# One board read's ceiling, shared by `poll` and the card lookup `mark` needs.
+# One board read's ceiling, which belongs to `poll` alone.
 DEFAULT_LIMIT=200
 MARK_USAGE='usage: fm-board.sh mark <task-id> todo|processed|queued|in-progress|done'
 

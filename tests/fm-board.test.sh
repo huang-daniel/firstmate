@@ -1049,13 +1049,18 @@ test_an_outstanding_pr_attachment_is_retried_on_the_next_cycle() {
 test_a_single_card_event_never_reads_the_board() {
   local home issue log out rc
   home=$(new_home a_single_card_event_never_reads_the_board)
-  ordinary_board "$home"
+  # The internalized column is what makes import write to the board at all, so
+  # this is the fixture on which import has a board read to avoid.
+  processed_board "$home"
   issue=https://github.com/harbour-collective/app/issues/180
   item "$home" PVTI_a Issue "$issue" Todo firstmate - 'On a crowded board' -
 
   : > "$home/gh.log"
   board "$home" import harbourlight "$issue" fm-crowded >/dev/null
-  assert_not_contains "$(gh_log "$home")" 'project item-list' "import read the whole board"
+  log=$(gh_log "$home")
+  assert_not_contains "$log" 'project item-list' "import read the whole board"
+  assert_contains "$log" '--single-select-option-id opt_processed' \
+    "import did not move the card, so it had no board read to avoid"
 
   : > "$home/gh.log"
   board "$home" mark fm-crowded in-progress >/dev/null
@@ -1103,6 +1108,39 @@ test_a_reconciled_board_polls_to_silence() {
   assert_contains "$out" "linked harbourlight https://github.com/harbour-collective/app/issues/401 fm-settled-1 in-progress" \
     "--all did not carry each card's recorded state"
   pass "a board with nothing to act on polls to no output, and --all still lists it"
+}
+
+# Silence is not the absence of an effect. A card whose board state already
+# matches what firstmate wants, recorded against an older `synced`, is confirmed
+# in the link record - the one durable thing a silent cycle does, and the only
+# place it can be observed.
+test_poll_confirms_a_write_the_board_already_shows() {
+  local home issue out
+  home=$(new_home poll_confirms_a_write_the_board_already_shows)
+  ordinary_board "$home"
+  issue=https://github.com/harbour-collective/app/issues/510
+  item "$home" PVTI_conf Issue "$issue" Todo firstmate - 'Landed by another hand' -
+  board "$home" import harbourlight "$issue" fm-confirm >/dev/null
+  board "$home" mark fm-confirm in-progress >/dev/null
+
+  GH_FAIL='project item-edit' board "$home" mark fm-confirm 'done' >/dev/null 2>&1
+  assert_contains "$(board "$home" lookup fm-confirm)" "done	in-progress" \
+    "the refused move was not left owing a write"
+
+  # The card reaches Done without firstmate writing it, so the write the next
+  # cycle owes is already on the board.
+  awk -F'\t' -v OFS='\t' '$1 == "PVTI_conf" { $4 = "Done" } { print }' \
+    "$home/items" > "$home/items.next"
+  mv "$home/items.next" "$home/items"
+
+  : > "$home/gh.log"
+  out=$(board "$home" poll)
+  [ -z "$out" ] || fail "a card the board already agreed with printed a record: $out"
+  assert_not_contains "$(gh_log "$home")" 'item-edit' \
+    "poll rewrote a status the board was already showing"
+  assert_contains "$(board "$home" lookup fm-confirm)" "done	done" \
+    "poll did not confirm the write the board already showed"
+  pass "poll confirms a write the board already shows, without printing or writing"
 }
 
 # THE COST GUARD.
@@ -2128,6 +2166,7 @@ test_an_issue_another_board_owns_is_skipped_not_re_homed
 test_an_outstanding_pr_attachment_is_retried_on_the_next_cycle
 test_a_single_card_event_never_reads_the_board
 test_a_reconciled_board_polls_to_silence
+test_poll_confirms_a_write_the_board_already_shows
 test_api_calls_do_not_grow_with_the_board
 test_the_container_lane_does_not_exist_until_it_is_configured
 test_a_partial_container_configuration_is_refused

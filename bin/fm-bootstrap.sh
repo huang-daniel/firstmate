@@ -1198,18 +1198,16 @@ detect_local_config() {
 # to poll: a board that gained a card while the fleet was idle is picked up here.
 # A home with no board configuration performs zero board reads, because
 # bin/fm-board.sh is inert without it - and this returns before invoking it at
-# all. Only lines that need firstmate to act are printed, so a board that is
-# already reconciled adds nothing to a session start. bin/fm-board.sh owns every
-# board mechanic, including exiting 0 on an unreadable board so a board problem
-# can never fail a session start.
+# all. bin/fm-board.sh owns every board mechanic, including which records a
+# cycle speaks about at all - a reconciled board prints nothing, so a session
+# start gains nothing from it - and exiting 0 on an unreadable board so a board
+# problem can never fail a session start.
 board_poll() {
   local board_sh="$FM_ROOT/bin/fm-board.sh" line
   [ -s "$CONFIG/boards" ] || return 0
   [ -x "$board_sh" ] || return 0
   while IFS= read -r line; do
     case "$line" in
-      # `linked` is a card already showing what firstmate recorded.
-      linked\ *) continue ;;
       '') continue ;;
     esac
     printf 'BOARD_POLL: %s\n' "$line"
