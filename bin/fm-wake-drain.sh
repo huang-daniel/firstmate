@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Present durable watcher wake records, optionally acknowledge handled records,
-# annotate every unread line for validated signal status keys, surface unread
+# annotate unread complete lines for validated signal status keys, surface unread
 # informational status lines and OPEN DECISIONS, then assert liveness.
 #
 # Keep sequence-bound row consumption independent from generation-bound episode
