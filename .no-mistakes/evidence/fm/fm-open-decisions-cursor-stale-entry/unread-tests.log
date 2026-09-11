@@ -1,0 +1,18 @@
+ok - a note: answer buried under a later routine note: is surfaced with both lines
+ok - a half-written line is held back, then surfaced once in full when it lands
+ok - a mid-line presentation cursor snaps back, shows the whole line once, then advances
+ok - already-presented note: lines are not re-surfaced on the next drain
+ok - a brand-new note: after presentation is surfaced without replaying handled lines
+ok - a queued status signal annotates every unread note, not only the newest
+ok - the annotation surface holds back a half-written line and shows it whole once it lands
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 3105744.1789136718.AkfibR
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 3105744.1789136718.AkfibR
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 3105744.1789136718.AkfibR
+ok - a pending-reply resolution buried under a later note surfaces once and closes OPEN DECISIONS
+ok - unread status over the former byte cap preserves every line
+ok - presentation cursor advances only through its captured endpoint
+ok - a reused task id starts its replacement status log unread at byte zero
+ok - OPEN DECISIONS still folds needs-decision/blocked independently of unread notes
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 3111248.1789136725.DSLYCM
+ok - an empty-queue drain preserves routine status for a later signal annotation
+ok - routine working/done lines still print nothing on an empty-queue drain

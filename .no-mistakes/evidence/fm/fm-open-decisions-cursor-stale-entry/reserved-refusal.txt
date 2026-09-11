@@ -1,0 +1,11 @@
+$ bin/fm-send.sh a --resolve-key pending-reply-abcdef answer
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  After draining queued wakes, repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+error: --resolve-key 'pending-reply-abcdef': that key belongs to the reserved 'pending-reply' namespace, which only the pending-reply flow that raised it can close; answering it here would deliver the answer and leave the decision open forever. Answer it through that flow, then resend without that key; nothing was sent.
+exit=1

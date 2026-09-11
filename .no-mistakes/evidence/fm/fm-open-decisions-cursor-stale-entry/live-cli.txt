@@ -1,0 +1,108 @@
+
+$ bin/fm-wake-drain.sh (open decision)
+OPEN DECISIONS (still open, folded from the durable status logs - not just the latest line):
+task [key=api-shape] needs-decision: pick REST or RPC
+OPEN DECISIONS: close one by answering it: bin/fm-send.sh <task> --resolve-key <key> '<answer>'
+
+$ bin/fm-wake-drain.sh (closing line split inside verb)
+OPEN DECISIONS (still open, folded from the durable status logs - not just the latest line):
+task [key=api-shape] needs-decision: pick REST or RPC
+OPEN DECISIONS: close one by answering it: bin/fm-send.sh <task> --resolve-key <key> '<answer>'
+
+$ bin/fm-wake-drain.sh (closing line complete)
+
+$ bin/fm-wake-drain.sh (trailing token exposes default row key)
+OPEN DECISIONS (still open, folded from the durable status logs - not just the latest line):
+task [key=default] needs-decision: ask-user findings=F1,F2 [key=nm-run-review]
+OPEN DECISIONS: close one by answering it: bin/fm-send.sh <task> --resolve-key <key> '<answer>'
+
+$ bin/fm-wake-drain.sh (default key resolved through status protocol)
+
+$ bin/fm-wake-drain.sh (queued signal during partial note)
+1789136901	1	signal	task.status	signal: task.status
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 3230543.1789136901.kw4h34
+wake annotation: unread wake-EVENT since last drain, not current state: task.status: needs-decision [key=api-shape]: pick REST or RPC
+wake annotation: unread wake-EVENT since last drain, not current state: task.status: resolved [key=api-shape]: REST selected
+wake annotation: unread wake-EVENT since last drain, not current state: task.status: needs-decision: ask-user findings=F1,F2 [key=nm-run-review]
+wake annotation: latest wake-EVENT observed at drain, not current state: task.status: resolved [key=default]: accepted fix
+
+$ fm_wake_latest_event (partial retained by existing interface)
+
+$ bin/fm-wake-drain.sh (queued signal after complete note)
+1789136903	2	signal	task.status	signal: task.status
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 3230543.1789136901.kw4h34
+wake annotation: latest wake-EVENT observed at drain, not current state: task.status: note: the captain says use plan B
+UNREAD STATUS (new since last drain, not re-printed after this presentation):
+task note: the captain says use plan B
+
+$ bin/fm-wake-drain.sh (repeat drain must not repeat note)
+1789136903	2	signal	task.status	signal: task.status
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 3230543.1789136901.kw4h34
+
+$ bin/fm-wake-drain.sh (reserved namespace only)
+1789136903	2	signal	task.status	signal: task.status
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 3230543.1789136901.kw4h34
+OPEN DECISIONS (still open, folded from the durable status logs - not just the latest line):
+a [key=pending-reply-abcdef] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for answer
+OPEN DECISIONS: an [owned-by=<namespace>] row is closed by that namespace, not by --resolve-key
+
+$ bin/fm-wake-drain.sh (closable row omitted by byte cap must retain hint)
+1789136903	2	signal	task.status	signal: task.status
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 3230543.1789136901.kw4h34
+OPEN DECISIONS (still open, folded from the durable status logs - not just the latest line):
+a [key=pending-reply-abcdef] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for answer
+a01 [key=pending-reply-abcdef01] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a02 [key=pending-reply-abcdef02] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a03 [key=pending-reply-abcdef03] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a04 [key=pending-reply-abcdef04] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a05 [key=pending-reply-abcdef05] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a06 [key=pending-reply-abcdef06] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a07 [key=pending-reply-abcdef07] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a08 [key=pending-reply-abcdef08] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a09 [key=pending-reply-abcdef09] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a10 [key=pending-reply-abcdef10] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a11 [key=pending-reply-abcdef11] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a12 [key=pending-reply-abcdef12] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a13 [key=pending-reply-abcdef13] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a14 [key=pending-reply-abcdef14] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a15 [key=pending-reply-abcdef15] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a16 [key=pending-reply-abcdef16] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a17 [key=pending-reply-abcdef17] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+zz [key=api-shape] needs-decision: choose REST or RPC
+OPEN DECISIONS: 7 more omitted (byte cap)
+OPEN DECISIONS: close one by answering it: bin/fm-send.sh <task> --resolve-key <key> '<answer>'
+OPEN DECISIONS: an [owned-by=<namespace>] row is closed by that namespace, not by --resolve-key
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+
+$ bin/fm-wake-drain.sh (long closable row exceeds remaining budget)
+1789136903	2	signal	task.status	signal: task.status
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 3230543.1789136901.kw4h34
+OPEN DECISIONS (still open, folded from the durable status logs - not just the latest line):
+a [key=pending-reply-abcdef] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for answer
+a01 [key=pending-reply-abcdef01] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a02 [key=pending-reply-abcdef02] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a03 [key=pending-reply-abcdef03] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a04 [key=pending-reply-abcdef04] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a05 [key=pending-reply-abcdef05] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a06 [key=pending-reply-abcdef06] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a07 [key=pending-reply-abcdef07] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a08 [key=pending-reply-abcdef08] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a09 [key=pending-reply-abcdef09] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a10 [key=pending-reply-abcdef10] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a11 [key=pending-reply-abcdef11] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a12 [key=pending-reply-abcdef12] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a13 [key=pending-reply-abcdef13] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a14 [key=pending-reply-abcdef14] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a15 [key=pending-reply-abcdef15] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a16 [key=pending-reply-abcdef16] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+a17 [key=pending-reply-abcdef17] [owned-by=pending-reply] blocked: pending-reply-missed: waiting for the worker to reply to the release question with sufficient information to decide which approach to use an [truncated]
+zz [key=api-shape] needs-decision: choose REST or RPC
+OPEN DECISIONS: 7 more omitted (byte cap)
+OPEN DECISIONS: close one by answering it: bin/fm-send.sh <task> --resolve-key <key> '<answer>'
+OPEN DECISIONS: an [owned-by=<namespace>] row is closed by that namespace, not by --resolve-key
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+
+$ fm_wake_latest_event on an unterminated note (returned event state)
+note: unfinished current event

@@ -1,0 +1,16 @@
+$ base drain: open
+OPEN DECISIONS (still open, folded from the durable status logs - not just the latest line):
+task [key=api-shape] needs-decision: choose REST
+OPEN DECISIONS: close one by answering it: bin/fm-send.sh <task> --resolve-key <key> '<answer>'
+
+$ base drain: partial resolution
+OPEN DECISIONS (still open, folded from the durable status logs - not just the latest line):
+task [key=api-shape] needs-decision: choose REST
+OPEN DECISIONS: close one by answering it: bin/fm-send.sh <task> --resolve-key <key> '<answer>'
+
+$ base drain: completed resolution still incorrectly listed
+OPEN DECISIONS (still open, folded from the durable status logs - not just the latest line):
+task [key=api-shape] needs-decision: choose REST
+OPEN DECISIONS: close one by answering it: bin/fm-send.sh <task> --resolve-key <key> '<answer>'
+
+$ authoritative open set (empty)
