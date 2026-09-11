@@ -129,7 +129,7 @@ EOF
 # common case.
 print_open_decisions_section() {
   local snapshot=${1:-} open task key verb note line item_bytes=220 global_bytes=4000
-  local output='' used=0 shown=0 omitted=0 bytes ns row_owned closable=0 owned=0
+  local output='' used=0 shown=0 omitted=0 bytes ns closable=0 owned=0
 
   if [ -n "$snapshot" ]; then
     open=$(scan_open_decisions_snapshot "$STATE" "$snapshot") || return 1
@@ -145,11 +145,13 @@ print_open_decisions_section() {
     # A reserved-namespace key is closed by the flow that raised it, never by
     # the answering command advertised below, so say so on the row itself: the
     # reader has to be able to tell at a glance which rows are theirs to close.
+    # Counted before the byte cap below: which guidance this section owes the
+    # reader follows from what is open, never from what fitted in the budget.
     if ns=$(status_decision_key_namespace "$key"); then
       line="$line [owned-by=$ns]"
-      row_owned=1
+      owned=$((owned + 1))
     else
-      row_owned=0
+      closable=$((closable + 1))
     fi
     line="$line $verb: $note"
     # The shared cut counts the item's own characters; the trailing newline this
@@ -166,7 +168,6 @@ print_open_decisions_section() {
 "
     used=$((used + bytes))
     shown=$((shown + 1))
-    if [ "$row_owned" -eq 1 ]; then owned=$((owned + 1)); else closable=$((closable + 1)); fi
   done <<EOF
 $open
 EOF

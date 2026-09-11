@@ -164,6 +164,40 @@ test_brand_new_note_after_presentation_is_surfaced() {
   pass "a brand-new note: after presentation is surfaced without replaying handled lines"
 }
 
+# The annotation surface reads the same presentation cursor as UNREAD STATUS, so
+# it owes the same promise: a line the writer has not finished is not shown. A
+# fragment there would reach the reader as a finished sentence, and the whole
+# line would then arrive again on the next drain.
+test_signal_annotation_holds_back_a_half_written_line() {
+  local dir state out err status
+  dir=$(make_case signal-annotation-partial)
+  state="$dir/state"
+  out="$dir/drain.out"
+  err="$dir/drain.err"
+  status="$state/task11.status"
+  prime_cursor "$state" "$status"
+
+  printf 'note: the captain says use p' >> "$status"
+  append_wake "$state" signal task11.status "signal: task11.status" \
+    || fail "queueing the status signal over a half-written line failed"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" 2> "$err" \
+    || fail "signal drain failed over a half-written line"
+  if grep -F 'the captain says use p' "$out" >/dev/null; then
+    fail "the annotation showed a half-written line as finished: $(cat "$out")"
+  fi
+
+  printf 'lan B\n' >> "$status"
+  append_wake "$state" signal task11.status "signal: task11.status" \
+    || fail "queueing the status signal after the line landed failed"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" 2> "$err" \
+    || fail "signal drain failed after the line finished landing"
+  grep -F 'task11.status: note: the captain says use plan B' "$out" >/dev/null \
+    || fail "the completed line never reached the annotation surface: $(cat "$out")"
+  pass "the annotation surface holds back a half-written line and shows it whole once it lands"
+}
+
 test_signal_annotation_surfaces_every_unread_note_not_only_the_newest() {
   local dir state out err status
   dir=$(make_case signal-annotation)
@@ -381,6 +415,7 @@ test_pre_fix_mid_line_manifest_row_heals_itself
 test_already_presented_notes_are_not_replayed
 test_brand_new_note_after_presentation_is_surfaced
 test_signal_annotation_surfaces_every_unread_note_not_only_the_newest
+test_signal_annotation_holds_back_a_half_written_line
 test_pending_reply_resolution_surfaces_once
 test_unread_output_over_cap_remains_recoverable
 test_snapshot_does_not_ack_a_later_append

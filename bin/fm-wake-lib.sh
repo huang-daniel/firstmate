@@ -1144,14 +1144,17 @@ fm_wake_status_cursor_offset() {  # <validated-status-path> -> already-presented
 # already-presented cursor from classify-lib. Lines whose bytes begin before
 # that offset are not replayed. Prints nothing and returns 1 when no unread
 # non-blank line exists.
-fm_wake_unread_events() {  # <validated-status-path> <unused-tail-byte-cap> <min-offset> [<end-offset>]
-  local path=$1 min_offset=$3 end_offset=${4:-} result size chunk chunk_start
+# The span can end inside a line the writer is still appending. `hold` stops
+# before that unterminated tail, so a half-written sentence is never shown as a
+# finished one; `keep` reports the span verbatim.
+fm_wake_unread_events() {  # <validated-status-path> <hold|keep final partial line> <min-offset> [<end-offset>]
+  local path=$1 partial=$2 min_offset=$3 end_offset=${4:-} result size chunk chunk_start
   local LC_ALL=C
   FM_WAKE_EVENT_LINE=
   FM_WAKE_UNREAD_LINES=
   case "$min_offset" in ''|*[!0-9]*) min_offset=0 ;; esac
   result=$(perl -MFcntl=:DEFAULT -e '
-    my ($path, $start, $end) = @ARGV;
+    my ($path, $start, $end, $partial) = @ARGV;
     sysopen(my $file, $path, O_RDONLY | O_NOFOLLOW) or exit 1;
     my @stat = stat $file or exit 1;
     exit 1 unless -f _;
@@ -1160,16 +1163,23 @@ fm_wake_unread_events() {  # <validated-status-path> <unused-tail-byte-cap> <min
     $end = $size unless length $end;
     exit 1 unless $end =~ /\A\d+\z/ && $start <= $end && $end <= $size;
     seek($file, $start, 0) or exit 1;
-    printf "%s\t", $end or exit 1;
+    my $data = "";
     my $remaining = $end - $start;
     while ($remaining > 0) {
       my $read = read($file, my $buffer, $remaining);
       exit 1 unless defined $read;
       last unless $read;
-      print $buffer or exit 1;
+      $data .= $buffer;
       $remaining -= $read;
     }
-  ' "$path" "$min_offset" "$end_offset" 2>/dev/null) || return 1
+    if ($partial eq "hold" && length($data) && substr($data, -1) ne "\n") {
+      my $cut = rindex($data, "\n");
+      $data = $cut < 0 ? "" : substr($data, 0, $cut + 1);
+      $end = $start + length($data);
+    }
+    printf "%s\t", $end or exit 1;
+    print $data or exit 1;
+  ' "$path" "$min_offset" "$end_offset" "$partial" 2>/dev/null) || return 1
   size=${result%%$'\t'*}
   chunk=${result#*$'\t'}
   case "$size" in ''|*[!0-9]*) return 1 ;; esac
@@ -1190,7 +1200,7 @@ fm_wake_unread_events() {  # <validated-status-path> <unused-tail-byte-cap> <min
 }
 
 fm_wake_latest_event() {  # <validated-status-path> <tail-byte-cap>
-  fm_wake_unread_events "$1" "$2" 0
+  fm_wake_unread_events "$1" keep 0
 }
 
 # Print supplemental drain-time context only after the caller has committed the
@@ -1252,7 +1262,7 @@ EOF
       [ -n "$endpoint" ] || continue
     fi
     if [ -n "$endpoint" ] && [ "$offset" -ge "$endpoint" ]; then continue; fi
-    if ! fm_wake_unread_events "$path" 0 "$offset" "$endpoint"; then
+    if ! fm_wake_unread_events "$path" hold "$offset" "$endpoint"; then
       # Annotation enrichment is supplemental to the already-printed durable
       # wake rows. A file that disappears, rotates, or becomes unreadable after
       # the snapshot must not suppress annotations for other status files; the

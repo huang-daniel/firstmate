@@ -87,6 +87,34 @@ test_reserved_key_row_is_marked_owned_not_advertised_as_closable() {
   pass "a reserved-namespace row is marked owned and never advertised as --resolve-key closable"
 }
 
+# What the section owes the reader follows from what is open, not from what fit
+# in the byte budget. A listing crowded with rows owned elsewhere is exactly when
+# a reader most needs to be told how to close the one row that is theirs.
+test_close_hint_survives_a_closable_row_pushed_past_the_byte_cap() {
+  local dir state out i note
+  dir=$(make_case hint-past-cap)
+  state="$dir/state"
+  out="$dir/drain.out"
+  note='pending-reply-missed: task=ios pending-reply-id=abcdef0123456789 request=ship the release branch once the infra freeze lifts and the queue drains'
+  for i in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20 21 22; do
+    printf 'blocked [key=pending-reply-abcdef012345%s]: %s\n' "$i" "$note" \
+      > "$state/a$i.status"
+  done
+  printf 'needs-decision [key=api-shape]: pick REST or RPC for the bearings ingest, and say which of the two the crew starts with once the infra freeze lifts\n' \
+    > "$state/zz.status"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on an over-cap listing"
+
+  grep -F 'OPEN DECISIONS: ' "$out" | grep -F 'more omitted (byte cap)' >/dev/null \
+    || fail "precondition: the listing should have omitted rows for the byte cap: $(cat "$out")"
+  if grep -F 'zz [key=api-shape]' "$out" >/dev/null; then
+    fail "precondition: the closable row should have been pushed past the cap: $(cat "$out")"
+  fi
+  grep -F "close one by answering it: bin/fm-send.sh <task> --resolve-key <key>" "$out" >/dev/null \
+    || fail "the close command vanished while a closable decision was open: $(cat "$out")"
+  pass "the answerer-closes hint still prints when the closable row is omitted by the byte cap"
+}
+
 test_buried_decision_still_surfaces() {
   local dir state out
   dir=$(make_case buried)
@@ -289,6 +317,7 @@ test_over_long_decision_note_is_capped_with_a_marker() {
 
 test_trailing_token_lists_answerable_default_key
 test_reserved_key_row_is_marked_owned_not_advertised_as_closable
+test_close_hint_survives_a_closable_row_pushed_past_the_byte_cap
 test_buried_decision_still_surfaces
 test_over_long_decision_note_is_capped_with_a_marker
 test_explicit_resolution_closes_it
