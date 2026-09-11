@@ -874,7 +874,7 @@ queued_stale_wakes() {  # <state> <window> [bare]
 # pane still reported dead says the worker has stopped, never that a bounded
 # external wait is still running.
 test_declared_pause_follows_crew_state_but_exited_pane_surfaces() {
-  local dir state fakebin out capture_file statusf window key pane_hash sig pid round wakes bare
+  local dir state fakebin out capture_file statusf window key pane_hash sig pid round wakes bare status
 
   # Half 1: a LIVE pane under a declared wait the reconciliation confirms.
   dir=$(make_case live-declared-pause); state="$dir/state"; fakebin="$dir/fakebin"
@@ -903,6 +903,10 @@ test_declared_pause_follows_crew_state_but_exited_pane_surfaces() {
   fi
   [ ! -s "$out" ] || { reap "$pid"; fail "a live declared wait printed a wake reason: $(cat "$out")"; }
   [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "a live declared wait enqueued a stale wake"; }
+  grep -F "absorbed stale (paused, awaiting external" "$state/.watch-triage.log" >/dev/null \
+    || { reap "$pid"; fail "a live declared wait was not recorded as an external wait in the triage log"; }
+  grep -F "agent exited" "$state/.watch-triage.log" >/dev/null \
+    && { reap "$pid"; fail "a live declared wait was recorded as an exited worker in the triage log"; }
   [ "$(cat "$state/.stale-$key" 2>/dev/null || true)" = "$pane_hash" ] \
     || { reap "$pid"; fail "a live declared wait did not advance the stale suppressor"; }
   [ -e "$state/.paused-$key" ] || { reap "$pid"; fail "a live declared wait did not take the pause cadence"; }
@@ -976,6 +980,14 @@ test_declared_pause_follows_crew_state_but_exited_pane_surfaces() {
     ack_stopped_cycle "$state" || fail "could not acknowledge the bounded exited-pane round $round"
     round=$((round + 1))
   done
+
+  # The triage log is the record an operator reads to reconstruct why a window was
+  # absorbed, so it must not contradict the wake: this pane was absorbed because its
+  # agent is gone, never because a bounded external call is still running.
+  grep -F "absorbed stale (agent exited under a declared pause" "$state/.watch-triage.log" >/dev/null \
+    || fail "the exited absorb was not recorded as an exit in the triage log"
+  grep -F "awaiting external" "$state/.watch-triage.log" >/dev/null \
+    && fail "the exited absorb was recorded as a live external wait in the triage log"
 
   # The safety half entered the hard way, which is also the common way: the pane was
   # already absorbed under a LIVE declared wait, so its hash is recorded, and the
@@ -1162,6 +1174,41 @@ test_declared_pause_follows_crew_state_but_exited_pane_surfaces() {
   grep -F "stale: $window" "$out" >/dev/null || fail "an exited captain-held pane printed no stale wake"
   grep -F "awaiting external" "$out" >/dev/null \
     && fail "an exited captain-held pane was absorbed as a live external wait"
+
+  # An exit counts as told only once its wake is durably queued. Arming the one-shot
+  # before the append would silence a dead worker for good on a queue failure: nothing
+  # clears that marker but a confident return to life or a lifted declaration, and a
+  # dead pane under a standing declaration produces neither.
+  dir=$(make_case exit-wake-append-failure); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/wait.status"
+  window="test:fm-append-fail"
+  printf 'idle bare shell after the worker exited\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/wait.meta"
+  printf 'paused: waiting on the validation run to return the next gate\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-wait_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle bare shell after the worker exited")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  : > "$state/.wake-queue"
+  chmod 0444 "$state/.wake-queue"
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" zsh "$out"
+  pid=$!
+  wait_for_exit "$pid" 100; status=$?
+  chmod 0644 "$state/.wake-queue"
+  [ "$status" -ne 124 ] || fail "the watcher never exited after its stale wake failed to queue"
+  [ "$status" -ne 0 ] || fail "the watcher reported a delivered wake its queue append had rejected"
+  [ ! -s "$state/.wake-queue" ] || fail "a rejected queue append still recorded a wake"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the failed-append stop"
+
+  : > "$out"
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" zsh "$out"
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "the exit never surfaced on the poll after its queue append failed"
+  grep -F "stale: $window" "$out" >/dev/null || fail "the retried exit printed no stale wake"
+  [ "$(queued_stale_wakes "$state" "$window" bare)" -eq 1 ] \
+    || fail "the retried exit did not queue exactly one bare stale wake"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the retried exit surface"
 
   pass "a declared wait follows the authoritative reconciliation on a live pane, while an exited pane still surfaces once"
 }

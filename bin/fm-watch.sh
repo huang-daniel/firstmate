@@ -340,7 +340,7 @@ busy_turn_over_age() {  # <task>
 # dead: the cadence, the throttle, and the bookkeeping are identical, but the wake
 # says the worker has stopped instead of claiming an external wait is still running.
 handle_paused_stale() {  # <window> <task> <hash> [exited]
-  local win=$1 task=$2 h=$3 exited=${4:-} key statusf mtime age rf rf_age reason
+  local win=$1 task=$2 h=$3 exited=${4:-} key statusf mtime age rf rf_age reason absorbed
   key=$(printf '%s' "$win" | tr ':/.' '___')
   printf '%s' "$h" > "$STATE/.stale-$key"
   : > "$STATE/.paused-$key"
@@ -351,17 +351,19 @@ handle_paused_stale() {  # <window> <task> <hash> [exited]
   age=$(( $(date +%s) - mtime ))
   rf="$STATE/.paused-resurfaced-$key"
   rf_age=$(age_of "$rf")   # 999999 when no prior re-surface
+  if [ -n "$exited" ]; then
+    reason="stale: $win (agent exited - declared pause ${age}s old, but this worker has stopped and is not waiting on anything; relaunch it or close the task out)"
+    absorbed="absorbed stale (agent exited under a declared pause, age ${age}s): $win"
+  else
+    reason="stale: $win (paused ${age}s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)"
+    absorbed="absorbed stale (paused, awaiting external, age ${age}s): $win"
+  fi
   if [ "$age" -ge "$PAUSE_RESURFACE_SECS" ] && [ "$rf_age" -ge "$PAUSE_RESURFACE_SECS" ]; then
-    if [ -n "$exited" ]; then
-      reason="stale: $win (agent exited - declared pause ${age}s old, but this worker has stopped and is not waiting on anything; relaunch it or close the task out)"
-    else
-      reason="stale: $win (paused ${age}s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)"
-    fi
     fm_wake_append stale "$win" "$reason" || exit 1
     date +%s > "$rf"
     wake "$reason"
   fi
-  triage_log "absorbed stale (paused, awaiting external, age ${age}s): $win"
+  triage_log "$absorbed"
 }
 
 # Surface the FIRST confirmed exit under a declared pause or captain-held
@@ -376,7 +378,11 @@ handle_paused_stale() {  # <window> <task> <hash> [exited]
 # confidently alive again or the declaration is lifted, so a relaunched-then-
 # re-exited crew surfaces afresh while an inconclusive read changes nothing. The
 # dead pane's captured text changing is not a new exit either, so the stale-loop
-# arms that meet an `exited` verdict must leave the marker to that owner.
+# arms that meet an `exited` verdict must leave the marker to that owner. The marker
+# is armed only once the wake is durably queued (enqueue-before-suppress, as
+# everywhere else in this watcher): nothing but a live read or a lifted declaration
+# ever clears it, so arming it for a wake the queue rejected would silence that dead
+# worker for good.
 handle_exited_pause_stale() {  # <window> <task> <hash>
   local win=$1 task=$2 h=$3 key
   key=$(printf '%s' "$win" | tr ':/.' '___')
@@ -384,8 +390,7 @@ handle_exited_pause_stale() {  # <window> <task> <hash>
     handle_paused_stale "$win" "$task" "$h" exited
     return
   fi
-  : > "$STATE/.paused-exited-$key"
-  surface_nonterminal_stale "$win" "$h"
+  surface_nonterminal_stale "$win" "$h" "$STATE/.paused-exited-$key"
 }
 
 # Apply the busy-pane completed-turn bound to a window whose bound has already
@@ -502,10 +507,11 @@ pause_state_class() {  # <window> <task>
   printf '%s' "$class"
 }
 
-surface_nonterminal_stale() {  # <window> <hash>
-  local win=$1 h=$2 key task last
+surface_nonterminal_stale() {  # <window> <hash> [suppressor-marker]
+  local win=$1 h=$2 marker=${3:-} key task last
   key=$(printf '%s' "$win" | tr ':/.' '___')
   fm_wake_append stale "$win" "stale: $win" || exit 1
+  [ -z "$marker" ] || : > "$marker"
   printf '%s' "$h" > "$STATE/.stale-$key"
   rm -f "$STATE/.stale-since-$key"
   task=$(window_to_task "$win" "$STATE")
