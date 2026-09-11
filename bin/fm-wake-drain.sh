@@ -129,7 +129,7 @@ EOF
 # common case.
 print_open_decisions_section() {
   local snapshot=${1:-} open task key verb note line item_bytes=220 global_bytes=4000
-  local output='' used=0 shown=0 omitted=0 bytes
+  local output='' used=0 shown=0 omitted=0 bytes ns row_owned closable=0 owned=0
 
   if [ -n "$snapshot" ]; then
     open=$(scan_open_decisions_snapshot "$STATE" "$snapshot") || return 1
@@ -142,6 +142,15 @@ print_open_decisions_section() {
     [ -n "$task" ] || continue
     line="$task"
     line="$line [key=$key]"
+    # A reserved-namespace key is closed by the flow that raised it, never by
+    # the answering command advertised below, so say so on the row itself: the
+    # reader has to be able to tell at a glance which rows are theirs to close.
+    if ns=$(status_decision_key_namespace "$key"); then
+      line="$line [owned-by=$ns]"
+      row_owned=1
+    else
+      row_owned=0
+    fi
     line="$line $verb: $note"
     # The shared cut counts the item's own characters; the trailing newline this
     # section's global budget also pays for is this caller's, so the per-item
@@ -157,6 +166,7 @@ print_open_decisions_section() {
 "
     used=$((used + bytes))
     shown=$((shown + 1))
+    if [ "$row_owned" -eq 1 ]; then owned=$((owned + 1)); else closable=$((closable + 1)); fi
   done <<EOF
 $open
 EOF
@@ -170,8 +180,14 @@ EOF
   # Answerer-closes hint, printed at exactly the moment an answer gets written:
   # the send that answers a listed decision also closes it, so closure never
   # depends on the busy worker writing a matching resolved line (contract:
-  # bin/fm-send.sh header).
-  printf "OPEN DECISIONS: close one by answering it: bin/fm-send.sh <task> --resolve-key <key> '<answer>'\n" || return 1
+  # bin/fm-send.sh header). Printed only when a listed row can actually be
+  # closed that way, so the section never advertises a command that refuses.
+  if [ "$closable" -gt 0 ]; then
+    printf "OPEN DECISIONS: close one by answering it: bin/fm-send.sh <task> --resolve-key <key> '<answer>'\n" || return 1
+  fi
+  if [ "$owned" -gt 0 ]; then
+    printf 'OPEN DECISIONS: an [owned-by=<namespace>] row is closed by that namespace, not by --resolve-key\n' || return 1
+  fi
 }
 
 print_status_sections() {

@@ -305,6 +305,20 @@ _fm_decision_key_transition_allowed() {  # <key> <note>
   return 0
 }
 
+# The reserved namespace that owns <key>, without its trailing separator;
+# nonzero when the key is not reserved. Read-only view of the very prefix list
+# _fm_decision_key_transition_allowed enforces above, so a caller that must
+# route an answer to a key's owner never restates that list.
+status_decision_key_namespace() {  # <key> -> owning namespace
+  local key=$1 prefix
+  for prefix in ${FM_CLASSIFY_RESERVED_KEY_PREFIXES:-$FM_CLASSIFY_RESERVED_KEY_PREFIXES_DEFAULT}; do
+    case "$key" in
+      "$prefix"*) printf '%s' "${prefix%-}"; return 0 ;;
+    esac
+  done
+  return 1
+}
+
 _fm_decision_fold_line() {  # <open-set> <status-line> <resolve-verb> <held-verb>
   local open=$1 line=$2 resolve=$3 held=$4 verb key note stripped
   stripped=${line//[[:space:]]/}
@@ -496,6 +510,34 @@ _fm_status_read_span() {  # <status-file> <start-offset> <byte-length>
   ' "$f" "$start" "$length"
 }
 
+# Bytes of COMPLETE (newline-terminated) lines within the first <chunk-size>
+# bytes of <chunk-file>; 0 when the chunk holds no terminated line. This is the
+# ONE place the line-boundary split is computed, so neither cursor below can
+# commit a byte position that is not a line boundary.
+_fm_status_complete_line_bytes() {  # <chunk-file> <chunk-size>
+  LC_ALL=C awk -v size="$2" '
+    { offset += length($0) + 1; if (offset <= size) complete = offset }
+    END { printf "%.0f\n", complete + 0 }
+  ' "$1"
+}
+
+# Clamp the absolute byte offset <end> back to the last line boundary at or
+# before it, reading only the span after <start> (itself already a boundary).
+# Prints <start> when that span holds no terminated line at all.
+_fm_status_line_boundary_end() {  # <status-file> <start> <end>
+  local f=$1 start=$2 end=$3 chunk span complete
+  [ "$end" -gt "$start" ] || { printf '%s' "$end"; return 0; }
+  span=$((end - start))
+  chunk="$(_fm_open_decisions_cursor_path "$f").boundary.$$"
+  _fm_status_read_span "$f" "$start" "$span" > "$chunk" 2>/dev/null \
+    || { rm -f "$chunk"; return 1; }
+  complete=$(_fm_status_complete_line_bytes "$chunk" "$span") || { rm -f "$chunk"; return 1; }
+  rm -f "$chunk"
+  complete=${complete//[[:space:]]/}
+  case "$complete" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s' "$((start + complete))"
+}
+
 status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
   local f=$1 captured_end=${2:-} cf offset ident open='' trusted_open='' cursor_data first rest offset_line ident_line
   local version='' size actual_size cur_ident resolve held chunk_file chunk_size line cursor_dirty=0
@@ -598,11 +640,9 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
     # folded into the RETURNED set alone. See the line-boundary paragraph in
     # this function's header for why committing mid-line is what makes the two
     # folds disagree.
-    complete_size=$(LC_ALL=C awk -v size="$chunk_size" '
-      { offset += length($0) + 1; if (offset <= size) complete = offset }
-      END { printf "%.0f\n", complete + 0 }
-    ' "$chunk_file") \
+    complete_size=$(_fm_status_complete_line_bytes "$chunk_file" "$chunk_size") \
       || { rm -f "$chunk_file"; printf '%s' "$trusted_open"; return 0; }
+    complete_size=${complete_size//[[:space:]]/}
     case "$complete_size" in
       ''|*[!0-9]*) rm -f "$chunk_file"; printf '%s' "$trusted_open"; return 0 ;;
     esac
@@ -818,7 +858,7 @@ EOF
 }
 
 status_commit_presentation_snapshot() {  # <state> <snapshot>
-  local state=$1 snapshot=$2 task endpoint ident f cur_ident size tmp
+  local state=$1 snapshot=$2 task endpoint ident f cur_ident size tmp prev
   tmp="$state/.status-presentation-cursor.tmp.$$"
   : > "$tmp" || return 1
   while IFS=$(printf '\t') read -r task endpoint ident; do
@@ -832,6 +872,14 @@ status_commit_presentation_snapshot() {  # <state> <snapshot>
     size=${size//[[:space:]]/}
     case "$size" in ''|*[!0-9]*) rm -f "$tmp"; return 1 ;; esac
     [ "$cur_ident" = "$ident" ] && [ "$endpoint" -le "$size" ] \
+      || { rm -f "$tmp"; return 1; }
+    # A drain can observe this append-only log mid-write, so the captured
+    # endpoint can sit inside a half-written line. Persisting it would leave the
+    # next span starting mid-line, where the remainder no longer reads as a
+    # status line and is dropped for good. Commit only through the last complete
+    # line, exactly as the open-decisions cursor does.
+    prev=$(status_presentation_cursor_offset "$f") || { rm -f "$tmp"; return 1; }
+    endpoint=$(_fm_status_line_boundary_end "$f" "$prev" "$endpoint") \
       || { rm -f "$tmp"; return 1; }
     printf '%s\t%s\t%s\n' "$task" "$ident" "$endpoint" >> "$tmp" \
       || { rm -f "$tmp"; return 1; }

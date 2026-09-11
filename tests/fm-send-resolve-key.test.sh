@@ -197,6 +197,34 @@ test_colon_first_key_position_is_answerable() {
   pass "fm-send --resolve-key: a colon-first stated key is open under that key and answerable"
 }
 
+# A reserved-namespace key is listed open, but a generic close line does not
+# speak that namespace's vocabulary, so the fold ignores it: answering here
+# would deliver the answer, report success, and still leave the decision open on
+# every later drain. The refusal must land before any of that happens.
+test_reserved_key_refuses_before_sending() {
+  local dir fb log home rc out err before
+  dir="$TMP_ROOT/reserved-key"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); log="$dir/send.log"; err="$dir/send.err"
+  home=$(setup_home reserved-key)
+  fm_write_meta "$home/state/t9.meta" "window=sess:fm-t9" "kind=ship"
+  printf 'blocked [key=pending-reply-abcdef0123456789]: pending-reply-missed: task=t9 pending-reply-id=abcdef0123456789 request=ship it\n' > "$home/state/t9.status"
+  before=$(cat "$home/state/t9.status")
+
+  out=$(drain_out "$home")
+  printf '%s' "$out" | grep -F '[key=pending-reply-abcdef0123456789]' >/dev/null \
+    || fail "precondition: the reserved decision should list as open: $out"
+
+  : > "$log"
+  env PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
+    "$SEND" t9 --resolve-key pending-reply-abcdef0123456789 "go ahead" >/dev/null 2>"$err"; rc=$?
+  [ "$rc" -ne 0 ] || fail "answering a reserved-namespace key should refuse, not report a close it cannot make"
+  assert_contains "$(cat "$err")" "pending-reply" "the refusal should name the namespace that owns the key"
+  [ ! -s "$log" ] || fail "a refused reserved-key answer was still delivered: $(cat "$log")"
+  [ "$(cat "$home/state/t9.status")" = "$before" ] \
+    || fail "a refused reserved-key answer still appended to the status log: $(cat "$home/state/t9.status")"
+  pass "fm-send --resolve-key: a reserved-namespace key refuses without sending or appending"
+}
+
 test_answer_starts_work_never_orphans() {
   local dir fb log home rc out
   dir="$TMP_ROOT/starts-work"; mkdir -p "$dir"
@@ -499,6 +527,7 @@ test_flag_misuse_refuses() {
 test_answer_send_closes_open_decision
 test_answer_close_is_self_announced
 test_colon_first_key_position_is_answerable
+test_reserved_key_refuses_before_sending
 test_answer_starts_work_never_orphans
 test_routine_steer_never_closes
 test_not_open_key_refuses_before_send

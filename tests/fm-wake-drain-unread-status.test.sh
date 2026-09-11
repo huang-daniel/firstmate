@@ -47,6 +47,29 @@ test_incident_note_answer_buried_under_routine_note_surfaces_both() {
   pass "a note: answer buried under a later routine note: is surfaced with both lines"
 }
 
+# A drain can observe the append-only status log while a line is still landing.
+# Committing the cursor at that mid-line byte leaves the next span starting
+# inside the line, where the remainder no longer reads as a status line and is
+# dropped: the captain's own words are then shown truncated and never completed.
+test_half_written_line_is_surfaced_in_full_once_it_lands() {
+  local dir state out status
+  dir=$(make_case half-written-line)
+  state="$dir/state"
+  out="$dir/drain.out"
+  status="$state/task9.status"
+  prime_cursor "$state" "$status"
+
+  printf 'note: the captain says use p' >> "$status"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed over a half-written line"
+
+  printf 'lan B\n' >> "$status"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed after the line finished landing"
+
+  grep -F 'task9 note: the captain says use plan B' "$out" >/dev/null \
+    || fail "the completed line was never surfaced in full: $(cat "$out")"
+  pass "a line observed half-written is surfaced in full once it lands"
+}
+
 test_already_presented_notes_are_not_replayed() {
   local dir state out status
   dir=$(make_case no-replay)
@@ -309,6 +332,7 @@ test_routine_working_lines_stay_silent_on_the_empty_queue() {
 }
 
 test_incident_note_answer_buried_under_routine_note_surfaces_both
+test_half_written_line_is_surfaced_in_full_once_it_lands
 test_already_presented_notes_are_not_replayed
 test_brand_new_note_after_presentation_is_surfaced
 test_signal_annotation_surfaces_every_unread_note_not_only_the_newest

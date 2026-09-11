@@ -56,6 +56,37 @@ test_trailing_token_lists_answerable_default_key() {
   pass "the trailing note token keeps an answerable default row key through truncation"
 }
 
+# Section 8 requires every listed entry to be closable by the command the
+# listing advertises. A reserved-namespace key is closed only by the flow that
+# raised it, so the row must say whose it is and the generic close command must
+# not be advertised for it.
+test_reserved_key_row_is_marked_owned_not_advertised_as_closable() {
+  local dir state out
+  dir=$(make_case reserved-key-listing)
+  state="$dir/state"
+  out="$dir/drain.out"
+  printf 'blocked [key=pending-reply-abcdef0123456789]: pending-reply-missed: task=ios pending-reply-id=abcdef0123456789 request=ship it\n' > "$state/task10.status"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on a reserved-key row"
+
+  grep -F 'task10' "$out" | grep -F '[key=pending-reply-abcdef0123456789]' \
+    | grep -F '[owned-by=pending-reply]' >/dev/null \
+    || fail "the reserved-namespace row is not marked as owned elsewhere: $(cat "$out")"
+  if grep -F 'close one by answering it' "$out" >/dev/null; then
+    fail "the listing advertises a close command that refuses this row: $(cat "$out")"
+  fi
+
+  # A row the reader can close themselves keeps the hint and carries no owner
+  # marker, so the two kinds are distinguishable at a glance.
+  printf 'needs-decision [key=api-shape]: pick REST or RPC\n' > "$state/task11.status"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on a mixed listing"
+  grep -F "close one by answering it: bin/fm-send.sh <task> --resolve-key <key>" "$out" >/dev/null \
+    || fail "a closable row lost the answerer-closes hint: $(cat "$out")"
+  grep -F 'task11 [key=api-shape] needs-decision: pick REST or RPC' "$out" >/dev/null \
+    || fail "the closable row was not printed without an owner marker: $(cat "$out")"
+  pass "a reserved-namespace row is marked owned and never advertised as --resolve-key closable"
+}
+
 test_buried_decision_still_surfaces() {
   local dir state out
   dir=$(make_case buried)
@@ -257,6 +288,7 @@ test_over_long_decision_note_is_capped_with_a_marker() {
 }
 
 test_trailing_token_lists_answerable_default_key
+test_reserved_key_row_is_marked_owned_not_advertised_as_closable
 test_buried_decision_still_surfaces
 test_over_long_decision_note_is_capped_with_a_marker
 test_explicit_resolution_closes_it
