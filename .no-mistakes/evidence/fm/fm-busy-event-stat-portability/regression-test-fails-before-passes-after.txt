@@ -1,0 +1,12 @@
+### the branch's new stale-lock tests, run against the PRE-FIX writer (base commit d8a4707)
+$ bash tests/fm-busy-state.test.sh   # test file from the branch, bin/ from the base commit
+ok - apply is refused for a task whose busy contract was never armed
+ok - retire waits for the writer lock and cannot remove a new incarnation
+ok - retire treats only an absent sidecar as already retired
+not ok - apply over an abandoned lock failed (rc=1): /tmp/fm-busy-drive/base-root/bin/fm-busy-event.sh: line 107: File: unbound variable
+
+### the same suite on the branch
+$ bash tests/fm-busy-state.test.sh
+ok - an abandoned writer lock older than the stale window is broken and the event applies
+ok - a lock held inside the stale window is left alone and the writer refuses cleanly
+all fm-busy-state tests passed

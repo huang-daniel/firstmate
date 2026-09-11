@@ -1,0 +1,76 @@
+### ADVERSARIAL 1 - a writer lock held INSIDE the stale window must not be broken (fixed tree)
+--- before teardown ---
+  state: task-x1.busy-gen
+  state: task-x1.busy-state
+  state: task-x1.busy-state.lock
+  state: task-x1.meta
+  busy record: v1 gen=g1789100083.1762737.23053 seq=1 state=busy source=fm-spawn event=launch-brief ts=1789100083
+--- teardown exit rc=1 ---
+--- stdout ---
+--- stderr ---
+error: busy-state lock timeout for task-x1
+--- worktree return calls ---
+treehouse return --force /tmp/fm-busy-drive/ev-live-lock/wt
+--- state dir after teardown ---
+  ORPHANED: task-x1.busy-gen
+  ORPHANED: task-x1.busy-state
+  ORPHANED: task-x1.busy-state.lock
+  ORPHANED: task-x1.meta
+
+### ADVERSARIAL 2 - fault-injected uname reports Darwin while the host stat is GNU/uutils,
+### so the BSD form yields filesystem prose instead of an epoch (fixed tree)
+--- before teardown ---
+  state: task-x1.busy-gen
+  state: task-x1.busy-state
+  state: task-x1.busy-state.lock
+  state: task-x1.meta
+  busy record: v1 gen=g1789100088.1769291.17264 seq=1 state=busy source=fm-spawn event=launch-brief ts=1789100088
+--- teardown exit rc=1 ---
+--- stdout ---
+--- stderr ---
+/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M279Q88AEGPCV93Y7RTGSN6S/bin/fm-supervision-lib.sh: line 63: File: unbound variable
+error: busy-state lock timeout for task-x1
+--- worktree return calls ---
+treehouse return --force /tmp/fm-busy-drive/ev-wrong-dialect/wt
+--- state dir after teardown ---
+  ORPHANED: task-x1.busy-gen
+  ORPHANED: task-x1.busy-state
+  ORPHANED: task-x1.busy-state.lock
+  ORPHANED: task-x1.meta
+
+### same fault injection against the base commit, for contrast
+--- before teardown ---
+  state: task-x1.busy-gen
+  state: task-x1.busy-state
+  state: task-x1.busy-state.lock
+  state: task-x1.meta
+  busy record: v1 gen=g1789100093.1776327.12027 seq=1 state=busy source=fm-spawn event=launch-brief ts=1789100093
+--- teardown exit rc=1 ---
+--- stdout ---
+--- stderr ---
+/tmp/fm-busy-drive/base-root/bin/fm-supervision-lib.sh: line 63: File: unbound variable
+/tmp/fm-busy-drive/base-root/bin/fm-busy-event.sh: line 107: File: unbound variable
+--- worktree return calls ---
+treehouse return --force /tmp/fm-busy-drive/ev-wrong-dialect-base/wt
+--- state dir after teardown ---
+  ORPHANED: task-x1.busy-gen
+  ORPHANED: task-x1.busy-state
+  ORPHANED: task-x1.busy-state.lock
+  ORPHANED: task-x1.meta
+
+### macOS stand-in - uname reports Darwin AND stat speaks the BSD dialect (fixed tree)
+--- before teardown ---
+  state: task-x1.busy-gen
+  state: task-x1.busy-state
+  state: task-x1.busy-state.lock
+  state: task-x1.meta
+  busy record: v1 gen=g1789100098.1783069.9163 seq=1 state=busy source=fm-spawn event=launch-brief ts=1789100098
+--- teardown exit rc=0 ---
+--- stdout ---
+teardown task-x1 complete (window firstmate:fm-task-x1, worktree /tmp/fm-busy-drive/ev-bsd/wt)
+Backlog: task-x1 just finished. Run tasks-axi done task-x1 --note "local main", then run tasks-axi ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due.
+--- stderr ---
+--- worktree return calls ---
+treehouse return --force /tmp/fm-busy-drive/ev-bsd/wt
+--- state dir after teardown ---
+  (no task records left)

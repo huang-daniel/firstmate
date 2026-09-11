@@ -1,0 +1,18 @@
+### BEFORE THE FIX (base commit d8a4707) - ordinary teardown, abandoned busy-state writer lock
+--- before teardown ---
+  state: task-x1.busy-gen
+  state: task-x1.busy-state
+  state: task-x1.busy-state.lock
+  state: task-x1.meta
+  busy record: v1 gen=g1789100066.1743843.28345 seq=1 state=busy source=fm-spawn event=launch-brief ts=1789100066
+--- teardown exit rc=1 ---
+--- stdout ---
+--- stderr ---
+/tmp/fm-busy-drive/base-root/bin/fm-busy-event.sh: line 107: File: unbound variable
+--- worktree return calls ---
+treehouse return --force /tmp/fm-busy-drive/ev-base-abandoned/wt
+--- state dir after teardown ---
+  ORPHANED: task-x1.busy-gen
+  ORPHANED: task-x1.busy-state
+  ORPHANED: task-x1.busy-state.lock
+  ORPHANED: task-x1.meta
