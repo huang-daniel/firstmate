@@ -1,0 +1,64 @@
+real tmux window: fmlive:fm-wait cmd=bash
+declared status line: paused: waiting on the validation run to return the next gate
+reconciled current state: state: paused · source: status-log · waiting on the validation run to return the next gatepane capture:
+  | waiting on the validation run to return the next gate
+  | 
+  | 
+
+=== S1  live declared pause on a real pane is absorbed, not raised as stale
+drive.sh: line 19: /tmp/fm-live-drive/state/.watch-triage.log: No such file or directory
+agent liveness probe: alive
+  FAIL  watcher exited on a live declared pause: stale: fmlive:fm-wait
+
+=== S2  the agent dies behind the same pane text; the exit must surface once
+drive.sh: line 19: /tmp/fm-live-drive/state/.watch-triage.log: No such file or directory
+  PASS  pane capture is byte-identical across the death
+agent liveness probe: dead
+reconciled current state: state: paused · source: status-log · waiting on the validation run to return the next gate  FAIL  no stale wake printed: 
+  PASS  the surfaced wake does not claim a live external wait
+  FAIL  queued 0 stale wakes
+  FAIL  queued wake is not bare
+
+=== S3  the same dead pane must not re-surface on later polls
+  PASS  round 1 silent
+  PASS  round 2 silent
+  PASS  round 3 silent
+  PASS  no further stale wakes queued
+  FAIL  triage log does not record the absorb as an exit
+
+=== S4  a supervisor poking the abandoned pane must not re-report the exit
+agent liveness probe while poked: ambiguous
+  FAIL  inconclusive read surfaced a wake: stale: fmlive:fm-wait
+agent liveness probe after the poke ends: dead
+  PASS  already-reported exit stayed silent after the poke
+  PASS  no stale wake re-queued after the poke
+
+=== S5  a relaunched crew is absorbed again, and its NEXT exit surfaces afresh
+agent liveness probe after relaunch: alive
+  FAIL  relaunched live crew surfaced: stale: fmlive:fm-wait
+agent liveness probe after the second death: dead
+  FAIL  second exit never surfaced: 
+  FAIL  queued 0 bare wakes
+
+=== S6  past the long cadence the recheck says the worker has stopped
+  FAIL  recheck did not report an exit: stale: fmlive:fm-wait (paused 1201s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+  FAIL  recheck claimed a live external wait
+
+=== S7  an exit whose wake the queue rejects must still surface on the next poll
+agent liveness probe: dead
+  FAIL  watcher never stopped on the rejected append
+  PASS  the rejected append was not reported as a delivered wake
+  PASS  nothing was recorded in the queue
+  FAIL  the exit was silenced for good after a rejected append: 
+  FAIL  queued 0 bare wakes
+
+=== S8  lifting the declaration re-arms the one-shot, so a later exit surfaces again
+agent liveness probe: dead
+  FAIL  the exit never surfaced: 
+  PASS  one-shot holds: the next poll is silent
+status log now ends: working: picked the task back up, the external wait is over
+  PASS  the lifted declaration surfaces as an ordinary stale
+status log now ends: paused: waiting on a second external call
+  FAIL  the lift left the exit permanently silenced: 
+
+==== live drive FAILED ====

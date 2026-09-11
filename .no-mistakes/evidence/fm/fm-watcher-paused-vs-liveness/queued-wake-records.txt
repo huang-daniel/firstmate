@@ -1,0 +1,9 @@
+# The watcher wake records an operator actually drains, taken live from
+# state/.wake-queue during the run in live-drive-target-commit.txt.
+# Columns: epoch, sequence, kind, window, payload.
+
+## S2 - first confirmed exit behind an unchanged pane capture (bare, wedge-grade)
+1789109571	1	stale	fmlive:fm-wait	stale: fmlive:fm-wait
+
+## S6 - the later recheck of the same dead pane, past the long pause cadence
+1789109612	3	stale	fmlive:fm-wait	stale: fmlive:fm-wait (agent exited - declared pause 1201s old, but this worker has stopped and is not waiting on anything; relaunch it or close the task out)

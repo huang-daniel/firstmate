@@ -1,0 +1,42 @@
+# state/.watch-triage.log written live by bin/fm-watch.sh during the run in
+# live-drive-target-commit.txt, sliced by scenario. This is the record an
+# operator reads to reconstruct why a window was absorbed. Note how the
+# wording follows the agent, not the status log: the declaration never
+# changes, yet the absorb switches to the exit wording the moment the pane
+# reads dead, and back again when the crew is relaunched.
+#
+# Scenarios S7 and S8 rebuild the state directory from scratch, so this log
+# ends at S7; their evidence is the transcript.
+
+## S1  live declared pause on a real pane is absorbed, not raised as stale
+   [2026-09-11T02:52:44-0400] absorbed stale (paused, awaiting external, age 3s): fmlive:fm-wait
+   [2026-09-11T02:52:47-0400] absorbed stale (paused, awaiting external, age 6s): fmlive:fm-wait
+
+## S2  the agent dies behind the same pane text; the exit must surface once
+   (no absorb entries - every poll in this scenario surfaced, and a surfacing poll exits before it logs an absorb)
+
+## S3  the same dead pane must not re-surface on later polls
+   [2026-09-11T02:52:53-0400] absorbed stale (agent exited under a declared pause, age 12s): fmlive:fm-wait
+   [2026-09-11T02:52:55-0400] absorbed stale (agent exited under a declared pause, age 14s): fmlive:fm-wait
+   [2026-09-11T02:52:57-0400] absorbed stale (agent exited under a declared pause, age 16s): fmlive:fm-wait
+   [2026-09-11T02:52:59-0400] absorbed stale (agent exited under a declared pause, age 18s): fmlive:fm-wait
+   [2026-09-11T02:53:02-0400] absorbed stale (agent exited under a declared pause, age 21s): fmlive:fm-wait
+   [2026-09-11T02:53:03-0400] absorbed stale (agent exited under a declared pause, age 22s): fmlive:fm-wait
+
+## S4  a supervisor poking the abandoned pane must not re-report the exit
+   [2026-09-11T02:53:07-0400] absorbed stale (paused, awaiting external, age 26s): fmlive:fm-wait
+   [2026-09-11T02:53:10-0400] absorbed stale (paused, awaiting external, age 29s): fmlive:fm-wait
+   [2026-09-11T02:53:14-0400] absorbed stale (agent exited under a declared pause, age 33s): fmlive:fm-wait
+   [2026-09-11T02:53:16-0400] absorbed stale (agent exited under a declared pause, age 35s): fmlive:fm-wait
+   [2026-09-11T02:53:18-0400] absorbed stale (agent exited under a declared pause, age 37s): fmlive:fm-wait
+
+## S5  a relaunched crew is absorbed again, and its NEXT exit surfaces afresh
+   [2026-09-11T02:53:22-0400] absorbed stale (paused, awaiting external, age 41s): fmlive:fm-wait
+   [2026-09-11T02:53:25-0400] absorbed stale (paused, awaiting external, age 44s): fmlive:fm-wait
+   [2026-09-11T02:53:26-0400] absorbed stale (paused, awaiting external, age 45s): fmlive:fm-wait
+
+## S6  past the long cadence the recheck says the worker has stopped
+   (no absorb entries - every poll in this scenario surfaced, and a surfacing poll exits before it logs an absorb)
+
+## S7  an exit whose wake the queue rejects must still surface on the next poll
+   (no absorb entries - every poll in this scenario surfaced, and a surfacing poll exits before it logs an absorb)
