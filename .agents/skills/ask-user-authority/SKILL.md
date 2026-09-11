@@ -22,6 +22,10 @@ The concise standing authority boundary remains always loaded in `AGENTS.md` sec
 3. Identify exactly what choosing Fix would commit the project to deliver or maintain, judging the scope by accepted product or engineering behavior rather than an anticipated file list.
    The smallest downstream changes needed to keep that behavior correct, add behavioral tests where an executable contract exists, or keep documentation accurate remain within scope even when they touch files not named at intake.
    Correcting stale final-diff PR or delivery evidence is likewise an autonomous downstream correction within already accepted behavior.
+   When the finding targets something stale or wrong, apply the did-this-change-cause-it test: the deciding question is not whether the file is wrong, which it usually is, but whether this change made it wrong.
+   A document this change just falsified, which the project points at as current guidance, is inside scope, because keeping guidance accurate for behavior you altered is part of altering it.
+   A file that was already wrong before the branch existed is separate housekeeping, and folding it in widens a focused diff into unrelated work.
+   The suggested fix mattering repo-wide, such as adding a CI gate, is a further signal that it belongs elsewhere.
 4. Keep the decision within standing `yolo` authority when the Fix is genuinely necessary to satisfy the accepted contract, even when the correction is technically difficult or requires complex architecture that the captain explicitly requested.
 5. Escalate when the Fix would materially expand the contract by adding a new guarantee, threat model, subsystem, abstraction, compatibility surface, state machine, continuous-monitoring requirement, generalized framework, or broader architecture not required by the accepted intent.
 6. Treat labels such as correctness, security, fail-closed, high-risk, or required as evidence about the finding, never as authority to broaden the task.
@@ -52,3 +56,4 @@ Do not relay reviewer labels or gate output as if they settled the decision.
 - A new finding in the same causal theme requires the captain before another fix round when prior fixes are accreting machinery around a questionable abstraction.
 - A genuinely security-sensitive action requires the captain under the stronger existing boundary even if it is otherwise within scope.
 - Complex architecture explicitly requested by the captain stays within scope and does not escalate merely because it is complex.
+- A document this change just made false stays within scope, while a file that was already wrong before the branch existed is separate housekeeping, under the did-this-change-cause-it test.
