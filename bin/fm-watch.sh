@@ -336,8 +336,11 @@ busy_turn_over_age() {  # <task>
 # timer would. A .paused-resurfaced-<key> throttle marker records the last
 # re-surface epoch so, once past the window, it fires once per window rather than
 # every poll. Advances the stale suppressor to <hash> and flags the key paused.
-handle_paused_stale() {  # <window> <task> <hash>
-  local win=$1 task=$2 h=$3 key statusf mtime age rf rf_age reason
+# `exited` selects the wording for a pane whose agent the caller has just confirmed
+# dead: the cadence, the throttle, and the bookkeeping are identical, but the wake
+# says the worker has stopped instead of claiming an external wait is still running.
+handle_paused_stale() {  # <window> <task> <hash> [exited]
+  local win=$1 task=$2 h=$3 exited=${4:-} key statusf mtime age rf rf_age reason
   key=$(printf '%s' "$win" | tr ':/.' '___')
   printf '%s' "$h" > "$STATE/.stale-$key"
   : > "$STATE/.paused-$key"
@@ -349,7 +352,11 @@ handle_paused_stale() {  # <window> <task> <hash>
   rf="$STATE/.paused-resurfaced-$key"
   rf_age=$(age_of "$rf")   # 999999 when no prior re-surface
   if [ "$age" -ge "$PAUSE_RESURFACE_SECS" ] && [ "$rf_age" -ge "$PAUSE_RESURFACE_SECS" ]; then
-    reason="stale: $win (paused ${age}s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)"
+    if [ -n "$exited" ]; then
+      reason="stale: $win (agent exited - declared pause ${age}s old, but this worker has stopped and is not waiting on anything; relaunch it or close the task out)"
+    else
+      reason="stale: $win (paused ${age}s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)"
+    fi
     fm_wake_append stale "$win" "$reason" || exit 1
     date +%s > "$rf"
     wake "$reason"
@@ -364,14 +371,17 @@ handle_paused_stale() {  # <window> <task> <hash>
 # while it was alive, and that dead endpoint is exactly the wedge stale exists to
 # report. A .paused-exited-<key> one-shot marker records that this exit has
 # already been told to the supervisor, so later polls of the same dead pane rejoin
-# PAUSE_RESURFACE_SECS instead of surfacing every cycle. pause_state_class clears
-# the marker as soon as the agent reads live again or the declaration is lifted, so
-# a relaunched-then-re-exited crew surfaces afresh.
+# PAUSE_RESURFACE_SECS instead of surfacing every cycle, under the exited wording.
+# pause_state_class is the marker's only owner: it clears it when the agent reads
+# confidently alive again or the declaration is lifted, so a relaunched-then-
+# re-exited crew surfaces afresh while an inconclusive read changes nothing. The
+# dead pane's captured text changing is not a new exit either, so the stale-loop
+# arms that meet an `exited` verdict must leave the marker to that owner.
 handle_exited_pause_stale() {  # <window> <task> <hash>
   local win=$1 task=$2 h=$3 key
   key=$(printf '%s' "$win" | tr ':/.' '___')
   if [ -e "$STATE/.paused-exited-$key" ]; then
-    handle_paused_stale "$win" "$task" "$h"
+    handle_paused_stale "$win" "$task" "$h" exited
     return
   fi
   : > "$STATE/.paused-exited-$key"
@@ -411,30 +421,37 @@ clear_pause_state() {  # <window>
     "$STATE/.paused-exited-$key"
 }
 
-clear_pause_tracking() {  # <window>
+clear_stale_tracking() {  # <window>
   local win=$1 key
   key=${win//:/_}
   key=${key//\//_}
   key=${key//./_}
-  clear_pause_state "$win"
   rm -f "$STATE/.stale-$key" "$STATE/.stale-since-$key" "$STATE/.wedge-escalations-$key"
 }
 
-# 0 when <window>'s agent has CONFIDENTLY exited. This is the one liveness read
+clear_pause_tracking() {  # <window>
+  clear_pause_state "$1"
+  clear_stale_tracking "$1"
+}
+
+# `dead`, `alive`, or `unknown` for <window>'s agent. This is the one liveness read
 # the declared-pause path may consult, and it can only ever force a wake, never
 # suppress one: a crew that declared a wait and then died is exactly the wedge
 # the stale signal exists to report, and bin/fm-crew-state.sh cannot see that
 # case on its own (an exited agent usually leaves its pane behind as a readable
 # bare shell, so the reconciliation still reports the log's paused verb).
-# Only an exact `dead` verdict counts; `unknown`, ambiguous, and unreadable
-# reads are not an exit and leave the reconciled verdict alone. Secondmates are
-# excluded because an idle mate endpoint is healthy by design and its liveness
+# The backend folds every ambiguous or unreadable read into `unknown`, and only
+# the two confident verdicts may move anything: `dead` is an exit, `alive` is a
+# return to life, and `unknown` leaves the reconciled verdict and the exit
+# bookkeeping exactly as they were. That middle case is not rare - tmux reports
+# ambiguous whenever a non-shell process runs in the abandoned pane. Secondmates
+# are excluded because an idle mate endpoint is healthy by design and its liveness
 # is owned by the session-start liveness sweep, not by the stale path.
-agent_confidently_exited() {  # <window>
+agent_liveness_read() {  # <window>
   local win=$1 alive
-  [ "$(window_kind "$win")" != secondmate ] || return 1
+  [ "$(window_kind "$win")" != secondmate ] || { printf 'unknown'; return; }
   alive=$(fm_backend_agent_alive "$(window_backend "$win")" "$win" 2>/dev/null) || alive=unknown
-  [ "$alive" = dead ]
+  printf '%s' "$alive"
 }
 
 # Reconcile a declared pause or captain-held status with authoritative crew state.
@@ -444,7 +461,7 @@ agent_confidently_exited() {  # <window>
 # watcher must not re-derive a second, parallel current state from pane liveness
 # and surface a stale the reconciliation already explained (AGENTS.md section 8 -
 # `paused:` is a bounded external wait, `blocked:` is the verb that asks for
-# firstmate). Liveness enters only through agent_confidently_exited above, as a
+# firstmate). Liveness enters only through agent_liveness_read above, as a
 # one-way safety override that forces the surface.
 # Prints `working`, `paused`, `none` - the reconciled verdict - or `exited`, its own
 # distinct token for that override, so a caller can tell a confirmed exit apart from
@@ -465,12 +482,14 @@ pause_state_class() {  # <window> <task>
     crew_absorb_class "$task"
     return
   fi
-  if agent_confidently_exited "$win"; then
-    rm -f "$recheck_file"
-    printf 'exited'
-    return
-  fi
-  rm -f "$exit_file"
+  case "$(agent_liveness_read "$win")" in
+    dead)
+      rm -f "$recheck_file"
+      printf 'exited'
+      return
+      ;;
+    alive) rm -f "$exit_file" ;;
+  esac
   if [ -e "$STATE/.paused-$key" ] && [ "$(age_of "$recheck_file")" -lt "$STALE_ESCALATE_SECS" ]; then
     printf 'paused'
     return
@@ -1238,6 +1257,7 @@ EOF
       if ! afk_present && status_is_paused_or_captain_held "$(last_status_line "$STATE/$task.status")" && [ "$busy_now" -ne 0 ]; then
         case "$(pause_state_class "$w" "$task")" in
           paused) handle_paused_stale "$w" "$task" "$h" ;;
+          exited) clear_stale_tracking "$w" ;;
           *)      clear_pause_tracking "$w" ;;
         esac
       elif [ "$paused_bound" -ne 0 ] && [ -e "$pf" ]; then

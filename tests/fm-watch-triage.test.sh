@@ -807,6 +807,7 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
   grep -F "stale: $window" "$out" >/dev/null || fail "re-surface did not print a stale wake"
   grep -F "awaiting external" "$out" >/dev/null || fail "re-surface was not labeled a paused/awaiting-external recheck"
   grep -F "possible wedge" "$out" >/dev/null && fail "a declared pause was mislabeled a possible wedge"
+  grep -F "agent exited" "$out" >/dev/null && fail "a live declared pause was reported as an exited worker"
   [ -e "$state/.paused-resurfaced-$key" ] || fail "the paused re-surface throttle marker was not recorded"
   [ ! -e "$state/.stale-since-$key" ] || fail "a paused re-surface must not use the wedge timer"
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the paused re-surface failed"
@@ -866,9 +867,12 @@ queued_stale_wakes() {  # <state> <window> [bare]
 # The safety half does not depend on the pane changing. A death behind a readable
 # bare shell usually leaves the capture byte-identical to the one already absorbed
 # while the agent was alive, so an exit found on an already-classified hash must
-# surface too. It stays bounded rather than loud: one surface per exit, after which
-# the unchanged pane falls to the same long cadence, so a dead endpoint cannot flood
-# supervision - and a relaunched crew that exits again surfaces afresh.
+# surface too. It stays bounded rather than loud: one surface per EXIT, after which
+# the pane falls to the same long cadence whether or not its text keeps changing, so
+# a dead endpoint cannot flood supervision. Only a confident return to life re-arms
+# that one-shot - an inconclusive read is not a return - and each later recheck of a
+# pane still reported dead says the worker has stopped, never that a bounded
+# external wait is still running.
 test_declared_pause_follows_crew_state_but_exited_pane_surfaces() {
   local dir state fakebin out capture_file statusf window key pane_hash sig pid round wakes bare
 
@@ -1061,6 +1065,80 @@ test_declared_pause_follows_crew_state_but_exited_pane_surfaces() {
   [ "$(queued_stale_wakes "$state" "$window" bare)" -eq 1 ] \
     || fail "a second exit after a relaunch did not queue exactly one bare stale wake"
   ack_stopped_cycle "$state" || fail "could not acknowledge the second exit surface"
+
+  # An INCONCLUSIVE liveness read is not a return to life. tmux reports ambiguous
+  # for a pane whose readable foreground carries a non-shell process, which is what
+  # a supervisor running anything in the abandoned shell produces, and unreadable
+  # for a transient probe failure. Neither says the crew came back, so neither may
+  # re-arm the one-shot and let the next dead read re-report the same exit.
+  : > "$out"
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" vim "$out"
+  pid=$!
+  if ! wait_poll_cycle "$state" "$pid"; then
+    reap "$pid"
+    fail "an inconclusive liveness read under a declared wait surfaced a stale wake: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || { reap "$pid"; fail "an inconclusive liveness read printed a wake: $(cat "$out")"; }
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the inconclusive liveness round"
+
+  : > "$out"
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" zsh "$out"
+  pid=$!
+  if ! wait_poll_cycle "$state" "$pid"; then
+    reap "$pid"
+    fail "an already-surfaced exit re-surfaced after one inconclusive read: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] \
+    || { reap "$pid"; fail "an already-surfaced exit printed a wake after one inconclusive read: $(cat "$out")"; }
+  [ "$(queued_stale_wakes "$state" "$window")" -eq 0 ] \
+    || { reap "$pid"; fail "an already-surfaced exit re-queued a stale wake after one inconclusive read"; }
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the post-inconclusive dead round"
+
+  # Past the long cadence the dead pane does get its recheck, and that recheck must
+  # say the worker has stopped. The bounded-wait wording would tell the supervisor an
+  # external call is still running on a pane the watcher confirmed dead on that very
+  # poll, which is the same cry-wolf failure wearing the opposite mask.
+  back=$(( $(date +%s) - 1200 ))
+  set_mtime "$back" "$statusf"
+  set_mtime "$back" "$state/.paused-resurfaced-$key"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-wait_status"
+  : > "$out"
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" zsh "$out"
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "a confirmed-exited pane never rechecked past the pause cadence"
+  grep -F "stale: $window" "$out" >/dev/null || fail "the exited recheck printed no stale wake"
+  grep -F "agent exited" "$out" >/dev/null \
+    || fail "the exited recheck did not report that the worker has stopped: $(cat "$out")"
+  grep -F "awaiting external" "$out" >/dev/null \
+    && fail "the exited recheck claimed a live external wait: $(cat "$out")"
+  grep -F "agent exited" "$state/.wake-queue" >/dev/null \
+    || fail "the exited recheck was not queued with the exit wording"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the exited recheck"
+
+  # The dead pane's captured text changing is not a new exit: an abandoned shell
+  # redraws its prompt, and a supervisor who attaches and runs something rewrites the
+  # capture outright. The one-shot must survive that, or every redraw re-reports the
+  # same dead worker.
+  printf 'idle bare shell, prompt redrawn after a supervisor looked\n' > "$capture_file"
+  : > "$out"
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" zsh "$out"
+  pid=$!
+  round=1
+  while [ "$round" -le 4 ]; do
+    if ! wait_poll_cycle "$state" "$pid"; then
+      reap "$pid"
+      fail "a changed capture on the dead pane re-surfaced the same exit on cycle $round: $(cat "$out")"
+    fi
+    round=$((round + 1))
+  done
+  [ ! -s "$out" ] \
+    || { reap "$pid"; fail "a changed capture on the dead pane printed a wake: $(cat "$out")"; }
+  [ "$(queued_stale_wakes "$state" "$window")" -eq 0 ] \
+    || { reap "$pid"; fail "a changed capture on the dead pane re-queued a stale wake for the same exit"; }
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the changed-capture dead rounds"
 
   # A durable captain-held transfer is the other declaration that can leave an
   # idle endpoint behind. An exited agent under it surfaces on the same rule.
