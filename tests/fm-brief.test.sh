@@ -354,6 +354,43 @@ test_no_mistakes_dod_wording() {
   pass "fm-brief.sh: no-mistakes DOD keeps its apostrophe prose, now parse-safe"
 }
 
+# A blocking pipeline call leaves the pane silent for a long stretch, which is
+# indistinguishable from a wedge unless the worker declares the wait first. The
+# obligation belongs only to the mode that runs the pipeline, and it must render
+# the configured declared-external-wait verb rather than a hardcoded "paused".
+# It must name both blocking call shapes: a gate that returns clears the pause, so
+# the resume call goes silent again unless the worker re-declares before it too.
+test_no_mistakes_dod_requires_declared_wait_before_blocking_call() {
+  local home id brief
+  home="$TMP_ROOT/pipeline-wait-home"
+  mkdir -p "$home/data"
+  id="brief-pipeline-wait-n1"
+  FM_HOME="$home" FM_CLASSIFY_PAUSED_VERB=awaiting \
+    "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode no-mistakes >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_grep "Before every pipeline call that blocks your pane for a long stretch with no output" "$brief" \
+    "no-mistakes DOD lost the declared wait before a blocking pipeline call"
+  # shellcheck disable=SC2016 # Literal backticks must remain unexpanded.
+  assert_grep '(a `no-mistakes axi run`, or a `respond` that resumes one)' "$brief" \
+    "declared pipeline wait stopped naming both blocking call shapes"
+  # shellcheck disable=SC2016 # Literal backticks and braces must remain unexpanded.
+  assert_grep 'append `awaiting: {which call you are waiting on}` first' "$brief" \
+    "declared pipeline wait did not render the configured pause verb"
+  # shellcheck disable=SC2016 # Literal backticks and braces must remain unexpanded.
+  assert_no_grep 'append `paused: {which call you are waiting on}` first' "$brief" \
+    "declared pipeline wait hardcoded the default pause verb"
+
+  for id in "brief-pipeline-wait-d1:direct-PR" "brief-pipeline-wait-l1:local-only"; do
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "${id%%:*}" some-proj --mode "${id##*:}" >/dev/null 2>&1
+    assert_no_grep "Before every pipeline call that blocks your pane" "$home/data/${id%%:*}/brief.md" \
+      "${id##*:} brief carried a pipeline obligation it never runs"
+  done
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-pipeline-wait-s1 some-proj --scout >/dev/null 2>&1
+  assert_no_grep "Before every pipeline call that blocks your pane" "$home/data/brief-pipeline-wait-s1/brief.md" \
+    "scout brief carried a pipeline obligation it never runs"
+  pass "fm-brief.sh: only the pipeline mode declares its wait before a blocking call"
+}
+
 test_ship_project_memory_wording() {
   local home id brief
   home="$TMP_ROOT/project-memory-home"
@@ -721,6 +758,7 @@ test_ship_mode_is_explicit_not_registry
 test_delivery_flags_are_refused_where_they_do_not_apply
 test_faster_paths_use_configured_authority_without_stacked_review
 test_no_mistakes_dod_wording
+test_no_mistakes_dod_requires_declared_wait_before_blocking_call
 test_ship_project_memory_wording
 test_herdr_lab_contract_is_explicit_and_complete
 test_herdr_lab_contract_quotes_foreign_firstmate_path
