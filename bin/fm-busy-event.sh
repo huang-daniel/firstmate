@@ -95,6 +95,22 @@ REC=$(fm_busy_record_path "$STATE" "$ID")
 GEN_FILE=$(fm_busy_gen_path "$STATE" "$ID")
 LOCK="$REC.lock"
 
+# Portable mtime in epoch seconds, following the same convention (and the same
+# warning) as bin/fm-watch.sh and bin/fm-lock-lib.sh: macOS (BSD) stat uses
+# `-f <fmt>`, Linux (GNU/uutils) stat uses `-c <fmt>`, and the
+# `stat -f <fmt> ... || stat -c <fmt> ...` chain is NOT a portable fallback.
+# On Linux `-f` selects FILE SYSTEM status, so that form dumps filesystem prose
+# ("File: ...", "Blocks: ...") to stdout before failing and the fallback's
+# correct epoch is appended to the garbage. Arithmetic on the result then aborts
+# the script under `set -u` on the stray token (the word "File" read as an unset
+# variable), which is how an ordinary teardown once left its records orphaned.
+# Detect the platform once and pick the right form.
+if [ "$(uname)" = Darwin ]; then
+  stat_mtime() { stat -f %m "$1" 2>/dev/null; }        # epoch seconds of mtime
+else
+  stat_mtime() { stat -c %Y "$1" 2>/dev/null; }
+fi
+
 # Serialize writers. The lock protects seq advancement and the sidecar/record
 # pair; a holder that died mid-write is broken after FM_BUSY_LOCK_STALE_SECS.
 lock_acquire() {
@@ -103,7 +119,9 @@ lock_acquire() {
     tries=$((tries + 1))
     if [ "$tries" -ge 40 ]; then
       now=$(date +%s)
-      mtime=$(stat -f %m "$LOCK" 2>/dev/null || stat -c %Y "$LOCK" 2>/dev/null || echo "$now")
+      # An unreadable mtime reads as age 0: never break a lock we cannot date.
+      mtime=$(stat_mtime "$LOCK")
+      case "$mtime" in ''|*[!0-9]*) mtime=$now ;; esac
       age=$((now - mtime))
       if [ "$age" -ge "${FM_BUSY_LOCK_STALE_SECS:-5}" ]; then
         rmdir "$LOCK" 2>/dev/null || rm -rf "$LOCK" 2>/dev/null || true
