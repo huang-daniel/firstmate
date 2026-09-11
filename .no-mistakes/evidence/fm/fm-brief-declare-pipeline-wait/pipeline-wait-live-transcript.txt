@@ -1,0 +1,47 @@
+### 1. firstmate scaffolds the no-mistakes brief
+scaffolded: /tmp/fm-pipeline-wait-live.jl0RA8/run/data/pipe-demo/brief.md (ship, mode=no-mistakes; replace {TASK})
+
+--- the sentence the crewmate reads in its brief:
+Before every pipeline call that blocks your pane for a long stretch with no output (a `no-mistakes axi run`, or a `respond` that resumes one), append `paused: {which call you are waiting on}` first, so your silence reads as a declared wait instead of a possible wedge.
+--- declared-external-wait verb the brief rendered: paused
+
+### 2. one real tmux server, one live silent pane per arm
+
+### ARM A - the worker never declares the wait
+--- live pane the watcher is looking at:
+    > no-mistakes axi run --intent ...
+--- status log:
+    working: handed the change to no-mistakes
+    wedge timer started on first sight: yes
+--- what supervision does with the undeclared silence:
+    stale: fmlive:fm-armA (idle 501s, possible wedge, escalation 1)
+
+### ARM B - the worker obeys the brief and declares the wait first
+--- live pane the watcher is looking at:
+    > no-mistakes axi run --intent ...
+--- status log (last line written per the brief's instruction):
+    working: handed the change to no-mistakes
+    paused: no-mistakes axi run, waiting for the pipeline to return
+    watcher completed a full poll and kept supervising: yes
+    wedge timer started: no
+    wake queued for firstmate: no
+    after a further 500s of silence, watcher still supervising: yes
+    wake queued for firstmate: no
+--- what supervision does with the declared wait (empty = firstmate never woken):
+
+### ARM C - gate returned, decision answered, worker now blocks on the resume call
+--- status log after the gate returned:
+    paused: no-mistakes axi run, waiting for the pipeline to return
+    needs-decision: ask-user gate on the review finding, options A or B
+--- C1: firstmate answered, the worker blocks on the resume call WITHOUT re-declaring
+    wedge timer started (the earlier declaration no longer covers it): yes
+    supervision:
+      stale: fmlive:fm-armC (idle 501s, possible wedge, escalation 1)
+--- C2: same pane, worker re-declares before the resume call as the brief requires
+    paused: no-mistakes axi run, waiting for the pipeline to return
+    needs-decision: ask-user gate on the review finding, options A or B
+    paused: no-mistakes axi respond, resuming the run with the decision
+    watcher completed a full poll and kept supervising: yes
+    wedge timer started: no
+    supervision output (empty = firstmate never woken): []
+[end]

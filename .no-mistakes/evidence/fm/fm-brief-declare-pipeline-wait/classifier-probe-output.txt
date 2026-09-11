@@ -1,0 +1,9 @@
+default verb (FM_CLASSIFY_PAUSED_VERB unset):
+  "paused: no-mistakes axi run, waiting for the pipeline to return" pause=yes terminal=no captain-relevant=no
+  "paused: no-mistakes axi respond, resuming the run after the gate" pause=yes terminal=no captain-relevant=no
+  "working: handed the change to no-mistakes"                    pause=no terminal=no captain-relevant=no
+  "blocked: the run paused on an ask-user gate I cannot answer"  pause=no terminal=yes captain-relevant=yes
+
+configured verb FM_CLASSIFY_PAUSED_VERB=awaiting:
+  "awaiting: no-mistakes axi run, waiting for the pipeline to return" pause=yes terminal=no captain-relevant=no
+  "paused: no-mistakes axi run, waiting for the pipeline to return" pause=no terminal=no captain-relevant=no
