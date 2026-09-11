@@ -22,9 +22,13 @@ A concurrent replacement remains armed, every non-merged or invalid observation 
 No-verb wakes, such as `working:` notes and bare turn-ended signals, are benign only when `bin/fm-crew-state.sh` reports positive evidence that the crew is still working: an actively running no-mistakes step attributed to that crew's current code, or an exact busy verdict from the semantic busy-state contract.
 A `kind=secondmate` task's status signal is the parent-directed reply stream and is never absorbed as provably working; only its bare turn-ended signal retains the ordinary absorb rule.
 A crew that declares `paused:` for a known external wait is separately absorbed while idle and re-surfaced only on the longer pause cadence, rather than being treated as a possible wedge.
-For an ordinary crew that has stopped, the normal-mode watcher first surfaces one stale wake, then applies that same cadence to an unchanged `paused:` or durable `captain-held` endpoint only when the backend confidently reports its agent dead.
-Live or inconclusive liveness remains fail-open at that initial surface, and the secondmate idle-endpoint exemption is unchanged.
-Its initial normal-mode status signal still surfaces through the no-verb path, while away mode self-handles that routine signal and owns the later recheck.
+The watcher takes that verdict from `bin/fm-crew-state.sh` rather than re-deriving a second notion of current state from pane liveness, so a live idle pane under a declared wait is the expected shape of that wait and never surfaces as a possible wedge.
+Pane liveness enters only as a one-way override that can force a surface and never suppress one: an agent the backend confidently reports dead surfaces once even when the reconciliation still reports the status log's `paused:` or durable `captain-held` verb, because a worker that declared a wait and then exited is the wedge the stale signal exists to report.
+The reconciliation cannot see that case on its own, since an exited agent usually leaves a readable bare shell behind.
+That first exit surfaces even when the captured pane text is byte-identical to the one already absorbed while the agent was alive, which is the usual shape of a death behind a readable bare shell.
+The surface stays bounded: it is one-shot per exit, the pane then falls to the same long cadence whether or not its captured text keeps changing, and inconclusive liveness plus the secondmate idle-endpoint exemption leave both the reconciled verdict and that one-shot bookkeeping alone.
+Only a confident return to life, or a lifted declaration, re-arms it, and every later recheck of a pane still reported dead says the worker has stopped rather than claiming an external wait is still running.
+A declared pause's initial normal-mode status signal still surfaces through the no-verb path, while away mode self-handles that routine signal and owns the later recheck.
 Fresh stale panes use the same current-state read before trusting the status log, so an active run or a proven busy worker outranks an old captain-relevant status-log line left behind before validation.
 No-change heartbeats are also benign.
 Separately from heartbeat backoff and wedge handling, the watcher poll runs `bin/fm-inactive-reconcile.sh` on its own bounded cadence, while locked session start performs the same bounded local scan immediately.

@@ -758,7 +758,7 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
   out="$dir/watch.out"; drain_out="$dir/drain.out"; capture_file="$dir/pane.txt"
   window="test:fm-held"
   printf 'idle, holding for upstream' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/held.meta"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/held.meta"
   statusf="$state/held.status"
   # A DECLARED pause (not captain-relevant), .seen-* primed so the signal scan does
   # not pre-empt the stale path.
@@ -774,7 +774,7 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
   # Phase A: a fresh pause (status file just written) under a high re-surface
   # threshold is absorbed - no wake, no wedge timer.
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=zsh \
+    FM_FAKE_TMUX_CURRENT_COMMAND=grok \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
@@ -799,7 +799,7 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
   : > "$out"
   printf 'idle, holding for upstream (token 2)' > "$capture_file"
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=zsh \
+    FM_FAKE_TMUX_CURRENT_COMMAND=grok \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
@@ -807,6 +807,7 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
   grep -F "stale: $window" "$out" >/dev/null || fail "re-surface did not print a stale wake"
   grep -F "awaiting external" "$out" >/dev/null || fail "re-surface was not labeled a paused/awaiting-external recheck"
   grep -F "possible wedge" "$out" >/dev/null && fail "a declared pause was mislabeled a possible wedge"
+  grep -F "agent exited" "$out" >/dev/null && fail "a live declared pause was reported as an exited worker"
   [ -e "$state/.paused-resurfaced-$key" ] || fail "the paused re-surface throttle marker was not recorded"
   [ ! -e "$state/.stale-since-$key" ] || fail "a paused re-surface must not use the wedge timer"
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the paused re-surface failed"
@@ -814,121 +815,467 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
   pass "a declared pause is absorbed on first sight, then re-surfaced as a recheck past the threshold, never wedge-escalated"
 }
 
-# A captain-held crew can leave a stable backend endpoint after its agent exits.
-# fm-crew-state then authoritatively reports stopped rather than paused, but the
-# confirmed-dead agent plus the declared wait or captain-held transfer must retain
-# bounded pause handling.
-# A still-live agent at an external-decision gate is the disconfirming case: it
-# must surface once, while the unchanged hash must not append the same wake on
-# every watcher re-arm.
-test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
-  local dir state fakebin out capture_file statusf window key pane_hash sig pid back round wakes bare
-  dir=$(make_case exited-declared-pause); state="$dir/state"; fakebin="$dir/fakebin"
-  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/held.status"
-  window="test:fm-held"
-  printf 'idle bare shell after agent exit\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/held.meta"
-  printf 'paused: held per captain while an external decision is pending\n' > "$statusf"
-  back=$(( $(date +%s) - 500 ))
-  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
-  else touch -m -d "@$back" "$statusf"; fi
-  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-held_status"
+# Launch one background watcher round against a declared-wait fixture with a fixed
+# pane liveness read (<pane-command>: the harness binary reads alive, a bare shell
+# reads dead). The reconciliation is pinned to `paused` and FM_PAUSE_RESURFACE_SECS
+# is pinned far above the fixture's status age, so the bounded recheck can never
+# fire: any wake a round produces came from the exited-agent override alone. The
+# reconciliation is pinned to `paused` unless <crew-state> overrides it, which a
+# round does when it needs the classifier to fall through to a non-paused verdict.
+# Sets $! for the caller, like watch_bg.
+declared_wait_round() {  # <state> <fakebin> <window> <capture-file> <pane-command> <out> [crew-state]
+  local state=$1 fakebin=$2 window=$3 capture=$4 cmd=$5 out=$6
+  local crew=${7:-'state: paused · source: status-log · waiting on the validation run'}
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture" \
+    FM_FAKE_TMUX_CURRENT_COMMAND="$cmd" \
+    FM_FAKE_CREW_STATE="$crew" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+}
+
+# Count queued stale wakes for <window> in <state>'s durable queue; with `bare`, only
+# the undecorated "stale: <window>" reason a genuine wedge report carries.
+queued_stale_wakes() {  # <state> <window> [bare]
+  local state=$1 window=$2 mode=${3:-all}
+  awk -F '\t' -v w="$window" -v mode="$mode" '
+    $3 == "stale" && $4 == w {
+      if (mode != "bare" || $5 == "stale: " w) n++
+    }
+    END { print n + 0 }
+  ' "$state/.wake-queue" 2>/dev/null
+}
+
+# The watcher and bin/fm-crew-state.sh must agree on what a declared wait means.
+# AGENTS.md section 8 owns the distinction: `paused:` is a bounded external wait
+# expected to clear on its own, while `blocked:` is the verb that asks firstmate
+# to act. The two halves below are that whole contract, and they pull in opposite
+# directions:
+#
+#   - a LIVE pane whose reconciled current state is `paused` is the EXPECTED shape
+#     of that wait, so it is absorbed on the long pause cadence and never surfaces
+#     as a possible wedge. This is the 2026-08 false-alarm shape: a worker waiting
+#     on a validation call it did not control appended exactly the right
+#     declaration, fm-crew-state.sh reconciled the task as paused from it, and the
+#     watcher raised stale on that same live pane anyway. The cost is not the
+#     wasted supervision turns, it is that it trains the reader to discount stale.
+#   - an EXITED pane still surfaces regardless of what its last status line claims,
+#     because a worker that declared a wait and then died is exactly the wedge the
+#     stale signal exists to report. fm-crew-state.sh cannot see that case on its
+#     own - an exited agent usually leaves a readable bare shell behind, so the
+#     reconciliation keeps reporting the log's paused verb - which is why pane
+#     liveness enters here as a ONE-WAY override that can only force a surface,
+#     never suppress one.
+#
+# The safety half does not depend on the pane changing. A death behind a readable
+# bare shell usually leaves the capture byte-identical to the one already absorbed
+# while the agent was alive, so an exit found on an already-classified hash must
+# surface too. It stays bounded rather than loud: one surface per EXIT, after which
+# the pane falls to the same long cadence whether or not its text keeps changing, so
+# a dead endpoint cannot flood supervision. Only a confident return to life re-arms
+# that one-shot - an inconclusive read is not a return - and each later recheck of a
+# pane still reported dead says the worker has stopped, never that a bounded
+# external wait is still running.
+test_declared_pause_follows_crew_state_but_exited_pane_surfaces() {
+  local dir state fakebin out capture_file statusf window key pane_hash sig pid round wakes bare status
+
+  # Half 1: a LIVE pane under a declared wait the reconciliation confirms.
+  dir=$(make_case live-declared-pause); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/wait.status"
+  window="test:fm-wait"
+  printf 'idle, waiting on the validation call\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/wait.meta"
+  printf 'paused: waiting on the validation run to return the next gate\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-wait_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
-  pane_hash=$(hash_text "idle bare shell after agent exit")
+  pane_hash=$(hash_text "idle, waiting on the validation call")
   printf '%s' "$pane_hash" > "$state/.hash-$key"
   printf '1\n' > "$state/.count-$key"
 
-  round=1
-  while [ "$round" -le 6 ]; do
-    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-      FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: stopped · source: pane · bare shell' \
-      FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
-      FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
-    pid=$!
-    if wait_poll_cycle "$state" "$pid"; then
-      reap "$pid"
-    elif kill -0 "$pid" 2>/dev/null; then
-      reap "$pid"
-      fail "dead-agent watcher round $round timed out before completing a poll cycle"
-    else
-      wait "$pid" || fail "dead-agent watcher round $round failed"
-    fi
-    round=$((round + 1))
-  done
-  wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' "$state/.wake-queue")
-  bare=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w && $5 == "stale: " w { n++ } END { print n + 0 }' "$state/.wake-queue")
-  [ "$wakes" -le 1 ] || fail "dead-agent declared pause flooded $wakes stale wakes across six unchanged polls"
-  [ "$bare" -eq 0 ] || fail "dead-agent declared pause surfaced as $bare bare stopped-crew wakes"
-  grep -F "awaiting external" "$state/.wake-queue" >/dev/null \
-    || fail "dead-agent declared pause did not use the bounded paused recheck"
-
-  dir=$(make_case exited-captain-held); state="$dir/state"; fakebin="$dir/fakebin"
-  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/held.status"
-  window="test:fm-held"
-  printf 'idle bare shell after captain-held transfer\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/held.meta"
-  printf 'captain-held [key=route]: tracked by held-decision-route\n' > "$statusf"
-  back=$(( $(date +%s) - 500 ))
-  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
-  else touch -m -d "@$back" "$statusf"; fi
-  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-held_status"
-  key=$(printf '%s' "$window" | tr ':/.' '___')
-  pane_hash=$(hash_text "idle bare shell after captain-held transfer")
-  printf '%s' "$pane_hash" > "$state/.hash-$key"
-  printf '1\n' > "$state/.count-$key"
+  # A fresh pause under a high re-surface threshold isolates the decision: any
+  # wake here comes from liveness re-deriving its own current state, never from
+  # the bounded cadence.
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: stopped · source: pane · bare shell' \
-    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_FAKE_TMUX_CURRENT_COMMAND=grok FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting on the validation run' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_for_exit "$pid" 100 || fail "captain-held dead-agent pane did not re-surface on the bounded cadence"
-  grep -F "awaiting external" "$state/.wake-queue" >/dev/null \
-    || fail "captain-held dead-agent pane surfaced as a stopped crew"
+  if ! wait_poll_cycle "$state" "$pid"; then
+    reap "$pid"
+    fail "a live pane the reconciliation reports paused was surfaced as stale: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || { reap "$pid"; fail "a live declared wait printed a wake reason: $(cat "$out")"; }
+  [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "a live declared wait enqueued a stale wake"; }
+  grep -F "absorbed stale (paused, awaiting external" "$state/.watch-triage.log" >/dev/null \
+    || { reap "$pid"; fail "a live declared wait was not recorded as an external wait in the triage log"; }
+  grep -F "agent exited" "$state/.watch-triage.log" >/dev/null \
+    && { reap "$pid"; fail "a live declared wait was recorded as an exited worker in the triage log"; }
+  [ "$(cat "$state/.stale-$key" 2>/dev/null || true)" = "$pane_hash" ] \
+    || { reap "$pid"; fail "a live declared wait did not advance the stale suppressor"; }
+  [ -e "$state/.paused-$key" ] || { reap "$pid"; fail "a live declared wait did not take the pause cadence"; }
+  [ ! -e "$state/.stale-since-$key" ] || { reap "$pid"; fail "a live declared wait started the wedge timer"; }
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the intentional live declared-wait stop"
 
-  dir=$(make_case alive-decision-gate); state="$dir/state"; fakebin="$dir/fakebin"
-  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/gate.status"
-  window="test:fm-gate"
-  printf 'idle external-decision gate\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/gate.meta"
-  printf 'paused: waiting at an active external-decision gate\n' > "$statusf"
-  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-gate_status"
-  key=$(printf '%s' "$window" | tr ':/.' '___')
-  pane_hash=$(hash_text "idle external-decision gate")
-  printf '%s' "$pane_hash" > "$state/.hash-$key"
-  printf '1\n' > "$state/.count-$key"
-
-  # First sight must surface promptly so a live external-decision gate is not
-  # hidden behind the pause cadence.
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=grok FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting at an active external-decision gate' \
-    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
-  pid=$!
-  wait_for_exit "$pid" 100 || fail "live external-decision gate did not surface immediately"
-  ack_stopped_cycle "$state" || fail "could not acknowledge the immediate external-decision surface"
-
-  # Re-arm with the stale timer already beyond the wedge threshold. This is the
-  # exact unchanged-hash fallback after the immediate surface: it must retain
-  # the pause cadence and discard any residual wedge timer instead of emitting
-  # a second possible-wedge wake.
+  # Re-arm with a residual wedge timer already past the threshold: the unchanged
+  # hash must keep the pause cadence and discard that timer rather than escalate.
   printf '%s\n' $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=grok FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting at an active external-decision gate' \
+    FM_FAKE_TMUX_CURRENT_COMMAND=grok FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting on the validation run' \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=240 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
   pid=$!
   if ! wait_poll_cycle "$state" "$pid"; then
     reap "$pid"
-    fail "live external-decision gate escalated on the wedge timer after its immediate surface: $(cat "$out")"
+    fail "a live declared wait wedge-escalated on an unchanged hash: $(cat "$out")"
   fi
-  [ -e "$state/.paused-$key" ] || { reap "$pid"; fail "live external-decision gate lost its pause cadence marker"; }
-  [ ! -e "$state/.stale-since-$key" ] || { reap "$pid"; fail "live external-decision gate retained the wedge timer"; }
+  [ -e "$state/.paused-$key" ] || { reap "$pid"; fail "an unchanged live declared wait lost the pause cadence"; }
+  [ ! -e "$state/.stale-since-$key" ] || { reap "$pid"; fail "an unchanged live declared wait retained the wedge timer"; }
+  [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "an unchanged live declared wait enqueued a stale wake"; }
   reap "$pid"
-  wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' "$state/.wake-queue")
-  bare=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w && $5 == "stale: " w { n++ } END { print n + 0 }' "$state/.wake-queue")
-  [ "$wakes" -eq 0 ] || fail "acknowledged external-decision surface replayed $wakes wakes"
-  [ "$bare" -eq 0 ] || fail "acknowledged external-decision bare stale remained queued"
-  pass "exited declared-pause and captain-held panes use bounded pause cadence while a live decision gate still surfaces once"
+
+  # Half 2 (the safety half): the SAME declaration, the SAME reconciled paused
+  # verdict, but the agent has exited. It must still surface, and surface bare -
+  # never dressed as the bounded external-wait recheck.
+  dir=$(make_case exited-declared-pause); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/wait.status"
+  window="test:fm-exited"
+  printf 'idle bare shell after the worker exited\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/wait.meta"
+  printf 'paused: waiting on the validation run to return the next gate\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-wait_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle bare shell after the worker exited")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting on the validation run' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "an exited pane under a declared wait never surfaced"
+  grep -F "stale: $window" "$out" >/dev/null || fail "an exited pane under a declared wait printed no stale wake"
+  grep -F "awaiting external" "$out" >/dev/null \
+    && fail "an exited pane was absorbed as a live external wait instead of surfacing"
+  wakes=$(queued_stale_wakes "$state" "$window")
+  bare=$(queued_stale_wakes "$state" "$window" bare)
+  [ "$wakes" -eq 1 ] || fail "an exited pane under a declared wait queued $wakes stale wakes, expected exactly 1"
+  [ "$bare" -eq 1 ] || fail "an exited pane under a declared wait did not queue a bare stale wake"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the exited-pane surface"
+
+  # Bounded, not loud: the same unchanged hash must not keep surfacing once the
+  # supervisor has been told, so the safety half cannot flood supervision.
+  round=1
+  while [ "$round" -le 4 ]; do
+    : > "$out"
+    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+      FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting on the validation run' \
+      FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+      FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+    pid=$!
+    if ! wait_poll_cycle "$state" "$pid"; then
+      reap "$pid"
+      fail "an already-surfaced exited pane re-surfaced on round $round: $(cat "$out")"
+    fi
+    [ ! -s "$out" ] || { reap "$pid"; fail "an already-surfaced exited pane printed a wake on round $round: $(cat "$out")"; }
+    reap "$pid"
+    ack_stopped_cycle "$state" || fail "could not acknowledge the bounded exited-pane round $round"
+    round=$((round + 1))
+  done
+
+  # The triage log is the record an operator reads to reconstruct why a window was
+  # absorbed, so it must not contradict the wake: this pane was absorbed because its
+  # agent is gone, never because a bounded external call is still running.
+  grep -F "absorbed stale (agent exited under a declared pause" "$state/.watch-triage.log" >/dev/null \
+    || fail "the exited absorb was not recorded as an exit in the triage log"
+  grep -F "awaiting external" "$state/.watch-triage.log" >/dev/null \
+    && fail "the exited absorb was recorded as a live external wait in the triage log"
+
+  # The safety half entered the hard way, which is also the common way: the pane was
+  # already absorbed under a LIVE declared wait, so its hash is recorded, and the
+  # agent then dies without changing a byte of its capture - exactly what a death
+  # behind a readable bare shell looks like. Nothing about the pane changes, so only
+  # liveness can tell the supervisor the worker is gone, and it must not wait out the
+  # PAUSE_RESURFACE_SECS cadence (pinned out of reach here) to do it.
+  dir=$(make_case absorbed-then-exited-pause); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/wait.status"
+  window="test:fm-absorbed-exit"
+  printf 'idle, waiting on the validation call\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/wait.meta"
+  printf 'paused: waiting on the validation run to return the next gate\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-wait_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle, waiting on the validation call")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" grok "$out"
+  pid=$!
+  if ! wait_poll_cycle "$state" "$pid"; then
+    reap "$pid"
+    fail "the live declared wait preceding an exit was surfaced as stale: $(cat "$out")"
+  fi
+  [ "$(cat "$state/.stale-$key" 2>/dev/null || true)" = "$pane_hash" ] \
+    || { reap "$pid"; fail "the live declared wait did not absorb its hash before the agent exited"; }
+  [ ! -s "$state/.wake-queue" ] \
+    || { reap "$pid"; fail "the live declared wait preceding an exit enqueued a stale wake"; }
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the absorbed live declared wait"
+
+  : > "$out"
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" zsh "$out"
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "an exit on an already-absorbed hash never surfaced"
+  grep -F "stale: $window" "$out" >/dev/null || fail "an exit on an already-absorbed hash printed no stale wake"
+  grep -F "awaiting external" "$out" >/dev/null \
+    && fail "an exit on an already-absorbed hash was dressed as a live external wait"
+  wakes=$(queued_stale_wakes "$state" "$window")
+  bare=$(queued_stale_wakes "$state" "$window" bare)
+  [ "$wakes" -eq 1 ] || fail "an exit on an already-absorbed hash queued $wakes stale wakes, expected exactly 1"
+  [ "$bare" -eq 1 ] || fail "an exit on an already-absorbed hash did not queue a bare stale wake"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the absorbed-then-exited surface"
+
+  # One surface per exit, not one per poll: the dead pane is unchanged, so the
+  # following rounds must stay silent on the long cadence.
+  round=1
+  while [ "$round" -le 2 ]; do
+    : > "$out"
+    declared_wait_round "$state" "$fakebin" "$window" "$capture_file" zsh "$out"
+    pid=$!
+    if ! wait_poll_cycle "$state" "$pid"; then
+      reap "$pid"
+      fail "an exit already surfaced from an absorbed hash re-surfaced on round $round: $(cat "$out")"
+    fi
+    [ ! -s "$out" ] \
+      || { reap "$pid"; fail "an exit already surfaced from an absorbed hash printed a wake on round $round: $(cat "$out")"; }
+    [ "$(queued_stale_wakes "$state" "$window")" -eq 0 ] \
+      || { reap "$pid"; fail "an exit already surfaced from an absorbed hash re-queued a stale wake on round $round"; }
+    reap "$pid"
+    ack_stopped_cycle "$state" || fail "could not acknowledge the bounded absorbed-exit round $round"
+    round=$((round + 1))
+  done
+
+  # The one-shot is per exit, not per pane: a relaunched crew is absorbed again
+  # under the same declaration, and a LATER exit on that same unchanged pane text
+  # still gets its own surface.
+  : > "$out"
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" grok "$out"
+  pid=$!
+  if ! wait_poll_cycle "$state" "$pid"; then
+    reap "$pid"
+    fail "a relaunched crew under the same declared wait was surfaced as stale: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || { reap "$pid"; fail "a relaunched crew under a declared wait printed a wake: $(cat "$out")"; }
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the relaunched declared-wait round"
+
+  : > "$out"
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" zsh "$out"
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "a second exit after a relaunch never surfaced"
+  grep -F "stale: $window" "$out" >/dev/null || fail "a second exit after a relaunch printed no stale wake"
+  grep -F "awaiting external" "$out" >/dev/null \
+    && fail "a second exit after a relaunch was dressed as a live external wait"
+  [ "$(queued_stale_wakes "$state" "$window" bare)" -eq 1 ] \
+    || fail "a second exit after a relaunch did not queue exactly one bare stale wake"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the second exit surface"
+
+  # An INCONCLUSIVE liveness read is not a return to life. tmux reports ambiguous
+  # for a pane whose readable foreground carries a non-shell process, which is what
+  # a supervisor running anything in the abandoned shell produces, and unreadable
+  # for a transient probe failure. Neither says the crew came back, so neither may
+  # re-arm the one-shot and let the next dead read re-report the same exit.
+  : > "$out"
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" vim "$out"
+  pid=$!
+  if ! wait_poll_cycle "$state" "$pid"; then
+    reap "$pid"
+    fail "an inconclusive liveness read under a declared wait surfaced a stale wake: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || { reap "$pid"; fail "an inconclusive liveness read printed a wake: $(cat "$out")"; }
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the inconclusive liveness round"
+
+  : > "$out"
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" zsh "$out"
+  pid=$!
+  if ! wait_poll_cycle "$state" "$pid"; then
+    reap "$pid"
+    fail "an already-surfaced exit re-surfaced after one inconclusive read: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] \
+    || { reap "$pid"; fail "an already-surfaced exit printed a wake after one inconclusive read: $(cat "$out")"; }
+  [ "$(queued_stale_wakes "$state" "$window")" -eq 0 ] \
+    || { reap "$pid"; fail "an already-surfaced exit re-queued a stale wake after one inconclusive read"; }
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the post-inconclusive dead round"
+
+  # Past the long cadence the dead pane does get its recheck, and that recheck must
+  # say the worker has stopped. The bounded-wait wording would tell the supervisor an
+  # external call is still running on a pane the watcher confirmed dead on that very
+  # poll, which is the same cry-wolf failure wearing the opposite mask.
+  back=$(( $(date +%s) - 1200 ))
+  set_mtime "$back" "$statusf"
+  set_mtime "$back" "$state/.paused-resurfaced-$key"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-wait_status"
+  : > "$out"
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" zsh "$out"
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "a confirmed-exited pane never rechecked past the pause cadence"
+  grep -F "stale: $window" "$out" >/dev/null || fail "the exited recheck printed no stale wake"
+  grep -F "agent exited" "$out" >/dev/null \
+    || fail "the exited recheck did not report that the worker has stopped: $(cat "$out")"
+  grep -F "awaiting external" "$out" >/dev/null \
+    && fail "the exited recheck claimed a live external wait: $(cat "$out")"
+  grep -F "agent exited" "$state/.wake-queue" >/dev/null \
+    || fail "the exited recheck was not queued with the exit wording"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the exited recheck"
+
+  # The dead pane's captured text changing is not a new exit: an abandoned shell
+  # redraws its prompt, and a supervisor who attaches and runs something rewrites the
+  # capture outright. The one-shot must survive that, or every redraw re-reports the
+  # same dead worker.
+  printf 'idle bare shell, prompt redrawn after a supervisor looked\n' > "$capture_file"
+  : > "$out"
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" zsh "$out"
+  pid=$!
+  round=1
+  while [ "$round" -le 4 ]; do
+    if ! wait_poll_cycle "$state" "$pid"; then
+      reap "$pid"
+      fail "a changed capture on the dead pane re-surfaced the same exit on cycle $round: $(cat "$out")"
+    fi
+    round=$((round + 1))
+  done
+  [ ! -s "$out" ] \
+    || { reap "$pid"; fail "a changed capture on the dead pane printed a wake: $(cat "$out")"; }
+  [ "$(queued_stale_wakes "$state" "$window")" -eq 0 ] \
+    || { reap "$pid"; fail "a changed capture on the dead pane re-queued a stale wake for the same exit"; }
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the changed-capture dead rounds"
+
+  # The same poke at an abandoned pane, but long enough after the exit that the
+  # bounded recheck has aged out, so the classifier consults the reconciliation
+  # instead of short-circuiting on the pause flag. One supervisor command produces
+  # all three inputs at once: a changed capture, an inconclusive liveness read, and a
+  # reconciliation with nothing left to report but `stopped`. The pane is then
+  # classified as an ordinary non-paused stale, and that classification may retire the
+  # pause cadence - but not the exit one-shot, because the exit it records has not
+  # ended. Re-arming it re-reports a worker already declared gone, which is the
+  # cry-wolf failure the whole change exists to remove.
+  dir=$(make_case exited-pane-poked); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/wait.status"
+  window="test:fm-poked-exit"
+  printf 'idle bare shell after the worker exited\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/wait.meta"
+  printf 'paused: waiting on the validation run to return the next gate\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-wait_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle bare shell after the worker exited")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" zsh "$out"
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "the exit on the pane about to be poked never surfaced at all"
+  [ "$(queued_stale_wakes "$state" "$window" bare)" -eq 1 ] \
+    || fail "the poked-pane fixture did not start from exactly one reported exit"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the poked-pane exit surface"
+
+  set_mtime "$(( $(date +%s) - 500 ))" "$state/.paused-rechecked-$key"
+  printf 'idle bare shell, supervisor running a command in it\n' > "$capture_file"
+  : > "$out"
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" vim "$out" \
+    'state: stopped · source: pane · bare shell'
+  pid=$!
+  if ! wait_poll_cycle "$state" "$pid"; then
+    reap "$pid"
+    fail "poking the abandoned pane surfaced a stale wake of its own: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || { reap "$pid"; fail "poking the abandoned pane printed a wake: $(cat "$out")"; }
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the poked-pane round"
+
+  # The supervisor's command finishes and the pane reads dead again on its new
+  # capture. Same worker, same exit, already reported: it must stay silent.
+  : > "$out"
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" zsh "$out"
+  pid=$!
+  round=1
+  while [ "$round" -le 3 ]; do
+    if ! wait_poll_cycle "$state" "$pid"; then
+      reap "$pid"
+      fail "the exit re-surfaced after the abandoned pane was poked, on cycle $round: $(cat "$out")"
+    fi
+    round=$((round + 1))
+  done
+  [ ! -s "$out" ] \
+    || { reap "$pid"; fail "the poked pane re-reported an exit already told: $(cat "$out")"; }
+  [ "$(queued_stale_wakes "$state" "$window")" -eq 0 ] \
+    || { reap "$pid"; fail "the poked pane re-queued a stale wake for an exit already told"; }
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the post-poke dead rounds"
+
+  # A durable captain-held transfer is the other declaration that can leave an
+  # idle endpoint behind. An exited agent under it surfaces on the same rule.
+  dir=$(make_case exited-captain-held); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/held.status"
+  window="test:fm-held"
+  printf 'idle bare shell after a captain-held transfer\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/held.meta"
+  printf 'captain-held [key=route]: tracked by held-decision-route\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-held_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle bare shell after a captain-held transfer")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: stopped · source: pane · bare shell' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "an exited pane under a captain-held transfer never surfaced"
+  grep -F "stale: $window" "$out" >/dev/null || fail "an exited captain-held pane printed no stale wake"
+  grep -F "awaiting external" "$out" >/dev/null \
+    && fail "an exited captain-held pane was absorbed as a live external wait"
+
+  # An exit counts as told only once its wake is durably queued. Arming the one-shot
+  # before the append would silence a dead worker for good on a queue failure: nothing
+  # clears that marker but a confident return to life or a lifted declaration, and a
+  # dead pane under a standing declaration produces neither.
+  dir=$(make_case exit-wake-append-failure); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/wait.status"
+  window="test:fm-append-fail"
+  printf 'idle bare shell after the worker exited\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/wait.meta"
+  printf 'paused: waiting on the validation run to return the next gate\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-wait_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle bare shell after the worker exited")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  : > "$state/.wake-queue"
+  chmod 0444 "$state/.wake-queue"
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" zsh "$out"
+  pid=$!
+  wait_for_exit "$pid" 100; status=$?
+  chmod 0644 "$state/.wake-queue"
+  [ "$status" -ne 124 ] || fail "the watcher never exited after its stale wake failed to queue"
+  [ "$status" -ne 0 ] || fail "the watcher reported a delivered wake its queue append had rejected"
+  [ ! -s "$state/.wake-queue" ] || fail "a rejected queue append still recorded a wake"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the failed-append stop"
+
+  : > "$out"
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" zsh "$out"
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "the exit never surfaced on the poll after its queue append failed"
+  grep -F "stale: $window" "$out" >/dev/null || fail "the retried exit printed no stale wake"
+  [ "$(queued_stale_wakes "$state" "$window" bare)" -eq 1 ] \
+    || fail "the retried exit did not queue exactly one bare stale wake"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the retried exit surface"
+
+  pass "a declared wait follows the authoritative reconciliation on a live pane, while an exited pane still surfaces once"
 }
 
 test_secondmate_paused_resurfaces_in_normal_mode() {
@@ -1015,7 +1362,7 @@ test_nonterminal_stale_pause_transitions_reclassify_unchanged_hash() {
   dir=$(make_case nonterminal-stale-pause-transition); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-transition"
   printf 'idle awaiting external\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/transition.meta"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/transition.meta"
   printf 'paused: awaiting the upstream release\n' > "$state/transition.status"
   sig=$(seen_sig "$state/transition.status"); printf '%s' "$sig" > "$state/.seen-transition_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
@@ -1027,7 +1374,7 @@ test_nonterminal_stale_pause_transitions_reclassify_unchanged_hash() {
   export FM_FAKE_CREW_STATE='state: paused · source: status-log · awaiting the upstream release'
 
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=zsh \
+    FM_FAKE_TMUX_CURRENT_COMMAND=grok \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
@@ -2120,7 +2467,7 @@ test_busy_pane_default_turn_age_bound_is_3600s
 test_busy_declared_pause_is_rechecked_not_wedge_escalated
 test_nonterminal_stale_not_working_surfaced
 test_nonterminal_stale_paused_absorbed_then_resurfaced
-test_exited_declared_pause_is_bounded_but_live_gate_surfaces
+test_declared_pause_follows_crew_state_but_exited_pane_surfaces
 test_secondmate_paused_resurfaces_in_normal_mode
 test_secondmate_nonpaused_stale_remains_suppressed
 test_secondmate_unpause_clears_pause_tracking
