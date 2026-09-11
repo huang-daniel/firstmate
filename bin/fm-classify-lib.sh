@@ -716,7 +716,7 @@ status_presentation_snapshot() {  # <state>
 }
 
 status_presentation_cursor_offset() {  # <status-file>
-  local f=$1 state task manifest data row_task offset ident extra cur_ident size legacy
+  local f=$1 state task manifest data row_task offset ident extra cur_ident size legacy probe
   [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || return 1
   state=${f%/*}
   task=${f##*/}; task=${task%.status}
@@ -757,6 +757,16 @@ EOF
   size=${size//[[:space:]]/}
   case "$size:$offset" in *[!0-9:]*) return 1 ;; esac
   if [ "$ident" != "$cur_ident" ] || [ "$offset" -gt "$size" ]; then offset=0; fi
+  # A row written before the commit clamp existed can sit inside a line. Reading
+  # from there shows an orphan fragment and pins the cursor, because the
+  # fragment is no unread surface and acknowledge hands the same offset back. The
+  # one-byte look-back below is the boundary test; only a row that fails it pays
+  # for the scan that snaps it to the boundary before it, so a broken row heals
+  # on its next drain with at most that one line shown again.
+  if [ "$offset" -gt 0 ]; then
+    probe=$(_fm_status_line_boundary_end "$f" "$((offset - 1))" "$offset") || return 1
+    [ "$probe" = "$offset" ] || offset=$(_fm_status_line_boundary_end "$f" 0 "$offset") || return 1
+  fi
   printf '%s' "$offset"
 }
 

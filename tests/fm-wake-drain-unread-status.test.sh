@@ -76,6 +76,44 @@ test_half_written_line_is_surfaced_in_full_once_it_lands() {
   pass "a half-written line is held back, then surfaced once in full when it lands"
 }
 
+# A home that drained before the commit clamp existed can carry a manifest row
+# whose offset sits inside a line. That row is this library's own persisted
+# cursor state, so the test writes one directly: reading from it used to print
+# an orphan fragment forever, because the fragment is no unread surface and the
+# cursor was handed straight back.
+test_pre_fix_mid_line_manifest_row_heals_itself() {
+  local dir state out status first second mid ident
+  dir=$(make_case pre-fix-mid-line)
+  state="$dir/state"
+  out="$dir/drain.out"
+  status="$state/task10.status"
+  first='note: bootstrap cursor line'
+  second='note: the captain says use plan B'
+  printf '%s\n%s\n' "$first" "$second" > "$status"
+  mid=$(( ${#first} + 1 + 20 ))
+  ident=$(bash -c '. "$1"; _fm_open_decisions_file_ident "$2"' _ \
+    "$ROOT/bin/fm-classify-lib.sh" "$status")
+  [ -n "$ident" ] || fail "could not read the status file identity for the crafted manifest row"
+  printf 'task10\t%s\t%s\n' "$ident" "$mid" > "$state/.status-presentation-cursor"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on a mid-line manifest row"
+
+  if grep -F 'task10 ys use plan B' "$out" >/dev/null; then
+    fail "a mid-line cursor printed an orphan fragment: $(cat "$out")"
+  fi
+  [ "$(grep -cF "task10 $second" "$out")" = 1 ] \
+    || fail "the note was not surfaced exactly once in full: $(cat "$out")"
+  if grep -F "task10 $first" "$out" >/dev/null; then
+    fail "healing the cursor replayed history before the broken line: $(cat "$out")"
+  fi
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "second drain after healing failed"
+  if grep -F 'use plan B' "$out" >/dev/null; then
+    fail "the healed cursor stuck and reprinted the same note: $(cat "$out")"
+  fi
+  pass "a mid-line presentation cursor snaps back, shows the whole line once, then advances"
+}
+
 test_already_presented_notes_are_not_replayed() {
   local dir state out status
   dir=$(make_case no-replay)
@@ -339,6 +377,7 @@ test_routine_working_lines_stay_silent_on_the_empty_queue() {
 
 test_incident_note_answer_buried_under_routine_note_surfaces_both
 test_half_written_line_is_surfaced_in_full_once_it_lands
+test_pre_fix_mid_line_manifest_row_heals_itself
 test_already_presented_notes_are_not_replayed
 test_brand_new_note_after_presentation_is_surfaced
 test_signal_annotation_surfaces_every_unread_note_not_only_the_newest
