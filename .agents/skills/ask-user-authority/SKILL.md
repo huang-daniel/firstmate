@@ -56,3 +56,4 @@ Do not relay reviewer labels or gate output as if they settled the decision.
 - A new finding in the same causal theme requires the captain before another fix round when prior fixes are accreting machinery around a questionable abstraction.
 - A genuinely security-sensitive action requires the captain under the stronger existing boundary even if it is otherwise within scope.
 - Complex architecture explicitly requested by the captain stays within scope and does not escalate merely because it is complex.
+- A document this change just made false stays within scope, while a file that was already wrong before the branch existed is separate housekeeping, under the did-this-change-cause-it test.
