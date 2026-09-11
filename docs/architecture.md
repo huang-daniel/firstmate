@@ -25,7 +25,8 @@ A crew that declares `paused:` for a known external wait is separately absorbed 
 The watcher takes that verdict from `bin/fm-crew-state.sh` rather than re-deriving a second notion of current state from pane liveness, so a live idle pane under a declared wait is the expected shape of that wait and never surfaces as a possible wedge.
 Pane liveness enters only as a one-way override that can force a surface and never suppress one: an agent the backend confidently reports dead surfaces once even when the reconciliation still reports the status log's `paused:` or durable `captain-held` verb, because a worker that declared a wait and then exited is the wedge the stale signal exists to report.
 The reconciliation cannot see that case on its own, since an exited agent usually leaves a readable bare shell behind.
-That surface stays bounded: the unchanged pane then falls to the same long cadence, and inconclusive liveness plus the secondmate idle-endpoint exemption leave the reconciled verdict alone.
+That first exit surfaces even when the captured pane text is byte-identical to the one already absorbed while the agent was alive, which is the usual shape of a death behind a readable bare shell.
+The surface stays bounded: it is one-shot per exit, the unchanged pane then falls to the same long cadence, and inconclusive liveness plus the secondmate idle-endpoint exemption leave the reconciled verdict alone.
 A declared pause's initial normal-mode status signal still surfaces through the no-verb path, while away mode self-handles that routine signal and owns the later recheck.
 Fresh stale panes use the same current-state read before trusting the status log, so an active run or a proven busy worker outranks an old captain-relevant status-log line left behind before validation.
 No-change heartbeats are also benign.

@@ -357,6 +357,27 @@ handle_paused_stale() {  # <window> <task> <hash>
   triage_log "absorbed stale (paused, awaiting external, age ${age}s): $win"
 }
 
+# Surface the FIRST confirmed exit under a declared pause or captain-held
+# transfer, then hand the pane back to the bounded cadence. The surface must not
+# depend on the pane hash changing: an agent that dies behind a readable bare
+# shell often leaves the captured text byte-identical to the one already absorbed
+# while it was alive, and that dead endpoint is exactly the wedge stale exists to
+# report. A .paused-exited-<key> one-shot marker records that this exit has
+# already been told to the supervisor, so later polls of the same dead pane rejoin
+# PAUSE_RESURFACE_SECS instead of surfacing every cycle. pause_state_class clears
+# the marker as soon as the agent reads live again or the declaration is lifted, so
+# a relaunched-then-re-exited crew surfaces afresh.
+handle_exited_pause_stale() {  # <window> <task> <hash>
+  local win=$1 task=$2 h=$3 key
+  key=$(printf '%s' "$win" | tr ':/.' '___')
+  if [ -e "$STATE/.paused-exited-$key" ]; then
+    handle_paused_stale "$win" "$task" "$h"
+    return
+  fi
+  : > "$STATE/.paused-exited-$key"
+  surface_nonterminal_stale "$win" "$h"
+}
+
 # Apply the busy-pane completed-turn bound to a window whose bound has already
 # crossed, honoring the worker's OWN declared external wait. Prints/queues
 # nothing itself; it only chooses which absorber owns the crossed bound.
@@ -386,7 +407,8 @@ clear_pause_state() {  # <window>
   key=${win//:/_}
   key=${key//\//_}
   key=${key//./_}
-  rm -f "$STATE/.paused-$key" "$STATE/.paused-rechecked-$key" "$STATE/.paused-resurfaced-$key"
+  rm -f "$STATE/.paused-$key" "$STATE/.paused-rechecked-$key" "$STATE/.paused-resurfaced-$key" \
+    "$STATE/.paused-exited-$key"
 }
 
 clear_pause_tracking() {  # <window>
@@ -424,23 +446,31 @@ agent_confidently_exited() {  # <window>
 # `paused:` is a bounded external wait, `blocked:` is the verb that asks for
 # firstmate). Liveness enters only through agent_confidently_exited above, as a
 # one-way safety override that forces the surface.
+# Prints `working`, `paused`, `none` - the reconciled verdict - or `exited`, its own
+# distinct token for that override, so a caller can tell a confirmed exit apart from
+# a reconciliation that merely reported stopped or unknown on a LIVE pane. Both used
+# to print `none`, and the two need opposite handling on an unchanged pane hash: the
+# exit must surface once (handle_exited_pause_stale), the live one must keep being
+# absorbed on the long cadence.
 pause_state_class() {  # <window> <task>
-  local win=$1 task=$2 key last recheck_file class
+  local win=$1 task=$2 key last recheck_file exit_file class
   key=${win//:/_}
   key=${key//\//_}
   key=${key//./_}
   last=$(last_status_line "$STATE/$task.status")
   recheck_file="$STATE/.paused-rechecked-$key"
+  exit_file="$STATE/.paused-exited-$key"
   if ! status_is_paused_or_captain_held "$last"; then
-    rm -f "$recheck_file"
+    rm -f "$recheck_file" "$exit_file"
     crew_absorb_class "$task"
     return
   fi
   if agent_confidently_exited "$win"; then
     rm -f "$recheck_file"
-    printf 'none'
+    printf 'exited'
     return
   fi
+  rm -f "$exit_file"
   if [ -e "$STATE/.paused-$key" ] && [ "$(age_of "$recheck_file")" -lt "$STALE_ESCALATE_SECS" ]; then
     printf 'paused'
     return
@@ -466,7 +496,8 @@ surface_nonterminal_stale() {  # <window> <hash>
     date +%s > "$STATE/.paused-rechecked-$key"
     date +%s > "$STATE/.paused-resurfaced-$key"
   else
-    rm -f "$STATE/.paused-$key" "$STATE/.paused-rechecked-$key" "$STATE/.paused-resurfaced-$key"
+    rm -f "$STATE/.paused-$key" "$STATE/.paused-rechecked-$key" "$STATE/.paused-resurfaced-$key" \
+      "$STATE/.paused-exited-$key"
   fi
   wake "stale: $win"
 }
@@ -1128,9 +1159,12 @@ EOF
           #   - working: an actively-running pipeline legitimately sits on a static
           #     pane (e.g. waiting on CI), so absorb and start the wedge timer so a
           #     genuinely frozen run still escalates past STALE_ESCALATE_SECS;
-          #   - paused: the crew declared an external wait, or a declared pause or
-          #     captain hold is paired with a confidently dead agent, so absorb on
-          #     the long PAUSE_RESURFACE_SECS cadence instead of wedge-escalating;
+          #   - paused: the crew declared an external wait the reconciliation still
+          #     confirms, so absorb on the long PAUSE_RESURFACE_SECS cadence instead
+          #     of wedge-escalating;
+          #   - exited: a declared pause or captain hold paired with a confidently
+          #     dead agent, so surface it once - on a new hash and on an unchanged
+          #     one alike - before rejoining that same long cadence;
           #   - none: no running pipeline, no exact busy verdict, no declared pause.
           #     Surface immediately so firstmate inspects the inconclusive state
           #     (it may be done via an interactive menu that wrote no done: status,
@@ -1148,6 +1182,9 @@ EOF
               paused)
                 handle_paused_stale "$w" "$task" "$h"
                 ;;
+              exited)
+                handle_exited_pause_stale "$w" "$task" "$h"
+                ;;
               *)
                 surface_nonterminal_stale "$w" "$h"
                 ;;
@@ -1157,6 +1194,7 @@ EOF
             if [ -e "$pf" ] || status_is_paused_or_captain_held "$(last_status_line "$STATE/$task.status")"; then
               case "$(pause_state_class "$w" "$task")" in
                 paused)  handle_paused_stale "$w" "$task" "$h" ;;
+                exited)  handle_exited_pause_stale "$w" "$task" "$h" ;;
                 working) clear_pause_state "$w"
                          printf '%s' "$h" > "$sf"
                          wedge_timer_check "$w" "$ssf" "non-terminal stale (provably working after a declared pause)" "$ewf"
