@@ -47,6 +47,73 @@ test_incident_note_answer_buried_under_routine_note_surfaces_both() {
   pass "a note: answer buried under a later routine note: is surfaced with both lines"
 }
 
+# A drain can observe the append-only status log while a line is still landing.
+# Committing the cursor at that mid-line byte leaves the next span starting
+# inside the line, where the remainder no longer reads as a status line and is
+# dropped: the captain's own words are then shown truncated and never completed.
+test_half_written_line_is_surfaced_in_full_once_it_lands() {
+  local dir state out status
+  dir=$(make_case half-written-line)
+  state="$dir/state"
+  out="$dir/drain.out"
+  status="$state/task9.status"
+  prime_cursor "$state" "$status"
+
+  printf 'note: the captain says use p' >> "$status"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed over a half-written line"
+
+  if grep -F 'the captain says use p' "$out" >/dev/null; then
+    fail "a half-written line was shown as if it were finished: $(cat "$out")"
+  fi
+
+  printf 'lan B\n' >> "$status"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed after the line finished landing"
+
+  grep -F 'task9 note: the captain says use plan B' "$out" >/dev/null \
+    || fail "the completed line was never surfaced in full: $(cat "$out")"
+  [ "$(grep -cF 'the captain says use plan B' "$out")" = 1 ] \
+    || fail "the completed line was surfaced more than once: $(cat "$out")"
+  pass "a half-written line is held back, then surfaced once in full when it lands"
+}
+
+# A home that drained before the commit clamp existed can carry a manifest row
+# whose offset sits inside a line. That row is this library's own persisted
+# cursor state, so the test writes one directly: reading from it used to print
+# an orphan fragment forever, because the fragment is no unread surface and the
+# cursor was handed straight back.
+test_pre_fix_mid_line_manifest_row_heals_itself() {
+  local dir state out status first second mid ident
+  dir=$(make_case pre-fix-mid-line)
+  state="$dir/state"
+  out="$dir/drain.out"
+  status="$state/task10.status"
+  first='note: bootstrap cursor line'
+  second='note: the captain says use plan B'
+  printf '%s\n%s\n' "$first" "$second" > "$status"
+  mid=$(( ${#first} + 1 + 20 ))
+  ident=$(bash -c '. "$1"; _fm_open_decisions_file_ident "$2"' _ \
+    "$ROOT/bin/fm-classify-lib.sh" "$status")
+  [ -n "$ident" ] || fail "could not read the status file identity for the crafted manifest row"
+  printf 'task10\t%s\t%s\n' "$ident" "$mid" > "$state/.status-presentation-cursor"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on a mid-line manifest row"
+
+  if grep -F 'task10 ys use plan B' "$out" >/dev/null; then
+    fail "a mid-line cursor printed an orphan fragment: $(cat "$out")"
+  fi
+  [ "$(grep -cF "task10 $second" "$out")" = 1 ] \
+    || fail "the note was not surfaced exactly once in full: $(cat "$out")"
+  if grep -F "task10 $first" "$out" >/dev/null; then
+    fail "healing the cursor replayed history before the broken line: $(cat "$out")"
+  fi
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "second drain after healing failed"
+  if grep -F 'use plan B' "$out" >/dev/null; then
+    fail "the healed cursor stuck and reprinted the same note: $(cat "$out")"
+  fi
+  pass "a mid-line presentation cursor snaps back, shows the whole line once, then advances"
+}
+
 test_already_presented_notes_are_not_replayed() {
   local dir state out status
   dir=$(make_case no-replay)
@@ -95,6 +162,40 @@ test_brand_new_note_after_presentation_is_surfaced() {
     fail "the already-presented first note was replayed next to the new one: $(cat "$out")"
   fi
   pass "a brand-new note: after presentation is surfaced without replaying handled lines"
+}
+
+# The annotation surface reads the same presentation cursor as UNREAD STATUS, so
+# it owes the same promise: a line the writer has not finished is not shown. A
+# fragment there would reach the reader as a finished sentence, and the whole
+# line would then arrive again on the next drain.
+test_signal_annotation_holds_back_a_half_written_line() {
+  local dir state out err status
+  dir=$(make_case signal-annotation-partial)
+  state="$dir/state"
+  out="$dir/drain.out"
+  err="$dir/drain.err"
+  status="$state/task11.status"
+  prime_cursor "$state" "$status"
+
+  printf 'note: the captain says use p' >> "$status"
+  append_wake "$state" signal task11.status "signal: task11.status" \
+    || fail "queueing the status signal over a half-written line failed"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" 2> "$err" \
+    || fail "signal drain failed over a half-written line"
+  if grep -F 'the captain says use p' "$out" >/dev/null; then
+    fail "the annotation showed a half-written line as finished: $(cat "$out")"
+  fi
+
+  printf 'lan B\n' >> "$status"
+  append_wake "$state" signal task11.status "signal: task11.status" \
+    || fail "queueing the status signal after the line landed failed"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" 2> "$err" \
+    || fail "signal drain failed after the line finished landing"
+  grep -F 'task11.status: note: the captain says use plan B' "$out" >/dev/null \
+    || fail "the completed line never reached the annotation surface: $(cat "$out")"
+  pass "the annotation surface holds back a half-written line and shows it whole once it lands"
 }
 
 test_signal_annotation_surfaces_every_unread_note_not_only_the_newest() {
@@ -309,9 +410,12 @@ test_routine_working_lines_stay_silent_on_the_empty_queue() {
 }
 
 test_incident_note_answer_buried_under_routine_note_surfaces_both
+test_half_written_line_is_surfaced_in_full_once_it_lands
+test_pre_fix_mid_line_manifest_row_heals_itself
 test_already_presented_notes_are_not_replayed
 test_brand_new_note_after_presentation_is_surfaced
 test_signal_annotation_surfaces_every_unread_note_not_only_the_newest
+test_signal_annotation_holds_back_a_half_written_line
 test_pending_reply_resolution_surfaces_once
 test_unread_output_over_cap_remains_recoverable
 test_snapshot_does_not_ack_a_later_append

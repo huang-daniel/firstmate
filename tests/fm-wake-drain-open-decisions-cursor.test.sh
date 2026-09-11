@@ -7,11 +7,18 @@
 # that keeps growing, and assert both the printed output and a bounded-cost
 # property, not the fold's own source text. tests/fm-wake-drain-open-decisions.test.sh
 # already covers the fold's single-drain correctness; this file covers the
-# cursor's cross-drain persistence and cost bound.
+# cursor's cross-drain persistence and cost bound, plus the equivalence of the
+# two folds: what the incremental fold reports after N successive calls must
+# always equal what the whole-file fold computes over the same bytes in one
+# pass, because the OPEN DECISIONS listing is only closable by its advertised
+# command while those two agree.
 set -u
 
 # shellcheck source=tests/wake-helpers.sh
 . "$(dirname "${BASH_SOURCE[0]}")/wake-helpers.sh"
+
+# shellcheck source=bin/fm-classify-lib.sh
+. "$ROOT/bin/fm-classify-lib.sh"
 
 DRAIN="$ROOT/bin/fm-wake-drain.sh"
 
@@ -347,6 +354,120 @@ test_previous_fold_cache_is_refolded_under_current_semantics() {
   pass "an old fold cache is rebuilt once before same-version incremental reads resume"
 }
 
+
+# Append <text> to <file> in <pieces> separate writes, so the fold can observe
+# the file mid-line exactly as it does when a `>>` append or a mirrored remote
+# line does not land in one write. Folds incrementally after every write and
+# asserts the result still equals the whole-file fold of the same bytes.
+assert_equivalent_writes() {  # <file> <label> <pieces> <text...>
+  local f=$1 label=$2 pieces=$3 text=$4 len piece i start incr full
+  len=${#text}
+  start=0
+  for ((i = 1; i <= pieces; i++)); do
+    if [ "$i" -eq "$pieces" ]; then
+      piece=${text:start}
+    else
+      piece=${text:start:$((len / pieces))}
+      start=$((start + len / pieces))
+    fi
+    printf '%s' "$piece" >> "$f"
+    incr=$(status_open_decisions_incremental "$f")
+    full=$(status_open_decisions "$f")
+    [ "$incr" = "$full" ] \
+      || fail "$label: after write $i of $pieces the incremental fold reported '$incr' but a single-pass fold of the same bytes reported '$full'"
+  done
+}
+
+# The equal-piece helper above only covers the split offsets its arithmetic
+# happens to land on, so a later edit to a corpus line's wording could silently
+# stop exercising the one region that matters: a split INSIDE the verb token. A
+# `resolved` line cut there folds as two lines whose verbs are both truncated,
+# so neither closes anything and the decision survives a resolution the
+# whole-file fold honours - the exact stale row no documented answer command
+# could clear. Sweep every byte boundary instead, so that coverage holds by
+# construction rather than by coincidence.
+test_fold_equivalence_holds_at_every_split_offset_of_a_closing_line() {
+  local dir status final len cut prefix incr full
+  dir=$(make_case fold-equivalence-every-offset)
+  final='resolved [key=api-shape]: went with REST'$'\n'
+  len=${#final}
+  prefix='working: picked up the brief
+needs-decision: ask-user findings=F1,F2 file=data/task/nm-run-findings.txt [key=nm-run-review]
+blocked [key=api-shape]: pick REST or RPC
+'
+  for ((cut = 1; cut < len; cut++)); do
+    status="$dir/state/task-cut-$cut.status"
+    printf '%s' "$prefix" > "$status"
+    status_open_decisions_incremental "$status" >/dev/null
+
+    # Observed mid-line, before the closing line is complete.
+    printf '%s' "${final:0:cut}" >> "$status"
+    incr=$(status_open_decisions_incremental "$status")
+    full=$(status_open_decisions "$status")
+    [ "$incr" = "$full" ] \
+      || fail "split at byte $cut: mid-line the incremental fold reported '$incr' but a single-pass fold of the same bytes reported '$full'"
+
+    # And again once the rest of the line lands.
+    printf '%s' "${final:cut}" >> "$status"
+    incr=$(status_open_decisions_incremental "$status")
+    full=$(status_open_decisions "$status")
+    [ "$incr" = "$full" ] \
+      || fail "split at byte $cut: once the line completed the incremental fold reported '$incr' but a single-pass fold of the same bytes reported '$full'"
+  done
+
+  pass "the two folds agree at every one of the $((len - 1)) split offsets of a closing line, mid-line and once complete"
+}
+
+test_incremental_and_single_pass_folds_stay_identical_over_a_growing_log() {
+  local dir status
+  dir=$(make_case fold-equivalence)
+  status="$dir/state/task-equiv.status"
+  : > "$status"
+
+  # A worker's real review-gate line, whose key sits in a TRAILING token: the
+  # fold treats that position as prose, so the line legitimately opens the
+  # shared "default" key. That is the documented grammar, and it is the shape
+  # the divergence was found on, so the corpus must keep it.
+  assert_equivalent_writes "$status" "opening working line" 1 \
+    'working: picked up the brief
+'
+  assert_equivalent_writes "$status" "trailing-token needs-decision" 1 \
+    'needs-decision: ask-user findings=F1,F2 file=data/task/nm-run-findings.txt [key=nm-run-review]
+'
+  assert_equivalent_writes "$status" "a keyed decision alongside it" 1 \
+    'blocked [key=api-shape]: pick REST or RPC
+'
+  # Unrelated later appends must not disturb either fold.
+  assert_equivalent_writes "$status" "buried under later status" 1 \
+    'working: still going
+note: routine informational line
+'
+  # The same decisions closed, each written in several pieces so the fold sees
+  # the closing line half-written before it is complete. A cursor committed at
+  # a non-line boundary folds each half as its own line, neither of which
+  # closes anything, and the stale row then outlives every documented answer.
+  assert_equivalent_writes "$status" "split keyed resolution" 4 \
+    'resolved [key=api-shape]: went with REST
+'
+  assert_equivalent_writes "$status" "split default resolution" 5 \
+    'resolved: captain answered the review gate
+'
+  [ -z "$(status_open_decisions "$status")" ] \
+    || fail "test setup error: the corpus left a decision open, so the closing cases proved nothing"
+
+  # A decision opened by a split write, then left unterminated: every call must
+  # still report it, exactly as a single-pass fold of an unterminated final
+  # line does.
+  assert_equivalent_writes "$status" "split reopen" 3 \
+    'needs-decision [key=rollout]: pick the rollout plan
+'
+  printf 'blocked [key=late]: waiting on the credential' >> "$status"
+  [ "$(status_open_decisions_incremental "$status")" = "$(status_open_decisions "$status")" ] \
+    || fail "an unterminated final line folded differently incrementally than in one pass"
+
+  pass "the incremental fold and a single-pass fold report identical open sets at every point in a growing log"
+}
+
 test_truncated_log_falls_back_to_a_full_refold_not_a_dropped_decision
 test_same_size_rewrite_is_detected_via_inode_identity
 test_read_failure_preserves_state_for_retry
@@ -354,3 +475,5 @@ test_cursor_cache_read_failure_refolds_without_replaying_unread_status
 test_pre_fix_cursor_refolds_corr_tagged_decision
 test_previous_fold_cache_is_refolded_under_current_semantics
 test_buried_decision_survives_many_growing_drains_and_resolution_clears_it
+test_incremental_and_single_pass_folds_stay_identical_over_a_growing_log
+test_fold_equivalence_holds_at_every_split_offset_of_a_closing_line

@@ -86,7 +86,10 @@
 # in this home's status log per status_open_decisions (bin/fm-classify-lib.sh), or
 # an active captain hold for the target task. A key in neither is refused before
 # sending, so a mistyped key cannot deliver an answer while silently orphaning the
-# decision. A failed or unconfirmed send never closes a key (a remote
+# decision. A key in a reserved namespace (`pending-reply-...`) is refused the
+# same way even while it is listed open: only its owning flow can close it, so
+# answering it here would deliver the answer and still leave the decision open.
+# A failed or unconfirmed send never closes a key (a remote
 # delivered-with-pending-confirmation outcome counts as delivered - see the
 # remote paragraph above); a
 # delivered answer whose closing append fails exits nonzero with the exact
@@ -423,6 +426,15 @@ if [ -n "$RESOLVE_KEYS" ]; then
   RESOLVE_STATUS_FILE="$STATE/$RESOLVE_TASK_ID.status"
   resolve_open_set=$(status_open_decisions "$RESOLVE_STATUS_FILE")
   for k in $RESOLVE_KEYS; do
+    # A reserved-namespace key names a decision only its owning library ever
+    # closes: a generic `resolved [key=...]: answered: ...` line does not speak
+    # that namespace's vocabulary, so the fold ignores it and the decision stays
+    # open. Refusing here is what keeps that loud, instead of delivering an
+    # answer and reporting a close that never happened.
+    if resolve_ns=$(status_decision_key_namespace "$k"); then
+      echo "error: --resolve-key '$k': that key belongs to the reserved '$resolve_ns' namespace, which only the $resolve_ns flow that raised it can close; answering it here would deliver the answer and leave the decision open forever. Answer it through that flow, then resend without that key; nothing was sent." >&2
+      exit 1
+    fi
     case "$resolve_open_set" in
       "$k"$'\t'*|*$'\n'"$k"$'\t'*)
         RESOLVE_STATUS_KEYS="${RESOLVE_STATUS_KEYS}${RESOLVE_STATUS_KEYS:+ }$k"

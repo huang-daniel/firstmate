@@ -42,8 +42,8 @@ It also requires the identity to carry the captain-hold provenance that tasks-ax
 
 ## Answer-time closure
 
-The live status-log decision ledger has always had answer-time closure through `bin/fm-send.sh --resolve-key`: answering a keyed decision closes it in the same act.
-The durable hold ledger did not, so an answer could be captured, believed, and even implemented while its hold stayed open, and the captain could then be asked to re-answer a decision already on disk.
+The `bin/fm-send.sh` header owns status-log answer-time closure and its refusal conditions.
+The durable hold ledger previously lacked answer-time closure, so an answer could be captured, believed, and even implemented while its hold stayed open, and the captain could then be asked to re-answer a decision already on disk.
 
 "A keyed answer closes its matching hold" is now one capability with one owner.
 `answers` is its channel-agnostic entry point: it reads a key, answer, and label on each input line and closes the matching hold through the same `answer` path, so every guard applies identically no matter which channel the answer arrived on.
@@ -61,7 +61,7 @@ The script header and `--help` own the exact cross-origin marker, identity split
 Two channels feed that one intake today, and both are ordinary callers rather than special cases.
 
 `bin/fm-send.sh --resolve-key` is the chat channel.
-Its existing status-log close is unchanged for a key the status log still owns.
+Its status-log close follows that header’s contract.
 For a key the status log no longer owns it checks whether that key names an active captain hold on the target task, and feeds the answer as one keyed line if so, which is what lets chat answer a decision already transferred to its hold.
 A key open in neither ledger is still refused before anything is sent.
 Because `complete` closes the live status copy at the moment it transfers a decision to its hold, the two ledgers are the two sides of one transfer and never both own a key at once, so the common path still performs no backlog read.
@@ -145,7 +145,7 @@ ok - main and secondmate captain actionability use the same blocker readiness
 $ bash tests/fm-send-resolve-key.test.sh
 ok - fm-send --resolve-key: the answer send itself closes the open decision
 ok - fm-send --resolve-key: a key that is not open refuses loudly before anything is sent
-(13 assertions total; the status-log ledger's behavior is unchanged)
+(14 assertions total; the status-log ledger's behavior is unchanged)
 
 $ bash tests/fm-brief.test.sh
 ok - fm-brief.sh: investigation and visual-review completions load the shared decision policy

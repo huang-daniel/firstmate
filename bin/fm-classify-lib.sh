@@ -289,6 +289,14 @@ EOF
 # consumer-side rule on purpose - it protects local and remote writers
 # identically, and it can never fail a whole delta or wedge a stream the way a
 # writer-side rejection would.
+#
+# Known gap, stated so a reader is not left hunting for a command that does not
+# exist: a still-open reserved-key decision is listed in the drain's OPEN
+# DECISIONS section and marked as owned by its namespace, and it cannot be
+# closed from that listing - the generic answering command refuses it, because
+# only the owning flow's own vocabulary closes it. The owning flow has no
+# reconcile command of its own today, so such a row stays listed until that flow
+# resolves it. Giving it one is its own piece of work, not this rule's.
 FM_CLASSIFY_RESERVED_KEY_PREFIXES_DEFAULT='pending-reply-'
 
 # 0 when <key> is not reserved, or is reserved and <note> speaks its vocabulary.
@@ -305,6 +313,20 @@ _fm_decision_key_transition_allowed() {  # <key> <note>
     esac
   done
   return 0
+}
+
+# The reserved namespace that owns <key>, without its trailing separator;
+# nonzero when the key is not reserved. Read-only view of the very prefix list
+# _fm_decision_key_transition_allowed enforces above, so a caller that must
+# route an answer to a key's owner never restates that list.
+status_decision_key_namespace() {  # <key> -> owning namespace
+  local key=$1 prefix
+  for prefix in ${FM_CLASSIFY_RESERVED_KEY_PREFIXES:-$FM_CLASSIFY_RESERVED_KEY_PREFIXES_DEFAULT}; do
+    case "$key" in
+      "$prefix"*) printf '%s' "${prefix%-}"; return 0 ;;
+    esac
+  done
+  return 1
 }
 
 _fm_decision_fold_line() {  # <open-set> <status-line> <resolve-verb> <held-verb>
@@ -401,7 +423,9 @@ EOF
 # The cursor format is `version`, `offset`, `ident`, then the folded open set.
 # FM_OPEN_DECISIONS_FOLD_VERSION must be bumped whenever
 # _fm_decision_fold_line semantics change, so persisted state from an older
-# interpretation is discarded and rebuilt from byte 0.
+# interpretation is discarded and rebuilt from byte 0. It is bumped for a fixed
+# fold BUG too, for the same reason: a cursor written by the broken version can
+# already carry a wrong open set, and only a rebuild from byte 0 retires it.
 #
 # Cursor invalidation is deliberately minimal, matching how status files are
 # ACTUALLY used in this repo: every one is created once (`>`) and only ever
@@ -415,6 +439,22 @@ EOF
 # rewrites the cursor from that clean baseline. A same-inode, same-size,
 # in-place byte edit is NOT detected; that is a deliberately accepted gap
 # because no code path in this repo ever does that to a status file.
+#
+# A status log is an append-only STREAM, so its last bytes on disk can be a line
+# that is still being written: `>>` is not guaranteed to land a whole line in one
+# write, and a mirrored remote line arrives the same way. The cursor must
+# therefore never be committed at a byte position that is not a line boundary.
+# It once was, and that is precisely how the two folds drifted apart: half a
+# `resolved:` line folded as a complete line (closing nothing, since its verb is
+# truncated), its remainder folded later as another line (closing nothing
+# either), and the open set kept a decision the whole-file fold had already
+# retired - a listing entry no documented answer command could clear. So the new
+# bytes are split at their last newline: the complete lines before it are folded
+# and COMMITTED, while a trailing partial line is folded into the RETURNED set
+# only and re-read whole on the next call. Every call therefore reports exactly
+# what status_open_decisions would, including an unterminated final line, while
+# nothing partial is ever persisted. Re-reading that one trailing line keeps the
+# cost bound intact (bounded by new appends, plus at most one line).
 #
 # The other real failure mode is OUR OWN read failing (a stat/wc/tail I/O
 # error), not a malformed writer: every such read here is checked, and on
@@ -439,7 +479,7 @@ _fm_open_decisions_cursor_path() {  # <status-file>
   printf '%s/.%s.open-decisions-cursor' "$dir" "${base%.status}"
 }
 
-FM_OPEN_DECISIONS_FOLD_VERSION=4
+FM_OPEN_DECISIONS_FOLD_VERSION=5
 
 # Portable device:inode identity for the rotation/recreation check below.
 _fm_open_decisions_file_ident() {  # <file> -> "dev:inode", empty on I/O failure
@@ -480,10 +520,38 @@ _fm_status_read_span() {  # <status-file> <start-offset> <byte-length>
   ' "$f" "$start" "$length"
 }
 
+# Bytes of COMPLETE (newline-terminated) lines within the first <chunk-size>
+# bytes of <chunk-file>; 0 when the chunk holds no terminated line. This is the
+# ONE place the line-boundary split is computed, so neither cursor below can
+# commit a byte position that is not a line boundary.
+_fm_status_complete_line_bytes() {  # <chunk-file> <chunk-size>
+  LC_ALL=C awk -v size="$2" '
+    { offset += length($0) + 1; if (offset <= size) complete = offset }
+    END { printf "%.0f\n", complete + 0 }
+  ' "$1"
+}
+
+# Clamp the absolute byte offset <end> back to the last line boundary at or
+# before it, reading only the span after <start> (itself already a boundary).
+# Prints <start> when that span holds no terminated line at all.
+_fm_status_line_boundary_end() {  # <status-file> <start> <end>
+  local f=$1 start=$2 end=$3 chunk span complete
+  [ "$end" -gt "$start" ] || { printf '%s' "$end"; return 0; }
+  span=$((end - start))
+  chunk="$(_fm_open_decisions_cursor_path "$f").boundary.$$"
+  _fm_status_read_span "$f" "$start" "$span" > "$chunk" 2>/dev/null \
+    || { rm -f "$chunk"; return 1; }
+  complete=$(_fm_status_complete_line_bytes "$chunk" "$span") || { rm -f "$chunk"; return 1; }
+  rm -f "$chunk"
+  complete=${complete//[[:space:]]/}
+  case "$complete" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s' "$((start + complete))"
+}
+
 status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
   local f=$1 captured_end=${2:-} cf offset ident open='' trusted_open='' cursor_data first rest offset_line ident_line
   local version='' size actual_size cur_ident resolve held chunk_file chunk_size line cursor_dirty=0
-  local target_cursor
+  local target_cursor complete_size partial_file emit=''
   [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || return 0
   cf=$(_fm_open_decisions_cursor_path "$f")
   offset=0
@@ -555,6 +623,10 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
     cursor_dirty=1
   fi
 
+  # What this call REPORTS starts as the persisted set and, unlike the cursor,
+  # may also absorb a trailing partial line below.
+  emit=$open
+
   if [ "$offset" -lt "$size" ]; then
     chunk_file="$cf.read.$$"
     _fm_status_read_span "$f" "$offset" "$((size - offset))" > "$chunk_file" 2>/dev/null \
@@ -573,12 +645,35 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
       && printf '%s\t%s\n' "$f" "$chunk_size" >> "$FM_OPEN_DECISIONS_READ_PROBE"
     resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
     held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
-    while IFS= read -r line || [ -n "$line" ]; do
-      open=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held")
-    done < "$chunk_file"
+    # Split the new bytes at the last newline: only the complete lines before
+    # it may be COMMITTED to the cursor, and any trailing partial line is
+    # folded into the RETURNED set alone. See the line-boundary paragraph in
+    # this function's header for why committing mid-line is what makes the two
+    # folds disagree.
+    complete_size=$(_fm_status_complete_line_bytes "$chunk_file" "$chunk_size") \
+      || { rm -f "$chunk_file"; printf '%s' "$trusted_open"; return 0; }
+    complete_size=${complete_size//[[:space:]]/}
+    case "$complete_size" in
+      ''|*[!0-9]*) rm -f "$chunk_file"; printf '%s' "$trusted_open"; return 0 ;;
+    esac
+    if [ "$complete_size" -gt 0 ]; then
+      while IFS= read -r line; do
+        open=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held")
+      done < "$chunk_file"
+      offset=$((offset + complete_size))
+      cursor_dirty=1
+    fi
+    emit=$open
+    if [ "$complete_size" -lt "$chunk_size" ]; then
+      partial_file="$cf.partial.$$"
+      LC_ALL=C tail -c "$((chunk_size - complete_size))" "$chunk_file" > "$partial_file" 2>/dev/null \
+        || { rm -f "$chunk_file" "$partial_file"; printf '%s' "$trusted_open"; return 0; }
+      while IFS= read -r line || [ -n "$line" ]; do
+        emit=$(_fm_decision_fold_line "$emit" "$line" "$resolve" "$held")
+      done < "$partial_file"
+      rm -f "$partial_file"
+    fi
     rm -f "$chunk_file"
-    offset=$size
-    cursor_dirty=1
   fi
   if [ "$cursor_dirty" -eq 1 ]; then
     target_cursor="$cf.tmp.$$"
@@ -590,7 +685,7 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
     } > "$target_cursor" || return 1
     mv -f "$target_cursor" "$cf" || return 1
   fi
-  printf '%s' "$open"
+  printf '%s' "$emit"
 }
 
 # Incremental sibling of scan_open_decisions: same fleet-wide directory walk and
@@ -631,7 +726,7 @@ status_presentation_snapshot() {  # <state>
 }
 
 status_presentation_cursor_offset() {  # <status-file>
-  local f=$1 state task manifest data row_task offset ident extra cur_ident size legacy
+  local f=$1 state task manifest data row_task offset ident extra cur_ident size legacy probe
   [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || return 1
   state=${f%/*}
   task=${f##*/}; task=${task%.status}
@@ -672,6 +767,17 @@ EOF
   size=${size//[[:space:]]/}
   case "$size:$offset" in *[!0-9:]*) return 1 ;; esac
   if [ "$ident" != "$cur_ident" ] || [ "$offset" -gt "$size" ]; then offset=0; fi
+  # A row written before the commit clamp existed can sit inside a line. Reading
+  # from there shows an orphan fragment and pins the cursor, because the
+  # fragment is no unread surface and acknowledge hands the same offset back.
+  # The boundary test is the byte before the offset, captured directly: a
+  # newline there yields an empty capture. Only a row that fails that test pays
+  # for the scan that snaps it to the boundary before it, so a broken row heals
+  # on its next drain with at most that one line shown again.
+  if [ "$offset" -gt 0 ]; then
+    probe=$(_fm_status_read_span "$f" "$((offset - 1))" 1) || return 1
+    [ -z "$probe" ] || offset=$(_fm_status_line_boundary_end "$f" 0 "$offset") || return 1
+  fi
   printf '%s' "$offset"
 }
 
@@ -773,8 +879,18 @@ EOF
 }
 
 status_commit_presentation_snapshot() {  # <state> <snapshot>
-  local state=$1 snapshot=$2 task endpoint ident f cur_ident size tmp
-  tmp="$state/.status-presentation-cursor.tmp.$$"
+  local state=$1 snapshot=$2 task endpoint ident f cur_ident size tmp prev manifest rows
+  manifest="$state/.status-presentation-cursor"
+  tmp="$manifest.tmp.$$"
+  # One read of the manifest for the whole commit: each row's previously
+  # committed offset is resolved from this copy, never by re-reading and
+  # re-parsing the manifest per task.
+  rows=''
+  if [ -e "$manifest" ] || [ -L "$manifest" ]; then
+    [ -f "$manifest" ] && [ -r "$manifest" ] && [ ! -L "$manifest" ] || return 1
+    rows=$(LC_ALL=C command cat "$manifest" 2>/dev/null) || return 1
+  fi
+  rows=$'\n'$rows
   : > "$tmp" || return 1
   while IFS=$(printf '\t') read -r task endpoint ident; do
     [ -n "$task" ] || continue
@@ -788,12 +904,27 @@ status_commit_presentation_snapshot() {  # <state> <snapshot>
     case "$size" in ''|*[!0-9]*) rm -f "$tmp"; return 1 ;; esac
     [ "$cur_ident" = "$ident" ] && [ "$endpoint" -le "$size" ] \
       || { rm -f "$tmp"; return 1; }
+    # A drain can observe this append-only log mid-write, so the captured
+    # endpoint can sit inside a half-written line. Persisting it would leave the
+    # next span starting mid-line, where the remainder no longer reads as a
+    # status line and is dropped for good. Commit only through the last complete
+    # line, exactly as the open-decisions cursor does.
+    prev=0
+    case "$rows" in
+      *$'\n'"$task"$'\t'"$ident"$'\t'*)
+        prev=${rows#*$'\n'"$task"$'\t'"$ident"$'\t'}
+        prev=${prev%%$'\n'*}
+        ;;
+    esac
+    case "$prev" in ''|*[!0-9]*) rm -f "$tmp"; return 1 ;; esac
+    endpoint=$(_fm_status_line_boundary_end "$f" "$prev" "$endpoint") \
+      || { rm -f "$tmp"; return 1; }
     printf '%s\t%s\t%s\n' "$task" "$ident" "$endpoint" >> "$tmp" \
       || { rm -f "$tmp"; return 1; }
   done <<EOF
 $snapshot
 EOF
-  mv -f "$tmp" "$state/.status-presentation-cursor" || { rm -f "$tmp"; return 1; }
+  mv -f "$tmp" "$manifest" || { rm -f "$tmp"; return 1; }
 }
 
 scan_open_decisions_snapshot() {  # <state> <task-and-endpoint-snapshot>
@@ -903,8 +1034,12 @@ status_open_decisions_cursor_offset() {  # <status-file>
   printf '%s' "$offset"
 }
 
-# Print every non-blank status line whose bytes begin at or after the persisted
-# presentation offset. Does not write the cursor. A missing manifest row or
+# Print every non-blank COMPLETE status line whose bytes begin at or after the
+# persisted presentation offset. A trailing line the writer has not terminated
+# yet is not a line to show: it would read as a finished note while saying
+# something else ("use p" for "use plan B"), and the cursor commit stays behind
+# it, so it prints once, in full, on the next drain.
+# Does not write the cursor. A missing manifest row or
 # changed status identity reads the current file from offset 0; malformed or
 # unreadable cursor state fails the scan. Symlinks and unreadable status files
 # print nothing.
@@ -928,7 +1063,7 @@ status_new_lines_since_cursor() {  # <status-file> [<captured-end-offset>]
   [ "$offset" -lt "$size" ] || return 0
   _fm_status_read_span "$f" "$offset" "$((size - offset))" > "$chunk_file" 2>/dev/null \
     || { rm -f "$chunk_file"; return 1; }
-  while IFS= read -r line || [ -n "$line" ]; do
+  while IFS= read -r line; do
     case "$line" in
       *[![:space:]]*) printf '%s\n' "$line" || { rc=1; break; } ;;
     esac
@@ -941,7 +1076,7 @@ status_new_lines_since_cursor() {  # <status-file> [<captured-end-offset>]
 # pending-reply resolution. Those lines never fold into OPEN DECISIONS, so the
 # drain's unread-status surface is their only guaranteed presentation.
 status_line_is_unread_surface() {  # <status-line>
-  local line=$1 verb key note resolve held prefix
+  local line=$1 verb key note resolve held
   [ -n "$line" ] || return 1
   verb=$(status_line_verb "$line")
   [ "$verb" = note ] && return 0
@@ -953,15 +1088,8 @@ status_line_is_unread_surface() {  # <status-line>
   esac
   key=$(_fm_decision_key "$line") || return 1
   note=$(status_line_note "$line")
-  for prefix in ${FM_CLASSIFY_RESERVED_KEY_PREFIXES:-$FM_CLASSIFY_RESERVED_KEY_PREFIXES_DEFAULT}; do
-    case "$key" in
-      "$prefix"*)
-        _fm_decision_key_transition_allowed "$key" "$note"
-        return
-        ;;
-    esac
-  done
-  return 1
+  status_decision_key_namespace "$key" >/dev/null || return 1
+  _fm_decision_key_transition_allowed "$key" "$note"
 }
 
 # Fleet-wide unread informational lines: one "<task>\t<status-line>" row per
