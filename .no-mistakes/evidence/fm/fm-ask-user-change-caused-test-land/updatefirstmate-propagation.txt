@@ -1,0 +1,11 @@
+firstmate: updated 22184ab..11a16ff (instructions changed: .agents/skills)
+reread-firstmate: yes
+nudge-secondmates: none
+### run 2: already current
+firstmate: already current
+reread-firstmate: no
+nudge-secondmates: none
+### run 3: README-only upstream commit (non-instruction surface)
+firstmate: updated 11a16ff..a8c61bb
+reread-firstmate: no
+nudge-secondmates: none

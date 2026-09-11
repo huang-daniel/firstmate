@@ -1,0 +1,48 @@
+FM_TEST_BEGIN 2026-09-11T06:31:02Z tests/fm-decision-hold-lifecycle.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - report-only unresolved decision is reproduced and completion refuses before loss
+ok - non-forced scout teardown always requires durable inventory verification
+ok - a declined decision closes with a recorded answer and no routed work
+ok - a decision closed outside the script is repairable and then clears teardown
+ok - an unanswered decision still blocks completion and resists both unrouted close paths
+ok - captain holds are idempotent, distinct, teardown-safe, Bearings-visible, and durably routed before close
+ok - completion and verification validate origins before constructing paths
+ok - ended visual review follows the same decision-hold completion owner
+ok - resolved findings and decision-like prose do not create false holds
+ok - terminal single-owner stale status decisions do not block empty inventory
+ok - main-home and secondmate-home captain holds remain correctly routed
+ok - resolve matches first/middle/last in quoted blocked_by and rejects a genuinely absent id
+ok - a bound channel's captured answers close their captain holds at answer time
+ok - a channel source with no decision binding closes nothing
+ok - an any-origin bound source closes full-identity holds across origins
+ok - the answer path keeps every guard the unrouted close path already had
+ok - the chat channel feeds the same keyed-answer intake a captured review does
+FM_TEST_END 2026-09-11T06:32:26Z tests/fm-decision-hold-lifecycle.test.sh exit=0 duration_ms=83739 gate_skip=false
+FM_TEST_BEGIN 2026-09-11T06:32:26Z tests/fm-classify-decision-key.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - a stated [key=X] opens X whether it precedes or follows the verb colon
+ok - a keyless needs-decision still opens and closes the default key
+ok - a resolution closes its decision regardless of either line's key position
+ok - blocked [key=X] opens X in both key positions
+ok - two colon-form keyed decisions never collapse into one shared bucket
+ok - a [key=x] mentioned mid-note is prose, never an opened or closed key
+ok - a malformed stated key is rejected in both positions, never folded as default
+ok - status_line_verb strips every bracket tag before the colon, in any order, and recovers the bare verb
+ok - a [corr=...] tag ahead of [key=...] no longer swallows the verb: opens and closes under the stated key
+ok - a [corr=...] tag with no stated key opens under 'default', exactly like a bare needs-decision line
+ok - a [key=x] tag alone (no corr tag) still opens x - no regression from the tag-stripping fix
+ok - blocked/resolved parse their bare verb with any bracket-tag order preceding the colon
+ok - the incremental fold matches the full fold across appends in both key positions
+FM_TEST_END 2026-09-11T06:32:28Z tests/fm-classify-decision-key.test.sh exit=0 duration_ms=1629 gate_skip=false
+FM_TEST_BEGIN 2026-09-11T06:32:28Z tests/fm-operational-input.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - operational input: every current generic envelope retains its exact structured kind
+ok - operational input: the established from-firstmate carrier remains structurally typed and byte-compatible
+ok - operational input: untyped landed FIRSTMATE_OP transcripts are explicit legacy-operational input
+ok - operational input: historical prose compatibility is isolated from current parsing
+ok - operational input: quoted, ASCII-only, arbitrary-U+2063, altered-legacy, and label-only near misses stay genuine
+ok - operational input: the OpenCode adapter constructs through the canonical owner
+ok - operational input: current construction rejects legacy kinds and empty bodies
+FM_TEST_END 2026-09-11T06:32:29Z tests/fm-operational-input.test.sh exit=0 duration_ms=711 gate_skip=false
+FM_TEST_SUMMARY total=3 failed=0 skipped_gate=0 duration_ms=86188
+FM_TEST_SUMMARY_FAMILY family=pure-contract-unit count=3 duration_ms=86079 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-decision-hold-lifecycle.test.sh duration_ms=83739
+FM_TEST_SLOWEST rank=2 script=tests/fm-classify-decision-key.test.sh duration_ms=1629
+FM_TEST_SLOWEST rank=3 script=tests/fm-operational-input.test.sh duration_ms=711

@@ -1,0 +1,84 @@
+FM_TEST_BEGIN 2026-09-11T06:29:26Z tests/fm-documentation-audiences.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - documentation inventory classifies every maintained prose surface exactly once
+ok - classification, setup routing, and maintained-prose scope fail safely
+ok - required documentation owner pointers cannot silently disappear
+ok - local links resolve while dates, versions, commands, and incident prose remain semantically reviewed
+FM_TEST_END 2026-09-11T06:29:27Z tests/fm-documentation-audiences.test.sh exit=0 duration_ms=1004 gate_skip=false
+FM_TEST_BEGIN 2026-09-11T06:29:27Z tests/fm-brief.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - fm-brief.sh: bash -n succeeds
+/tmp/fm-brief.gsbL1k/heredoc-in-substitution.sh:2
+ok - fm-brief.sh: no heredoc is nested inside a command substitution (Bash 3.2 parse-safe)
+ok - fm-brief.sh: --help renders the complete header
+ok - fm-brief.sh: no-mistakes/direct-PR/local-only briefs generate cleanly
+ok - fm-brief.sh: ship --mode is required and closed-set validated
+ok - fm-brief.sh: the explicit ship mode wins over the registered posture
+ok - fm-brief.sh: --yolo and scout/secondmate --mode are refused, never silently dropped
+ok - fm-brief.sh: faster paths use configured authority without stacked review
+ok - fm-brief.sh: no-mistakes DOD keeps its apostrophe prose, now parse-safe
+ok - fm-brief.sh: ship project-memory wording carries the AGENTS.md authoring bar
+ok - fm-brief.sh: --herdr-lab emits the complete hard safety contract
+ok - fm-brief.sh: --herdr-lab uses its quoted Firstmate-owned helper path
+ok - fm-brief.sh: ship and scout scaffolds make omitted Herdr intent fail-visible
+ok - fm-brief.sh: Herdr lab contract covers scouts and rejects secondmate misuse
+ok - fm-brief.sh: --no-projects scaffolds a project-less charter and guards misuse
+ok - fm-brief.sh: marked requests avoid generic acknowledgements and preserve material reporting
+ok - fm-brief.sh: relative directory inputs ignore CDPATH, render stable absolute charter paths, or fail loudly
+ok - fm-brief.sh: custom pause verb renders in every scaffold
+ok - fm-brief.sh: investigation and visual-review completions load the shared decision policy
+ok - fm-brief: scout and secondmate code paths still scaffold well-formed briefs
+FM_TEST_END 2026-09-11T06:29:29Z tests/fm-brief.test.sh exit=0 duration_ms=1427 gate_skip=false
+FM_TEST_BEGIN 2026-09-11T06:29:29Z tests/fm-ensure-agents-md.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - fm-ensure-agents-md.sh: created AGENTS.md includes self-governance section
+ok - fm-ensure-agents-md.sh: fresh setup writes a real @AGENTS.md pointer
+ok - fm-ensure-agents-md.sh: promoted CLAUDE.md includes self-governance section
+ok - fm-ensure-agents-md.sh: newline-less promotion keeps a blank separator line
+ok - fm-ensure-agents-md.sh: existing symlinked AGENTS.md gains the section idempotently
+ok - fm-ensure-agents-md.sh: correct symlink migrates to pointer without clobbering AGENTS.md
+ok - fm-ensure-agents-md.sh: existing AGENTS.md without CLAUDE.md gains section and pointer
+ok - fm-ensure-agents-md.sh: AGENTS.md that already has the section stays unchanged
+ok - fm-ensure-agents-md.sh: CRLF AGENTS.md with the section stays unchanged
+ok - fm-ensure-agents-md.sh: CRLF injection preserves line endings idempotently
+ok - fm-ensure-agents-md.sh: canonical real CLAUDE.md pointer is not a conflict
+ok - fm-ensure-agents-md.sh: refuses distinct real AGENTS.md and CLAUDE.md
+ok - fm-ensure-agents-md.sh: refuses AGENTS.md when it is a symlink
+ok - fm-ensure-agents-md.sh: refuses a CLAUDE.md symlink that does not point to AGENTS.md
+ok - fm-ensure-agents-md.sh: refuses a non-regular CLAUDE.md
+ok - fm-ensure-agents-md.sh: refuses a case-variant lowercase agents.md (issue #389)
+FM_TEST_END 2026-09-11T06:29:29Z tests/fm-ensure-agents-md.test.sh exit=0 duration_ms=555 gate_skip=false
+FM_TEST_BEGIN 2026-09-11T06:29:29Z tests/fm-test-run.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - exact suite coverage: --all lists every tests/*.test.sh once
+ok - family selection returns a proper subset of the suite
+ok - single-script selection lists exactly that path
+ok - changed-file selection stays conservative (never silent full suite)
+ok - changed selection covers dependents and fails closed for unmapped source
+ok - empty changed selection emits deterministic text and JSON summaries
+ok - timing markers and JSON artifact are valid
+ok - aggregate exit reflects any script failure
+ok - gate-skip accounting is honest and non-failing
+ok - fail-on-gate-skip converts herdr-not-found into a hard failure
+ok - exclude-family drops the named primary family after selection
+ok - portable shard union, disjointness, and coverage guard hold
+ok - portable serial shards are a deterministic disjoint cover of the serial lane
+ok - portable serial shard lanes refuse mismatched, out-of-range, and countless names
+ok - --jobs refuses non-proven / stateful selections
+ok - jobs scheduler runs proven scripts; failure propagates; non-proven refused
+not ok - ruby is required to parse .github/workflows/ci.yml as YAML
+FM_TEST_END 2026-09-11T06:29:57Z tests/fm-test-run.test.sh exit=1 duration_ms=27646 gate_skip=false
+FM_TEST_BEGIN 2026-09-11T06:29:57Z tests/fm-supervision-instructions.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - renderer prints exactly the selected harness block
+ok - renderer falls back to unknown.md for unverified harness names
+ok - renderer includes read-only, afk, and effective x-mode current-state stanzas
+ok - renderer repair-line mode is harness-aware and honors conditional state
+ok - renderer preserves every harness ordinary-continuation and missing-cycle repair path
+ok - pi-signed keeps its identity while sharing Pi's supervision protocol
+ok - grok supervision is Claude-shaped background notify with passive Stop-hook backstop
+ok - grok rendered command sources the effective x-mode config
+ok - pi supervision snippet renders the effective extension path
+FM_TEST_END 2026-09-11T06:29:57Z tests/fm-supervision-instructions.test.sh exit=0 duration_ms=421 gate_skip=false
+FM_TEST_SUMMARY total=5 failed=1 skipped_gate=0 duration_ms=31225
+FM_TEST_SUMMARY_FAMILY family=pure-contract-unit count=5 duration_ms=31053 failed=1
+FM_TEST_SLOWEST rank=1 script=tests/fm-test-run.test.sh duration_ms=27646
+FM_TEST_SLOWEST rank=2 script=tests/fm-brief.test.sh duration_ms=1427
+FM_TEST_SLOWEST rank=3 script=tests/fm-documentation-audiences.test.sh duration_ms=1004
+FM_TEST_SLOWEST rank=4 script=tests/fm-ensure-agents-md.test.sh duration_ms=555
+FM_TEST_SLOWEST rank=5 script=tests/fm-supervision-instructions.test.sh duration_ms=421

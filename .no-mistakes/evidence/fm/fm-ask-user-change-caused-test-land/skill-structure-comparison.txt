@@ -1,0 +1,10 @@
+Skill structure, base 22184ab vs propagated home after /updatefirstmate
+
+sections before   : ['# ask-user-authority', '## Decide who has authority', '## Captain-facing escalation', '## Classification examples']
+sections after    : ['# ask-user-authority', '## Decide who has authority', '## Captain-facing escalation', '## Classification examples']
+sections unchanged: True (no new section added)
+numbered steps    : 13 -> 13 unchanged: True
+classification bullets: 5 -> 6
+  added bullet: A document this change just made false stays within scope, while a file that was already wrong before the branch existed is separate housekeeping, under the did-this-change-cause-it test.
+
+did-this-change-cause-it mentions in the loaded skill: 2
