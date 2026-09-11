@@ -374,11 +374,12 @@ handle_paused_stale() {  # <window> <task> <hash> [exited]
 # report. A .paused-exited-<key> one-shot marker records that this exit has
 # already been told to the supervisor, so later polls of the same dead pane rejoin
 # PAUSE_RESURFACE_SECS instead of surfacing every cycle, under the exited wording.
-# pause_state_class is the marker's only owner: it clears it when the agent reads
-# confidently alive again or the declaration is lifted, so a relaunched-then-
-# re-exited crew surfaces afresh while an inconclusive read changes nothing. The
-# dead pane's captured text changing is not a new exit either, so the stale-loop
-# arms that meet an `exited` verdict must leave the marker to that owner. The marker
+# pause_state_class is the marker's only owner: it disarms it through
+# clear_exit_surfaced when the agent reads confidently alive again or the declaration
+# is lifted, so a relaunched-then-re-exited crew surfaces afresh while an inconclusive
+# read changes nothing. Nothing a verdict can report ends the exit this marker
+# records - not the dead pane's captured text changing, not a reconciliation that
+# reports stopped on it - so no verdict-driven cleanup may disarm it. The marker
 # is armed only once the wake is durably queued (enqueue-before-suppress, as
 # everywhere else in this watcher): nothing but a live read or a lifted declaration
 # ever clears it, so arming it for a wake the queue rejected would silence that dead
@@ -422,8 +423,21 @@ clear_pause_state() {  # <window>
   key=${win//:/_}
   key=${key//\//_}
   key=${key//./_}
-  rm -f "$STATE/.paused-$key" "$STATE/.paused-rechecked-$key" "$STATE/.paused-resurfaced-$key" \
-    "$STATE/.paused-exited-$key"
+  rm -f "$STATE/.paused-$key" "$STATE/.paused-rechecked-$key" "$STATE/.paused-resurfaced-$key"
+}
+
+# Disarm the exit one-shot. Deliberately NOT part of clear_pause_state: the
+# cadence bookkeeping above is cleared by any verdict that outranks the bounded
+# recheck, while the one-shot may only be disarmed by the two things that end the
+# exit it records - a confident `alive` read or a lifted declaration. An
+# inconclusive read outranks nothing, so a supervisor poking around in the
+# abandoned pane must not re-arm a wake for a worker already reported gone.
+clear_exit_surfaced() {  # <window>
+  local win=$1 key
+  key=${win//:/_}
+  key=${key//\//_}
+  key=${key//./_}
+  rm -f "$STATE/.paused-exited-$key"
 }
 
 clear_stale_tracking() {  # <window>
@@ -475,15 +489,15 @@ agent_liveness_read() {  # <window>
 # exit must surface once (handle_exited_pause_stale), the live one must keep being
 # absorbed on the long cadence.
 pause_state_class() {  # <window> <task>
-  local win=$1 task=$2 key last recheck_file exit_file class
+  local win=$1 task=$2 key last recheck_file class
   key=${win//:/_}
   key=${key//\//_}
   key=${key//./_}
   last=$(last_status_line "$STATE/$task.status")
   recheck_file="$STATE/.paused-rechecked-$key"
-  exit_file="$STATE/.paused-exited-$key"
   if ! status_is_paused_or_captain_held "$last"; then
-    rm -f "$recheck_file" "$exit_file"
+    rm -f "$recheck_file"
+    clear_exit_surfaced "$win"
     crew_absorb_class "$task"
     return
   fi
@@ -493,7 +507,7 @@ pause_state_class() {  # <window> <task>
       printf 'exited'
       return
       ;;
-    alive) rm -f "$exit_file" ;;
+    alive) clear_exit_surfaced "$win" ;;
   esac
   if [ -e "$STATE/.paused-$key" ] && [ "$(age_of "$recheck_file")" -lt "$STALE_ESCALATE_SECS" ]; then
     printf 'paused'
@@ -521,8 +535,8 @@ surface_nonterminal_stale() {  # <window> <hash> [suppressor-marker]
     date +%s > "$STATE/.paused-rechecked-$key"
     date +%s > "$STATE/.paused-resurfaced-$key"
   else
-    rm -f "$STATE/.paused-$key" "$STATE/.paused-rechecked-$key" "$STATE/.paused-resurfaced-$key" \
-      "$STATE/.paused-exited-$key"
+    rm -f "$STATE/.paused-$key" "$STATE/.paused-rechecked-$key" "$STATE/.paused-resurfaced-$key"
+    clear_exit_surfaced "$win"
   fi
   wake "stale: $win"
 }
@@ -1100,8 +1114,10 @@ EOF
     key=${key//\//_}
     key=${key//./_}
     last=$(last_status_line "$STATE/$task.status")
-    if ! status_is_paused_or_captain_held "$last" && [ -e "$STATE/.paused-$key" ]; then
+    if ! status_is_paused_or_captain_held "$last" \
+      && { [ -e "$STATE/.paused-$key" ] || [ -e "$STATE/.paused-exited-$key" ]; }; then
       clear_pause_tracking "$w"
+      clear_exit_surfaced "$w"
     fi
     if [ "$kind" = secondmate ] && ! status_is_paused "$last"; then
       continue

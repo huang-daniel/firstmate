@@ -819,13 +819,16 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
 # pane liveness read (<pane-command>: the harness binary reads alive, a bare shell
 # reads dead). The reconciliation is pinned to `paused` and FM_PAUSE_RESURFACE_SECS
 # is pinned far above the fixture's status age, so the bounded recheck can never
-# fire: any wake a round produces came from the exited-agent override alone. Sets $!
-# for the caller, like watch_bg.
-declared_wait_round() {  # <state> <fakebin> <window> <capture-file> <pane-command> <out>
+# fire: any wake a round produces came from the exited-agent override alone. The
+# reconciliation is pinned to `paused` unless <crew-state> overrides it, which a
+# round does when it needs the classifier to fall through to a non-paused verdict.
+# Sets $! for the caller, like watch_bg.
+declared_wait_round() {  # <state> <fakebin> <window> <capture-file> <pane-command> <out> [crew-state]
   local state=$1 fakebin=$2 window=$3 capture=$4 cmd=$5 out=$6
+  local crew=${7:-'state: paused · source: status-log · waiting on the validation run'}
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture" \
     FM_FAKE_TMUX_CURRENT_COMMAND="$cmd" \
-    FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting on the validation run' \
+    FM_FAKE_CREW_STATE="$crew" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
@@ -1151,6 +1154,68 @@ test_declared_pause_follows_crew_state_but_exited_pane_surfaces() {
     || { reap "$pid"; fail "a changed capture on the dead pane re-queued a stale wake for the same exit"; }
   reap "$pid"
   ack_stopped_cycle "$state" || fail "could not acknowledge the changed-capture dead rounds"
+
+  # The same poke at an abandoned pane, but long enough after the exit that the
+  # bounded recheck has aged out, so the classifier consults the reconciliation
+  # instead of short-circuiting on the pause flag. One supervisor command produces
+  # all three inputs at once: a changed capture, an inconclusive liveness read, and a
+  # reconciliation with nothing left to report but `stopped`. The pane is then
+  # classified as an ordinary non-paused stale, and that classification may retire the
+  # pause cadence - but not the exit one-shot, because the exit it records has not
+  # ended. Re-arming it re-reports a worker already declared gone, which is the
+  # cry-wolf failure the whole change exists to remove.
+  dir=$(make_case exited-pane-poked); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/wait.status"
+  window="test:fm-poked-exit"
+  printf 'idle bare shell after the worker exited\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/wait.meta"
+  printf 'paused: waiting on the validation run to return the next gate\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-wait_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle bare shell after the worker exited")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" zsh "$out"
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "the exit on the pane about to be poked never surfaced at all"
+  [ "$(queued_stale_wakes "$state" "$window" bare)" -eq 1 ] \
+    || fail "the poked-pane fixture did not start from exactly one reported exit"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the poked-pane exit surface"
+
+  set_mtime "$(( $(date +%s) - 500 ))" "$state/.paused-rechecked-$key"
+  printf 'idle bare shell, supervisor running a command in it\n' > "$capture_file"
+  : > "$out"
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" vim "$out" \
+    'state: stopped · source: pane · bare shell'
+  pid=$!
+  if ! wait_poll_cycle "$state" "$pid"; then
+    reap "$pid"
+    fail "poking the abandoned pane surfaced a stale wake of its own: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || { reap "$pid"; fail "poking the abandoned pane printed a wake: $(cat "$out")"; }
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the poked-pane round"
+
+  # The supervisor's command finishes and the pane reads dead again on its new
+  # capture. Same worker, same exit, already reported: it must stay silent.
+  : > "$out"
+  declared_wait_round "$state" "$fakebin" "$window" "$capture_file" zsh "$out"
+  pid=$!
+  round=1
+  while [ "$round" -le 3 ]; do
+    if ! wait_poll_cycle "$state" "$pid"; then
+      reap "$pid"
+      fail "the exit re-surfaced after the abandoned pane was poked, on cycle $round: $(cat "$out")"
+    fi
+    round=$((round + 1))
+  done
+  [ ! -s "$out" ] \
+    || { reap "$pid"; fail "the poked pane re-reported an exit already told: $(cat "$out")"; }
+  [ "$(queued_stale_wakes "$state" "$window")" -eq 0 ] \
+    || { reap "$pid"; fail "the poked pane re-queued a stale wake for an exit already told"; }
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the post-poke dead rounds"
 
   # A durable captain-held transfer is the other declaration that can leave an
   # idle endpoint behind. An exited agent under it surfaces on the same rule.
