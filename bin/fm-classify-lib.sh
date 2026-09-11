@@ -287,6 +287,14 @@ EOF
 # consumer-side rule on purpose - it protects local and remote writers
 # identically, and it can never fail a whole delta or wedge a stream the way a
 # writer-side rejection would.
+#
+# Known gap, stated so a reader is not left hunting for a command that does not
+# exist: a still-open reserved-key decision is listed in the drain's OPEN
+# DECISIONS section and marked as owned by its namespace, and it cannot be
+# closed from that listing - the generic answering command refuses it, because
+# only the owning flow's own vocabulary closes it. The owning flow has no
+# reconcile command of its own today, so such a row stays listed until that flow
+# resolves it. Giving it one is its own piece of work, not this rule's.
 FM_CLASSIFY_RESERVED_KEY_PREFIXES_DEFAULT='pending-reply-'
 
 # 0 when <key> is not reserved, or is reserved and <note> speaks its vocabulary.
@@ -759,13 +767,14 @@ EOF
   if [ "$ident" != "$cur_ident" ] || [ "$offset" -gt "$size" ]; then offset=0; fi
   # A row written before the commit clamp existed can sit inside a line. Reading
   # from there shows an orphan fragment and pins the cursor, because the
-  # fragment is no unread surface and acknowledge hands the same offset back. The
-  # one-byte look-back below is the boundary test; only a row that fails it pays
+  # fragment is no unread surface and acknowledge hands the same offset back.
+  # The boundary test is the byte before the offset, captured directly: a
+  # newline there yields an empty capture. Only a row that fails that test pays
   # for the scan that snaps it to the boundary before it, so a broken row heals
   # on its next drain with at most that one line shown again.
   if [ "$offset" -gt 0 ]; then
-    probe=$(_fm_status_line_boundary_end "$f" "$((offset - 1))" "$offset") || return 1
-    [ "$probe" = "$offset" ] || offset=$(_fm_status_line_boundary_end "$f" 0 "$offset") || return 1
+    probe=$(_fm_status_read_span "$f" "$((offset - 1))" 1) || return 1
+    [ -z "$probe" ] || offset=$(_fm_status_line_boundary_end "$f" 0 "$offset") || return 1
   fi
   printf '%s' "$offset"
 }
@@ -1065,7 +1074,7 @@ status_new_lines_since_cursor() {  # <status-file> [<captured-end-offset>]
 # pending-reply resolution. Those lines never fold into OPEN DECISIONS, so the
 # drain's unread-status surface is their only guaranteed presentation.
 status_line_is_unread_surface() {  # <status-line>
-  local line=$1 verb key note resolve held prefix
+  local line=$1 verb key note resolve held
   [ -n "$line" ] || return 1
   verb=$(status_line_verb "$line")
   [ "$verb" = note ] && return 0
@@ -1077,15 +1086,8 @@ status_line_is_unread_surface() {  # <status-line>
   esac
   key=$(_fm_decision_key "$line") || return 1
   note=$(status_line_note "$line")
-  for prefix in ${FM_CLASSIFY_RESERVED_KEY_PREFIXES:-$FM_CLASSIFY_RESERVED_KEY_PREFIXES_DEFAULT}; do
-    case "$key" in
-      "$prefix"*)
-        _fm_decision_key_transition_allowed "$key" "$note"
-        return
-        ;;
-    esac
-  done
-  return 1
+  status_decision_key_namespace "$key" >/dev/null || return 1
+  _fm_decision_key_transition_allowed "$key" "$note"
 }
 
 # Fleet-wide unread informational lines: one "<task>\t<status-line>" row per
