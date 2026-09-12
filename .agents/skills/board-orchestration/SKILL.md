@@ -43,6 +43,8 @@ The poll runs on cycles firstmate already has, and it runs on its own rather tha
 - **Session start** reconciles the board as part of the digest's own network checks and prints each actionable line as `BOARD_POLL: <line>`.
   Act on those lines; do not run `poll` again for that board in the same turn, because the read has already happened and repeating it spends the board's request budget twice.
   A board already reconciled prints nothing at all, and a home with no board configured never reads one.
+  Silence is the ordinary result on a settled board, not a sign the read failed: every line is something to act on, and a card already showing what firstmate recorded produces none.
+  Read an empty poll as a board that agrees, and never as nothing having happened.
 - **Heartbeat wakes** are where firstmate runs `bin/fm-board.sh poll` itself, as part of the fleet review AGENTS.md section 8 already requires.
 
 Add no wake source, no watcher check, no timer, no daemon, and no background process for it.
@@ -251,7 +253,8 @@ This is a real security property of the design and the captain accepted it knowi
   A cycle that reported an error reconciled nothing, so never tell the captain the board is in sync on the strength of it.
 - A `truncated` line means the board filled the read's card ceiling, so a card past it was never seen.
   Everything that read did report still stands, but no withdrawal is reported from that board on this cycle, because absence cannot be told apart from the ceiling.
-  Re-run `poll` for that board with a higher `--limit`, and if it stays truncated tell the captain the board has outgrown the default read; the same ceiling applies to the card lookup `mark`, `import`, and `promote` need, so a card sitting past it cannot be moved by any of them until the limit is raised.
+  Re-run `poll` for that board with a higher `--limit`, and if it stays truncated tell the captain the board has outgrown the default read.
+  The ceiling belongs to that read alone: `mark`, `import`, and `promote` find a card through the issue that holds it, so a card sitting past the ceiling is still moved normally.
 - A scope edit to a card's own text mid-flight follows the lifecycle rule AGENTS.md section 7 already owns: route it to follow-up work unless it completely invalidates the work being validated.
   A board edit does not create a second, competing rule for that.
 

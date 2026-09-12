@@ -109,10 +109,29 @@ case "\${1:-} \${2:-}" in
       *headRefOid*) printf '%s\n' '5555555555555555555555555555555555555555' ;;
     esac
     ;;
-  "project view") printf 'PVT_fixture\n' ;;
-  "project field-list")
-    printf 'field\tPVTSSF_status\n'
-    printf 'option\topt_done\tDone\n'
+  "api graphql")
+    # The real response shape, reduced by the adapter's own filter, so this
+    # stub exercises those filters rather than standing in for them.
+    command -v jq >/dev/null || { printf 'stub gh: jq is required\n' >&2; exit 9; }
+    g_jq='.'
+    g_prev=''
+    for g_arg in "\$@"; do
+      [ "\$g_prev" != --jq ] || g_jq=\$g_arg
+      g_prev=\$g_arg
+    done
+    case " \$* " in
+      *repositoryOwner*)
+        printf '%s' '{"data":{"repositoryOwner":{"projectV2":{"id":"PVT_fixture","fields":{"nodes":[
+          {"id":"PVTSSF_status","name":"Status","options":[{"id":"opt_done","name":"Done"}]}]}}}}}' \
+          | jq -r "\$g_jq"
+        ;;
+      *projectItems*)
+        printf '%s' '{"data":{"repository":{"issue":{"projectItems":{"nodes":[
+          {"id":"PVTI_not_this_board","project":{"number":9999,"owner":{"login":"no-such-owner"}}},
+          {"id":"PVTI_a","project":{"number":3,"owner":{"login":"example"}}}]}}}}}' \
+          | jq -r "\$g_jq"
+        ;;
+    esac
     ;;
   "project item-list")
     printf 'PVTI_a\tIssue\t%s\tIn Progress\t-\t-\tcard\t-\n' '$issue'

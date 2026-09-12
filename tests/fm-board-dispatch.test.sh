@@ -35,14 +35,64 @@ if [ -n "${GH_REFUSE_WRITES:-}" ]; then
     "project item-add" | "project item-edit" | "issue create") exit 1 ;;
   esac
 fi
-case "$1 $2" in
-  "project view") printf 'PVT_fixture\n' ;;
-  "project field-list")
-    printf 'field\tPVTSSF_status\n'
-    printf 'option\topt_todo\tTodo\n'
-    printf 'option\topt_queued\tQueued\n'
-    printf 'option\topt_prog\tIn Progress\n'
-    printf 'option\topt_done\tDone\n'
+# The --jq expression the adapter passed, which a real gh applies to the
+# response and so does this stub: the adapter's own filters are under test.
+gh_jq_filter() {
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = --jq ]; then
+      printf '%s' "${2:-}"
+      return 0
+    fi
+    shift
+  done
+  printf '.'
+}
+command -v jq >/dev/null || { printf 'stub gh: jq is required\n' >&2; exit 9; }
+kind="$1 $2"
+if [ "$kind" = "api graphql" ]; then
+  case "$*" in
+    *projectItems*) kind="graphql card" ;;
+    *repositoryOwner*) kind="graphql ids" ;;
+  esac
+fi
+case "$kind" in
+  "graphql ids")
+    printf '%s' '{"data":{"repositoryOwner":{"projectV2":{"id":"PVT_fixture","fields":{"nodes":[
+      {"id":"PVTSSF_status","name":"Status","options":[
+        {"id":"opt_todo","name":"Todo"},
+        {"id":"opt_queued","name":"Queued"},
+        {"id":"opt_prog","name":"In Progress"},
+        {"id":"opt_done","name":"Done"}]}]}}}}}' | jq -r "$(gh_jq_filter "$@")"
+    ;;
+  "graphql card")
+    g_owner=''; g_name=''; g_number=''
+    for g_arg in "$@"; do
+      case "$g_arg" in
+        owner=*) g_owner=${g_arg#owner=} ;;
+        name=*) g_name=${g_arg#name=} ;;
+        number=*) g_number=${g_arg#number=} ;;
+      esac
+    done
+    g_id=$(awk -F'\t' -v u="https://github.com/$g_owner/$g_name/issues/$g_number" \
+      '$3 == u { print $1; exit }' "$GH_ITEMS")
+    {
+      printf '{"data":{"repository":{"issue":'
+      if [ -z "$g_id" ]; then
+        printf 'null'
+      else
+        printf '{"projectItems":{"nodes":['
+        printf '{"id":"PVTI_not_this_board","project":{"number":9999,"owner":{"login":"no-such-owner"}}}'
+        awk -F'=' -v id="$g_id" '
+          /^[[:space:]]*owner[[:space:]]*=/ { o = $2; gsub(/^[ \t]+|[ \t]+$/, "", o) }
+          /^[[:space:]]*number[[:space:]]*=/ {
+            n = $2; gsub(/^[ \t]+|[ \t]+$/, "", n)
+            if (o != "") printf ",{\"id\":\"%s\",\"project\":{\"number\":%s,\"owner\":{\"login\":\"%s\"}}}", id, n, o
+          }
+        ' "$GH_BOARDS"
+        printf ']}}'
+      fi
+      printf '}}}'
+    } | jq -r "$(gh_jq_filter "$@")"
     ;;
   "project item-list") cat "$GH_ITEMS" ;;
   "issue list")
@@ -178,6 +228,7 @@ run_spawn() {
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$WT_DIR" TMUX="fake,1,0" \
     FM_BACKEND=tmux CLAUDE_CONFIG_DIR='' \
     GH_LOG="$CASE_DIR/gh.log" GH_ITEMS="$CASE_DIR/items" \
+    GH_BOARDS="$HOME_DIR/config/boards" \
     GH_ISSUES="$CASE_DIR/issues" GH_REFUSE_WRITES="${GH_REFUSE_WRITES:-}" \
     PATH="$FAKEBIN:$PATH" \
     "$SPAWN" "$@" --mode direct-PR --yolo off 2>&1
@@ -187,6 +238,7 @@ run_board() {
   FM_HOME="$HOME_DIR" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_DATA_OVERRIDE="$HOME_DIR/data" FM_BOARD_GH="$FAKEBIN/gh" \
     GH_LOG="$CASE_DIR/gh.log" GH_ITEMS="$CASE_DIR/items" \
+    GH_BOARDS="$HOME_DIR/config/boards" \
     GH_ISSUES="$CASE_DIR/issues" \
     "$BOARD" "$@"
 }
@@ -319,6 +371,7 @@ test_dispatching_a_scout_places_nothing() {
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$WT_DIR" TMUX="fake,1,0" \
     FM_BACKEND=tmux CLAUDE_CONFIG_DIR='' \
     GH_LOG="$CASE_DIR/gh.log" GH_ITEMS="$CASE_DIR/items" \
+    GH_BOARDS="$HOME_DIR/config/boards" \
     GH_ISSUES="$CASE_DIR/issues" PATH="$FAKEBIN:$PATH" \
     "$SPAWN" "$id" "$PROJ_DIR" --scout 2>&1)
   assert_contains "$out" "spawned $id" "the scout dispatch did not complete"
