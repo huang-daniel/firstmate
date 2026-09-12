@@ -24,6 +24,42 @@ TMP_ROOT=$(fm_test_tmproot fm-board)
 
 # --- fixture plumbing -------------------------------------------------------
 
+# THE JQ HARNESS.
+#
+# The adapter asks GitHub for whole GraphQL documents and reduces them with two
+# filters it generates itself: fields_jq, which finds the project and the wanted
+# status field among every field on the board, and card_jq, which picks this
+# board's card out of every board the issue sits on. A stub that printed the
+# already-reduced answer would stand in for those filters rather than run them,
+# and both could rot to nothing while the suite stayed green - every write path
+# would then report `stale` against real GitHub forever.
+#
+# So the stubs below emit the response shape GitHub actually returns and pipe it
+# through the adapter's own `--jq` expression with real jq. The card payload
+# carries one entry per board the home configures, plus a decoy card on a
+# project no board configures, sitting ahead of them all. The decoy is what
+# makes the guard bidirectional: a selector matching nothing fails, and so does
+# a selector matching everything.
+#
+# WHAT IT HAS BEEN SEEN TO CATCH. A guard nobody has watched fail is not yet a
+# guard, so each of these was broken once, run, and restored. The first failure
+# each produced:
+#
+#   card_jq's owner selector never matches
+#     fm-board: dispatch did not move the card (missing `synced tidewheel ...`)
+#     fm-board-dispatch: the card was never moved to In Progress
+#     fm-pr-merge: a confirmed merge did not close the card on the board
+#   card_jq's project number selector never matches
+#     the same three failures, one per suite
+#   fields_jq's .data.repositoryOwner.projectV2 path renamed
+#     the same three failures, one per suite
+#   card_jq's selector replaced by select(true), so the decoy wins
+#     fm-board: the dispatch write did not set this board's own In Progress
+#     option, having written the decoy's card id against the wrong board
+#
+# The last one fails in this suite alone, because it is the only suite whose
+# fixtures configure a board the decoy can be mistaken for.
+
 # new_home <name>: create an isolated firstmate home with a stub GitHub CLI.
 new_home() {
   local home
@@ -37,6 +73,20 @@ l_prev=''
 # by what they ask for, exactly as a reader of the log has to tell them apart:
 # `graphql card` resolves one issue's card, `graphql ids` resolves the project
 # and its status field. GH_FAIL names either one.
+# gh_jq_filter <args...>: the --jq expression the adapter passed. A real gh
+# applies it to the response; so does this stub, which is what puts the
+# adapter's own translation filters under test instead of around them.
+gh_jq_filter() {
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = --jq ]; then
+      printf '%s' "${2:-}"
+      return 0
+    fi
+    shift
+  done
+  printf '.'
+}
+command -v jq >/dev/null || { printf 'stub gh: jq is required\n' >&2; exit 9; }
 kind="$1 $2"
 if [ "$kind" = "api graphql" ]; then
   case "$*" in
@@ -58,13 +108,32 @@ fi
 case "$kind" in
   "project item-list") cat "$GH_ITEMS" ;;
   "graphql ids")
-    # What the adapter's own filter reduces the one batched document to.
-    printf 'project\tPVT_fixture\n'
-    cat "$GH_FIELDS"
+    # The real response shape, reduced by the adapter's own filter. The stub
+    # never reproduces what that filter does; running it is the point.
+    {
+      printf '{"data":{"repositoryOwner":{"projectV2":{"id":"PVT_fixture","fields":{"nodes":['
+      awk -F'\t' '
+        function closefield() { if (inf) { printf "]}"; inf = 0 } }
+        $1 == "field" {
+          closefield()
+          if (nf++) printf ","
+          printf "{\"id\":\"%s\",\"name\":\"%s\",\"options\":[", $2, $3
+          inf = 1; no = 0
+        }
+        $1 == "option" {
+          if (no++) printf ","
+          printf "{\"id\":\"%s\",\"name\":\"%s\"}", $2, $3
+        }
+        END { closefield() }
+      ' "$GH_FIELDS"
+      printf ']}}}}}'
+    } | jq -r "$(gh_jq_filter "$@")"
     ;;
   "graphql card")
-    # One issue's card on this board. Every board a fixture home configures
-    # answers from the same card set, exactly as the whole-board read does.
+    # Every board this home configures carries the same card, exactly as the
+    # whole-board read answers for each of them, and one card from a project no
+    # board configures sits ahead of them all. So the adapter's filter has to
+    # both find its own board and decline the one that is not it.
     g_owner=''; g_name=''; g_number=''
     for g_arg in "$@"; do
       case "$g_arg" in
@@ -74,7 +143,25 @@ case "$kind" in
       esac
     done
     g_url="https://github.com/$g_owner/$g_name/issues/$g_number"
-    awk -F'\t' -v u="$g_url" '$3 == u { print $1; exit }' "$GH_ITEMS"
+    g_id=$(awk -F'\t' -v u="$g_url" '$3 == u { print $1; exit }' "$GH_ITEMS")
+    {
+      printf '{"data":{"repository":{"issue":'
+      if [ -z "$g_id" ]; then
+        printf 'null'
+      else
+        printf '{"projectItems":{"nodes":['
+        printf '{"id":"PVTI_not_this_board","project":{"number":9999,"owner":{"login":"no-such-owner"}}}'
+        awk -F'=' -v id="$g_id" '
+          /^[[:space:]]*owner[[:space:]]*=/ { o = $2; gsub(/^[ \t]+|[ \t]+$/, "", o) }
+          /^[[:space:]]*number[[:space:]]*=/ {
+            n = $2; gsub(/^[ \t]+|[ \t]+$/, "", n)
+            if (o != "") printf ",{\"id\":\"%s\",\"project\":{\"number\":%s,\"owner\":{\"login\":\"%s\"}}}", id, n, o
+          }
+        ' "$GH_BOARDS"
+        printf ']}}'
+      fi
+      printf '}}}'
+    } | jq -r "$(gh_jq_filter "$@")"
     ;;
   "project item-edit")
     # Behave like the real board: the edit is visible to the next read.
@@ -205,6 +292,7 @@ board() {
   GH_LOG="$home/gh.log" \
   GH_CALLS="$home/calls" \
   GH_ITEMS="$home/items" \
+  GH_BOARDS="$home/config/boards" \
   GH_FIELDS="$home/fields" \
   GH_ISSUES="$home/issues" \
   GH_FAIL="${GH_FAIL:-}" \
@@ -219,11 +307,20 @@ item() {
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$@" >> "$home/items"
 }
 
-# fields <home> <field-id> <option-id:option-name>...
+# fields <home> [--name <field-name>] <field-id> <option-id:option-name>...
+# The name defaults to Status because most fixtures configure that; a board
+# whose status-field is called something else states it, since the adapter's own
+# filter selects the field by name.
 fields() {
-  local home=$1 field=$2 spec
-  shift 2
-  printf 'field\t%s\n' "$field" > "$home/fields"
+  local home=$1 name=Status field spec
+  shift
+  if [ "$1" = --name ]; then
+    name=$2
+    shift 2
+  fi
+  field=$1
+  shift
+  printf 'field\t%s\t%s\n' "$field" "$name" > "$home/fields"
   for spec in "$@"; do
     printf 'option\t%s\t%s\n' "${spec%%:*}" "${spec#*:}" >> "$home/fields"
   done
@@ -274,7 +371,7 @@ todo = Waiting
 in-progress = Under Way
 done = Landed
 EOF
-  fields "$home" PVTSSF_lane opt_wait:Waiting 'opt_under:Under Way' opt_landed:Landed
+  fields "$home" --name Lane PVTSSF_lane opt_wait:Waiting 'opt_under:Under Way' opt_landed:Landed
 }
 
 # An ordinary board that names the one repository its cards are filed in, which
@@ -1069,8 +1166,8 @@ test_a_single_card_event_never_reads_the_board() {
   assert_contains "$log" 'number=180' "mark did not resolve the card from its own issue"
   assert_contains "$log" '--single-select-option-id opt_prog' "mark did not move the card"
 
-  # A card the board read would never have reached is still moved, because the
-  # lookup does not page the board at all.
+  # The ceiling itself is gone from this verb: `mark` refuses `--limit` rather
+  # than quietly accepting an option it no longer uses.
   out=$(board "$home" mark fm-crowded 'done' --limit 500 2>&1) && rc=0 || rc=$?
   expect_code 2 "$rc" "mark still accepted a board-read ceiling it no longer uses"
   assert_contains "$out" 'unknown option' "the refused option was not named"

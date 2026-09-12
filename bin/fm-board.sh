@@ -1035,10 +1035,10 @@ board_card_id() {
 # Resolving them per write would turn a cheap cycle into a project read for each
 # outstanding write it retries.
 #
-# All three come back in one request. That is the batching GitHub genuinely
-# permits here: the CLI's `project view` and `project field-list` are two round
-# trips for what the API answers in one, and the second of them pages every
-# field on the board to reach the single field that is wanted.
+# All three come back in one request, where the CLI needs two: `project view`
+# and `project field-list` are two round trips for what the API answers in one,
+# and the second of them pages every field on the board to reach the single
+# field that is wanted.
 BOARD_FIELDS_LIMIT=100
 # shellcheck disable=SC2016
 BOARD_IDS_QUERY='query($owner: String!, $number: Int!, $fields: Int!) {
