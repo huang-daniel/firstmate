@@ -384,8 +384,8 @@
 # carries ten cards or a thousand - and `place` and `child-add` read nothing at
 # all, taking their card id from what the add itself returned, because a freshly
 # added card is not immediately visible in a board listing anyway. The project,
-# field, and option node IDs come back in one request and are cached for the
-# rest of the invocation.
+# field, and option node IDs come back in one request and are cached per board
+# for the rest of the invocation.
 #
 # Two properties follow, and tests/fm-board.test.sh pins both. Per-card cost is
 # a small constant rather than a function of how many cards the board carries,

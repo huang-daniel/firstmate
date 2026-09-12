@@ -35,9 +35,10 @@ targeted card lookup          : 1 points
 batched project+field ids     : 1 points
 ```
 
-The first two are the shapes the adapter used to reach for on every single-card event, so one `mark`, `import`, or `promote` cost roughly 207 points before the write itself.
-The last two are what it uses now, so the same event costs 3.
-`poll` still makes one `project item-list` per cycle, which is the one whole-board read the design keeps.
+The first two are the shapes the adapter used to reach for on every single-card event, so one `mark`, `import`, or `promote` spent those 206 points before the write itself.
+The last two are what it uses now, so the same event spends 2 before the same write.
+The write's own cost is not measured here, because no write was made against the real board at all.
+`poll` still makes one `project item-list` per configured board per cycle, which is the one whole-board read the design keeps.
 
 ## The targeted lookup returns the same card the board read does
 
