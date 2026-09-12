@@ -1,0 +1,22 @@
+# Live board: https://github.com/users/huang-daniel/projects/2 (9 cards, 20 fields)
+# FM_HOME=/tmp/fm-live-E5oq5K  adapter=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M29CWSN8THEJJP3BQJP5XENK/bin/fm-board.sh
+
+$ fm-board.sh boards
+board live-verification huang-daniel/2 repo=huang-daniel/gamba-labs-main label=firstmate mention=- assignee=- field=Status columns=Todo|In progress|Done processed=- queued=- big-picture=off
+exit=0
+
+--- Scenario A: a reconciled board polls to no output at all ---
+$ fm-board.sh poll
+stdout+stderr: []
+exit=0  bytes_printed=0  graphql_points_spent=102
+
+--- Scenario B: poll --all adds back the linked record, and nothing else ---
+$ fm-board.sh poll --all
+linked live-verification https://github.com/huang-daniel/gamba-labs-main/issues/2 verification-card todo
+exit=0  graphql_points_spent=102
+
+--- Scenario C: poll --limit 1 says the board read was truncated ---
+$ fm-board.sh poll --limit 1
+truncated live-verification 1
+exit=0
+

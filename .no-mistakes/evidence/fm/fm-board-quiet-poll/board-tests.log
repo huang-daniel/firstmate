@@ -1,0 +1,69 @@
+ok - boards come entirely from local configuration, and an unconfigured home has none
+ok - with no board configured the bridge reads nothing, writes nothing, and creates nothing
+ok - removing the configuration disables the bridge with no residue, and undoes nothing already done
+ok - malformed board configuration is refused with the reason, not guessed around
+ok - only a project with a configured board is mapped, and boards never cross
+ok - intake takes real issues, in the first column, carrying the configured trigger
+ok - the label is the authoritative trigger; mention and assignee stay off unless configured
+ok - one issue holds one task: repeat import is a no-op and a conflicting relink is refused
+ok - the linkage record lives with the durable fleet records and survives task cleanup
+ok - Todo, In Progress, and Done are driven by dispatch and merge, on the board's own column names
+ok - a column the adapter does not drive is reported by its own name, never adopted as a state
+ok - the working PR is attached to the issue that started the work, once
+ok - a blocker is recorded on the issue while the item stays visible where it is
+ok - a status firstmate did not write is reported and changes nothing on either side
+ok - the queued column is written from firstmate's records, and a card it did not place starts nothing
+ok - with no queued key configured the column does not exist in either direction
+ok - a withdrawn card is reported until reconciled, and never costs unlanded work
+ok - archiving a finished card is ordinary housekeeping, not a withdrawal
+ok - board writes degrade to a stale board and reconcile on the next cycle
+ok - an unreadable board is reported and retried, never mistaken for withdrawn work
+ok - a board that answers with nothing while links are open is reported, not obeyed
+ok - a page boundary is never mistaken for absence
+ok - an intake filter decides what is importable, never what is still on the board
+ok - an issue another board owns is named and left alone, never silently re-homed
+ok - an outstanding PR attachment is retried until the issue has it, then left alone
+ok - a single-card event resolves its card from the issue and never reads the board
+ok - a board with nothing to act on polls to no output, and --all still lists it
+ok - poll confirms a write the board already shows, without printing or writing
+ok - what an invocation costs is set by the work it does, never by the board's size
+ok - with no container columns configured nothing about decomposition exists
+ok - a half-configured or self-overlapping container lane is refused, never half-enabled
+ok - a labelled container is offered for decomposition, and container and task can never be the same issue
+ok - a container is decomposed once, ever, and the record outlives the work
+ok - a child is created labelled, linked to its parent, carded in Todo, and never re-imported
+simulated GitHub failure
+board: could not add https://github.com/harbour-collective/app/issues/900 to project harbour-collective/4
+ok - an interrupted child-add converges on the issue it already filed, never a second one
+ok - a container card follows its children's recorded states, and is silent once it matches
+simulated GitHub failure
+board: could not move https://github.com/harbour-collective/app/issues/260 to "Big Picture In Progress"
+ok - a container move that does not land leaves a stale card the next cycle reconciles
+ok - place is the inverse of import: one command, convergent, and ordinary afterwards
+ok - a card can state plainly that its change lands somewhere other than its own repository
+simulated GitHub failure
+board: could not add https://github.com/harbour-collective/app/issues/900 to project harbour-collective/4
+ok - an interrupted placement is finished on the next run, never filed twice
+ok - a check that cannot run stops the placement rather than risking a duplicate
+ok - with no processed key configured the column does not exist in either direction
+ok - internalizing a filed card moves it from the captain's inbox to firstmate's answer
+ok - a card in the inbox is left there until firstmate internalizes it, and never restatused early
+ok - work firstmate creates itself is filed already internalized, never into the captain's inbox
+ok - a card appearing in the go column unbidden is reported, never obeyed
+ok - firstmate promotes a filed card to a programme, and its children carry the work
+simulated GitHub failure
+board: could not add https://github.com/harbour-collective/app/issues/900 to project harbour-collective/4
+simulated GitHub failure
+board: could not add https://github.com/harbour-collective/app/issues/901 to project harbour-collective/4
+ok - the container-or-task judgement is made before anything binds, and cannot be reversed after
+ok - a promotion the board did not take is still a container, and the move is retried
+ok - promotion needs a configured container lane, and repeating it converges
+simulated GitHub failure
+board: could not add https://github.com/harbour-collective/app/issues/901 to project harbour-collective/4
+ok - work placed under a programme is attached to it in that same operation, through GitHub's own sub-issue relationship
+simulated GitHub failure
+board: could not add https://github.com/harbour-collective/app/issues/900 to project harbour-collective/4
+ok - a parented retry attaches a recovered parentless issue before recording the child
+ok - placing under a programme refuses loudly rather than inventing a container or re-parenting bound work
+ok - work the captain already cleared is placed as cleared, and work that is not stays internalized
+ok - a board with no go column reports the state it could file and never grows a column it did not ask for

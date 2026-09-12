@@ -1,0 +1,15 @@
+--- Scenario F: what a session start prints for a settled board ---
+# bin/fm-bootstrap.sh's board_poll, taken verbatim, run against the live board.
+# This round removed its 'linked' filter, so the digest now depends on poll's own silence.
+
+$ board_poll        # settled board
+output: []
+exit=0  lines_printed=0
+
+# now the captain moves a card out from under firstmate: the record says Todo,
+# the live board says In progress for issues/3.
+$ board_poll        # board disagrees with the record
+BOARD_POLL: divergence live-verification https://github.com/huang-daniel/gamba-labs-main/issues/3 architecture-card todo in-progress In progress
+exit=0
+
+# silence above was the board agreeing, not the read failing.

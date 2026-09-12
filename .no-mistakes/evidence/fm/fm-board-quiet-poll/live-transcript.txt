@@ -1,0 +1,11 @@
+poll with local settled link
+<empty stdout>
+poll --all
+linked live-verification https://github.com/huang-daniel/gamba-labs-main/issues/2 verification-card todo
+
+poll --limit 1
+truncated live-verification 1
+
+poll then lookup verification-recovery; local outstanding state seeded to match real board
+live-verification	https://github.com/huang-daniel/gamba-labs-main/issues/5	verification-recovery	in-progress	in-progress	-	0
+

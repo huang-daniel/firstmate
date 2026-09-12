@@ -1,0 +1,7 @@
+ok - dispatching board-mapped work creates its card and marks it, in one operation
+ok - a task already on the board is moved, never filed a second time
+ok - a dispatch in a home with no configured board reads nothing, writes nothing, and files nothing
+ok - only a project with its own board stanza is ever placed on a board
+ok - a board write that cannot land leaves a stale card and never blocks a dispatch
+ok - a scout produces a report rather than a card, and places nothing on the board
+ok - a dispatch places and moves its own card and never states a go on the captain's behalf

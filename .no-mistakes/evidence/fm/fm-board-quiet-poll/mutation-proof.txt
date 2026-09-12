@@ -1,0 +1,32 @@
+MUTATION TEST OF THE BOARD jq HARNESS
+Each guard the harness comment in tests/fm-board.test.sh claims to catch is
+broken once in bin/fm-board.sh, all three suites are run, then the source is restored.
+
+== baseline, unmutated source ==
+  fm-board.test.sh             green (exit 0)
+  fm-board-dispatch.test.sh    green (exit 0)
+  fm-pr-merge.test.sh          green (exit 0)
+
+== break 1: fields_jq name selector replaced by select(true), so the decoy field wins ==
+  mutation applied to bin/fm-board.sh
+  fm-board.test.sh             RED (exit 1)  not ok - the dispatch write did not set this board's own In Progress option (missing: 'project item-edit --id PVTI_a --project-id PVT_fixture --field-id PVTSSF_lane --single-select-option-id opt_under')
+  fm-board-dispatch.test.sh    green (exit 0)
+  fm-pr-merge.test.sh          green (exit 0)
+  source restored; uncommitted files now: 0
+
+== break 2: fields_jq `.name // ""` reduced to `.name`, dropping the empty-node guard ==
+  mutation applied to bin/fm-board.sh
+  fm-board.test.sh             RED (exit 1)  not ok - dispatch did not move the card (missing: 'synced tidewheel https://github.com/personal-account/tidewheel/issues/8 fm-ship in-progress')
+  fm-board-dispatch.test.sh    green (exit 0)
+  fm-pr-merge.test.sh          green (exit 0)
+  source restored; uncommitted files now: 0
+
+== break 3: card_jq owner/number selector replaced by select(true), so the decoy card wins ==
+  mutation applied to bin/fm-board.sh
+  fm-board.test.sh             RED (exit 1)  not ok - the dispatch write did not set this board's own In Progress option (missing: 'project item-edit --id PVTI_a --project-id PVT_fixture --field-id PVTSSF_lane --single-select-option-id opt_under')
+  fm-board-dispatch.test.sh    green (exit 0)
+  fm-pr-merge.test.sh          green (exit 0)
+  source restored; uncommitted files now: 0
+
+final worktree state:
+(empty above means bin/fm-board.sh is back to its committed content)

@@ -1,0 +1,10 @@
+$ bin/fm-doc-audience-check.sh   # the real consumer of docs/documentation-audiences.json
+fm-doc-audience-check: ok surfaces=71 local_links=261
+exit=0
+
+# The manifest checker is itself checked: drop the new doc's entry and it refuses.
+$ (removed the docs/verification/board-cost.md entry)
+$ bin/fm-doc-audience-check.sh
+fm-doc-audience-check: unclassified: docs/verification/board-cost.md
+exit=1
+(entry restored; uncommitted files now: 0)

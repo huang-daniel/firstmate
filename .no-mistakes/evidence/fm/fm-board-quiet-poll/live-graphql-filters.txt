@@ -1,0 +1,46 @@
+--- Scenario E: the adapter's own GraphQL filters resolve a real board and a real card ---
+# fields_jq and card_jq are taken verbatim from bin/fm-board.sh and run by gh against live GitHub.
+# read-only: no mutation is sent.
+
+$ fields_jq Status     # the filter the adapter generates for status-field = Status
+(.data.repositoryOwner.projectV2 // empty)
+| (["project", (.id // "" | tostring)] | @tsv),
+  ( ((.fields.nodes // [])[]
+     | select(((.name // "") | ascii_downcase | gsub(" "; "")) == "status")
+     | (["field", (.id // "" | tostring)] | @tsv),
+       ((.options // [])[] | ["option", (.id // "" | tostring), (.name // "" | tostring)] | @tsv)
+    ) )
+
+$ gh api graphql -f query="$BOARD_IDS_QUERY" -f owner=huang-daniel -F number=2 -F fields=100 --jq "$(fields_jq Status)"
+project	PVT_kwHOBrTgPc4A_6rl
+field	PVTSSF_lAHOBrTgPc4A_6rlzgy4Mc8
+option	f75ad846	Todo
+option	47fc9ee4	In progress
+option	98236657	Done
+graphql_points_spent=1   # a whole-board read costs 102
+
+# the same board has 20 fields; without the name selector the filter would answer with a different one:
+$ ... same request, name selector removed
+field	PVTSSF_lAHOBrTgPc4A_6rlzgy4Mc8	Status
+field	PVTSSF_lAHOBrTgPc4A_6rlzgy4Mlo	Team
+field	PVTSSF_lAHOBrTgPc4A_6rlzgy4Mls	Priority
+field	PVTSSF_lAHOBrTgPc4A_6rlzgy4Mlw	Size
+
+$ card_jq huang-daniel 2
+[ ((.data.repository.issue.projectItems.nodes // [])[]
+   | select((((.project.owner.login // "") | ascii_downcase | gsub(" "; "")) == "huang-daniel")
+            and (((.project.number // "") | tostring) == "2"))
+   | (.id // "" | tostring)
+   | select(. != "")) ]
+| first // empty
+
+$ gh api graphql -f query="$CARD_QUERY" -f owner=huang-daniel -f name=gamba-labs-main -F number=3 -F projects=20 --jq "$(card_jq huang-daniel 2)"
+PVTI_lAHOBrTgPc4A_6rlzgdaq0M
+graphql_points_spent=1   # the same card id the 102-point board read returns
+
+$ gh project item-list 2 --owner huang-daniel --limit 200 --format json --jq ...issues/3 -> .id
+PVTI_lAHOBrTgPc4A_6rlzgdaq0M
+
+# and the same filter declines a board it does not own:
+$ card_jq some-other-owner 2   applied to the same response
+(no card id printed above = the wrong board's selector correctly matched nothing)

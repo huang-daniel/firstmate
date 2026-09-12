@@ -1,0 +1,40 @@
+--- Scenario D: an owed write the board already shows is confirmed, not rewritten ---
+# every gh call goes through a sentinel that refuses any write to the live board
+$ cat data/board-links.tsv   # architecture-card owes an in-progress write
+# fm-board.sh durable issue-to-task links: project  |  issue  |  task  |  desired  |  synced  |  pr  |  pr_synced
+live-verification  |  https://github.com/huang-daniel/gamba-labs-main/issues/2  |  verification-card  |  todo  |  todo  |  -  |  -
+live-verification  |  https://github.com/huang-daniel/gamba-labs-main/issues/3  |  architecture-card  |  in-progress  |  todo  |  -  |  -
+
+$ fm-board.sh poll
+exit=0
+graphql_points_spent=102
+
+$ cat data/board-links.tsv   # the owed write is now recorded as synced
+# fm-board.sh durable issue-to-task links: project  |  issue  |  task  |  desired  |  synced  |  pr  |  pr_synced
+live-verification  |  https://github.com/huang-daniel/gamba-labs-main/issues/2  |  verification-card  |  todo  |  todo  |  -  |  -
+live-verification  |  https://github.com/huang-daniel/gamba-labs-main/issues/3  |  architecture-card  |  in-progress  |  in-progress  |  -  |  -
+
+$ cat gh-calls.log   # every GitHub call the cycle made
+project item-list 2 --owner huang-daniel --limit 200 --format json --jq def dash: if (. == null or . == "") then "-" else . end;
+def clean: (. // "") | tostring | gsub("[\\t\\n\\r]+"; " ") | dash;
+def names:
+  (. // [])
+  | if type == "array" then map(if type == "object" then (.name // .login // "") else tostring end) else [] end
+  | join(",") | dash;
+.items[]
+| . as $i
+| (($i.content // {}) | if type == "object" then . else {} end) as $c
+| [ ($i.id // "" | tostring | dash),
+    ($c.type // $i.type // "" | tostring | dash),
+    ($c.url // $i.url // "" | tostring | dash),
+    ( $i | to_entries
+         | map(select((.key | ascii_downcase | gsub(" "; "")) == "status"))
+         | (.[0].value // "")
+         | (if type == "object" then (.name // "") else tostring end)
+         | dash ),
+    (($c.labels // $i.labels) | names),
+    (($c.assignees // $i.assignees) | names),
+    (($c.title // $i.title) | clean),
+    (($c.body // $i.body) | clean)
+  ] | @tsv
+write_calls_attempted=0

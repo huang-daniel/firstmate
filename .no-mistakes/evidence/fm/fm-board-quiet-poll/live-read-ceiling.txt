@@ -1,0 +1,23 @@
+--- Scenario G: the board-read ceiling binds the board read alone ---
+
+$ fm-board.sh poll --limit 1      # a ceiling of one card on a nine-card board
+truncated live-verification 1
+exit=0
+
+# issues/3 sits past that ceiling. Its card is still resolved, from the issue
+# rather than from the board, and no ceiling appears in that request:
+PVTI_lAHOBrTgPc4A_6rlzgdaq0M
+
+# and the verbs that use that lookup refuse the ceiling outright:
+$ fm-board.sh mark verification-card todo --limit 500
+error: unknown option "--limit"
+exit=2
+$ fm-board.sh import live-verification https://github.com/huang-daniel/gamba-labs-main/issues/2 t1 --limit 500
+error: unknown option "--limit"
+exit=2
+$ fm-board.sh promote live-verification https://github.com/huang-daniel/gamba-labs-main/issues/2 --limit 500
+error: unknown option "--limit"
+exit=2
+
+# GitHub calls these three refusals made:
+[]
