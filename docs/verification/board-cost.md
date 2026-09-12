@@ -78,3 +78,23 @@ gh: Could not resolve to a Unions::ProjectV2FieldConfiguration with the name sta
 ```
 
 Filtering `fields(first: 100)` in the response costs the same 1 point as naming the field, so the tolerant match is free.
+
+## What has live evidence, and what does not
+
+Validation for this change drove a real user-owned project board, and it exercised the read path alone.
+The four results, quoted from the transcript:
+
+- a plain poll of a board whose one linked card was settled produced no output at all
+- `poll --all` emitted that card's `linked` record, `linked live-verification https://github.com/huang-daniel/gamba-labs-main/issues/2 verification-card todo`
+- `poll --limit 1` reported `truncated live-verification 1`
+- with the local record seeded to show a write outstanding that the board already showed, a plain poll confirmed the record to in-progress/in-progress without writing
+
+No live write was made at all.
+The validation run issued zero `project item-edit` calls, zero `project item-add` calls, and zero `issue create` calls against the real board.
+So every write path is stub-proven rather than live-proven, and there are three of them: reconciling many owed mutations from one snapshot, resolving a single-card event without a full-board read, and per-card failure reporting with retry.
+
+Each stays stub-proven for a reason, so a later reader can tell a deliberate limit from an oversight:
+
+- driving many owed writes live would mean manufacturing a board carrying many pending writes and then spending the real request budget to watch it, and that budget is the exact resource this change exists to protect, while the configured board is a live operational surface rather than a test fixture
+- per-card failure reporting and retry cannot be driven live at all without inducing write failures against GitHub on demand, which nothing here can do reliably
+- the complexity guard covers these against the stub, and that guard was itself proven by deliberately reintroducing six distinct regressions and confirming each one turns the suite red, which is stronger evidence than a single unrepeatable live run
