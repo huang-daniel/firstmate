@@ -1,0 +1,13 @@
+$ fm-board.sh boards
+board overhead-automation-solutions overheadautomationsolutions/1 repo=overheadautomationsolutions/overhead-automation-solutions label=firstmate mention=- assignee=- field=Status columns=Processed|In Progress|Done processed=- queued=Queued big-picture=Umbrella Programme|Umbrella Programme In Progress|Umbrella Programme Done
+rc=0
+
+$ fm-board.sh poll overhead-automation-solutions --limit 50
+truncated overhead-automation-solutions 50
+
+real	0m3.518s
+user	0m2.330s
+sys	0m1.095s
+
+$ fm-board.sh lookup no-such-task
+rc=1

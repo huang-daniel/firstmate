@@ -1,0 +1,15 @@
+$ printf "note: bootstrap cursor line\n" > state/task9.status; fm-wake-drain.sh   # prime cursor
+UNREAD STATUS (new since last drain, not re-printed after this presentation):
+task9 note: bootstrap cursor line
+rc=0
+
+$ printf "note: the captain says use p" >> state/task9.status; fm-wake-drain.sh   # line still landing
+rc=0
+
+$ printf "lan B\n" >> state/task9.status; fm-wake-drain.sh   # line finished
+UNREAD STATUS (new since last drain, not re-printed after this presentation):
+task9 note: the captain says use plan B
+rc=0
+
+$ fm-wake-drain.sh   # again: must not replay
+rc=0
