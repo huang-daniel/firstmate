@@ -35,8 +35,7 @@ make_case() {
   local name=$1 case_dir fakebin
   case_dir="$TMP_ROOT/$name"
   fakebin="$case_dir/fakebin"
-  mkdir -p "$case_dir/state" "$case_dir/config" "$case_dir/data" \
-    "$case_dir/home/data" "$case_dir/home/config" "$fakebin"
+  mkdir -p "$case_dir/state" "$case_dir/home/data" "$case_dir/home/config" "$fakebin"
   cp "$ROOT/.tasks.toml" "$case_dir/home/.tasks.toml"
   printf '%s\n' '## In flight' '' '## Queued' '' '## Done' \
     > "$case_dir/home/data/backlog.md"
@@ -357,25 +356,24 @@ glab_merge_line() {
 # call it is asked to make.
 add_board() {
   local case_dir=$1 task=$2 issue=$3
-  cat > "$case_dir/config/boards" <<'EOF'
+  cat > "$case_dir/home/config/boards" <<'EOF'
 project = example
 owner = example
 number = 3
 repo = example/repo
 EOF
-  printf '# links\n' > "$case_dir/data/board-links.tsv"
+  printf '# links\n' > "$case_dir/home/data/board-links.tsv"
   printf 'example\t%s\t%s\tin-progress\tin-progress\t-\t-\n' "$issue" "$task" \
-    >> "$case_dir/data/board-links.tsv"
+    >> "$case_dir/home/data/board-links.tsv"
   : > "$case_dir/board.log"
+  # The merge path itself now drives `gh` for rules, checks, and the merge, so
+  # this stub must EXTEND that one rather than replace it: board subcommands are
+  # answered here and everything else is handed to the merge stub unchanged.
+  mv "$case_dir/fakebin/gh" "$case_dir/fakebin/gh-merge-stub"
   cat > "$case_dir/fakebin/gh" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> '$case_dir/board.log'
 case "\${1:-} \${2:-}" in
-  "pr view")
-    case " \$* " in
-      *headRefOid*) printf '%s\n' '5555555555555555555555555555555555555555' ;;
-    esac
-    ;;
   "api graphql")
     # The real response shape, reduced by the adapter's own filter, so this
     # stub exercises those filters rather than standing in for them.
@@ -398,10 +396,17 @@ case "\${1:-} \${2:-}" in
           {"id":"PVTI_a","project":{"number":3,"owner":{"login":"example"}}}]}}}}}' \
           | jq -r "\$g_jq"
         ;;
+      *)
+        # Not a board query: the merge path reads branch rules this way.
+        exec '$case_dir/fakebin/gh-merge-stub' "\$@"
+        ;;
     esac
     ;;
   "project item-list")
     printf 'PVTI_a\tIssue\t%s\tIn Progress\t-\t-\tcard\t-\n' '$issue'
+    ;;
+  *)
+    exec '$case_dir/fakebin/gh-merge-stub' "\$@"
     ;;
 esac
 exit 0
@@ -411,13 +416,11 @@ SH
 
 run_pr_merge() {
   local case_dir=$1 rc; shift
-  # config/ and data/ are pinned into the case so a merge can never reach the
-  # developer's own board configuration or linkage record.
+  # The per-case FM_HOME already pins config/ and data/ inside the case, so a
+  # merge can never reach the developer's own board configuration or link record.
   FM_ROOT_OVERRIDE="$ROOT" \
   FM_HOME="${FM_TEST_HOME:-$case_dir/home}" \
   FM_STATE_OVERRIDE="$case_dir/state" \
-  FM_CONFIG_OVERRIDE="$case_dir/config" \
-  FM_DATA_OVERRIDE="$case_dir/data" \
   FM_TEST_GH_AXI_LOG="$case_dir/gh-axi.log" \
   FM_TEST_BOARD_LOG="$case_dir/board.log" \
   FM_TEST_GH_LOG="$case_dir/gh.log" \
@@ -1517,7 +1520,7 @@ test_a_confirmed_merge_closes_the_card() {
 
   expect_code 0 "$rc" "board-merge-closes-card: the merge should succeed"
   assert_grep "$(printf 'https://github.com/example/repo/issues/7\ttask-x1\tdone\tdone')" \
-    "$case_dir/data/board-links.tsv" \
+    "$case_dir/home/data/board-links.tsv" \
     "board-merge-closes-card: a confirmed merge did not close the card on the board"
   assert_grep 'Working PR: https://github.com/example/repo/pull/21' "$case_dir/board.log" \
     "board-merge-closes-card: the PR was never attached to its originating issue"
@@ -1539,7 +1542,7 @@ test_a_failed_merge_leaves_the_card_alone() {
   set -e
 
   expect_code 1 "$rc" "board-failed-merge: the merge failure should propagate"
-  assert_no_grep "$(printf '\tdone\tdone')" "$case_dir/data/board-links.tsv" \
+  assert_no_grep "$(printf '\tdone\tdone')" "$case_dir/home/data/board-links.tsv" \
     "board-failed-merge: a merge that never landed still closed the card"
   pass "a merge that did not land never closes the card"
 }
