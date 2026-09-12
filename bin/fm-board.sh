@@ -365,9 +365,11 @@
 # prints nothing, exactly as a reconciled container has always printed nothing.
 # So a fully reconciled board polls to no output at all, and a board that grows
 # to hundreds of settled cards stays as quiet as one holding none. `--all` adds
-# back the `linked` record for every settled card; it exists to inspect what a
-# silent cycle actually saw and changes nothing else about the cycle, including
-# every durable record it writes.
+# back the `linked` record for every settled card, which is the one record that
+# default silence removes, and nothing further: a reconciled container stays
+# silent under it exactly as it always has, and every durable record the cycle
+# writes is unchanged. The flag is a specified part of this change rather than
+# incidental to it, kept as an explicit opt-in for debugging.
 #
 # COST. Board and Projects work is GraphQL with its own hourly budget, and a
 # full board read inside a per-item loop is what exhausts it: one such read is

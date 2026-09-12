@@ -35,11 +35,15 @@ TMP_ROOT=$(fm_test_tmproot fm-board)
 # would then report `stale` against real GitHub forever.
 #
 # So the stubs below emit the response shape GitHub actually returns and pipe it
-# through the adapter's own `--jq` expression with real jq. The card payload
-# carries one entry per board the home configures, plus a decoy card on a
-# project no board configures, sitting ahead of them all. The decoy is what
-# makes the guard bidirectional: a selector matching nothing fails, and so does
-# a selector matching everything.
+# through the adapter's own `--jq` expression with real jq. Each payload carries
+# a decoy the wanted thing has to be told apart from, which is what makes the
+# guard bidirectional: a selector matching nothing fails, and so does a selector
+# matching everything. The card payload carries one entry per board the home
+# configures, plus a card on a project no board configures sitting ahead of them
+# all. The ids payload carries an empty node, which is how GitHub renders a
+# field that is not single-select, and a second single-select field after the
+# wanted one - after, because the adapter keeps the last field it matches, so an
+# unfiltered selector comes away with the decoy's id.
 #
 # WHAT IT HAS BEEN SEEN TO CATCH. A guard nobody has watched fail is not yet a
 # guard, so each of these was broken once, run, and restored. The first failure
@@ -56,9 +60,14 @@ TMP_ROOT=$(fm_test_tmproot fm-board)
 #   card_jq's selector replaced by select(true), so the decoy wins
 #     fm-board: the dispatch write did not set this board's own In Progress
 #     option, having written the decoy's card id against the wrong board
+#   fields_jq's name selector replaced by select(true), so the decoy field wins
+#     fm-board: the dispatch write did not set this board's own In Progress
+#     option, having named the decoy field rather than the board's own
+#   fields_jq's `.name // ""` reduced to `.name`, dropping the empty-node guard
+#     fm-board: dispatch did not move the card (missing `synced tidewheel ...`)
 #
-# The last one fails in this suite alone, because it is the only suite whose
-# fixtures configure a board the decoy can be mistaken for.
+# The last three fail in this suite alone, because its fixtures are the only
+# ones configuring a board whose own field and card a decoy can be mistaken for.
 
 # new_home <name>: create an isolated firstmate home with a stub GitHub CLI.
 new_home() {
@@ -112,6 +121,13 @@ case "$kind" in
     # never reproduces what that filter does; running it is the point.
     {
       printf '{"data":{"repositoryOwner":{"projectV2":{"id":"PVT_fixture","fields":{"nodes":['
+      # A real board answers with every field, so the payload carries what one
+      # looks like around the wanted field: an empty node, which is how GitHub
+      # renders a field that is not single-select, and a second single-select
+      # field after it. Together they are the negative case for the name
+      # selector - stop filtering by name and the decoy's id is the one that
+      # survives - and for the empty-node guard that keeps jq from indexing it.
+      printf '{},'
       awk -F'\t' '
         function closefield() { if (inf) { printf "]}"; inf = 0 } }
         $1 == "field" {
@@ -126,6 +142,7 @@ case "$kind" in
         }
         END { closefield() }
       ' "$GH_FIELDS"
+      printf ',{"id":"PVTSSF_decoy","name":"Not The Status Field","options":[{"id":"opt_decoy","name":"Todo"}]}'
       printf ']}}}}}'
     } | jq -r "$(gh_jq_filter "$@")"
     ;;
