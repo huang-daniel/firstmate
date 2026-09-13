@@ -23,6 +23,12 @@
 #       paths (fm-recovery) may pass --current-gen to bind to the incarnation
 #       armed right now.
 #
+#   progress <state-dir> <id> --gen G
+#       Refresh state/<id>.progress for observed native-harness activity under
+#       the incarnation lock. This neither changes busy state nor emits a
+#       turn-ended notification. Arm and retire clear the marker, and an old
+#       incarnation can never refresh its replacement's progress.
+#
 #   retire <state-dir> <id> (--gen G | --current-gen)
 #       Remove one incarnation's sidecar and record while holding the same
 #       writer lock used by arm and apply. An exact gen prevents teardown for
@@ -39,6 +45,7 @@ usage() {
 usage:
   fm-busy-event.sh arm <state-dir> <id> [--state busy|idle|unknown] [--source S] [--event E]
   fm-busy-event.sh apply <state-dir> <id> <busy|idle|unknown> (--gen G | --current-gen) --source S --event E
+  fm-busy-event.sh progress <state-dir> <id> --gen G
   fm-busy-event.sh retire <state-dir> <id> (--gen G | --current-gen)
 See the header comment for the full contract.
 EOF
@@ -51,7 +58,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 CMD=${1:-}
 case "$CMD" in
-  arm|apply|retire) shift ;;
+  arm|apply|progress|retire) shift ;;
   *) usage ;;
 esac
 
@@ -85,30 +92,29 @@ while [ $# -gt 0 ]; do
     *) usage ;;
   esac
 done
-if [ "$CMD" != retire ]; then
+if [ "$CMD" = apply ] || [ "$CMD" = arm ]; then
   case "$NEW_STATE" in busy|idle|unknown) : ;; *) usage ;; esac
   fm_busy_token_valid "$SOURCE" || { echo "error: invalid --source" >&2; exit 1; }
   fm_busy_token_valid "$EVENT" || { echo "error: invalid --event" >&2; exit 1; }
 fi
 
+[ "$CMD" != progress ] || [ "$USE_CURRENT_GEN" = 0 ] || usage
+
 REC=$(fm_busy_record_path "$STATE" "$ID")
 GEN_FILE=$(fm_busy_gen_path "$STATE" "$ID")
 LOCK="$REC.lock"
 
-# Portable mtime in epoch seconds, following the same convention (and the same
-# warning) as bin/fm-watch.sh and bin/fm-lock-lib.sh: macOS (BSD) stat uses
-# `-f <fmt>`, Linux (GNU/uutils) stat uses `-c <fmt>`, and the
-# `stat -f <fmt> ... || stat -c <fmt> ...` chain is NOT a portable fallback.
-# On Linux `-f` selects FILE SYSTEM status, so that form dumps filesystem prose
-# ("File: ...", "Blocks: ...") to stdout before failing and the fallback's
-# correct epoch is appended to the garbage. Arithmetic on the result then aborts
-# the script under `set -u` on the stray token (the word "File" read as an unset
-# variable), which is how an ordinary teardown once left its records orphaned.
-# Detect the platform once and pick the right form.
+# Portable mtime in epoch seconds. macOS (BSD) stat uses `-f <fmt>`; Linux (GNU)
+# stat uses `-c <fmt>`. Do NOT collapse this into `stat -f <fmt> ... || stat -c
+# <fmt> ...`: on GNU `-f` is *filesystem* stat, so it reads the format string as
+# a path, reports that on stderr, prints a partial filesystem dump ("  File:
+# ...") on stdout, and still exits 0 - the fallback never runs and the caller
+# gets a non-numeric token. Detect the platform once and pick the right form,
+# exactly as bin/fm-watch.sh does.
 if [ "$(uname)" = Darwin ]; then
-  stat_mtime() { stat -f %m "$1" 2>/dev/null; }        # epoch seconds of mtime
+  lock_mtime() { /usr/bin/stat -f %m "$1" 2>/dev/null; }
 else
-  stat_mtime() { stat -c %Y "$1" 2>/dev/null; }
+  lock_mtime() { stat -c %Y "$1" 2>/dev/null; }
 fi
 
 # Serialize writers. The lock protects seq advancement and the sidecar/record
@@ -119,8 +125,10 @@ lock_acquire() {
     tries=$((tries + 1))
     if [ "$tries" -ge 40 ]; then
       now=$(date +%s)
-      # An unreadable mtime reads as age 0: never break a lock we cannot date.
-      mtime=$(stat_mtime "$LOCK")
+      mtime=$(lock_mtime "$LOCK" || true)
+      # Anything unreadable or non-numeric reads as "just created", so an
+      # unforeseen stat surprise degrades to a lock-timeout refusal instead of
+      # aborting the writer - and its caller, fm-teardown.sh - under `set -u`.
       case "$mtime" in ''|*[!0-9]*) mtime=$now ;; esac
       age=$((now - mtime))
       if [ "$age" -ge "${FM_BUSY_LOCK_STALE_SECS:-5}" ]; then
@@ -152,7 +160,7 @@ if [ "$CMD" = arm ]; then
   lock_acquire || exit 1
   {
     printf '%s\n' "$GEN" > "$GEN_FILE.tmp.$$" && mv -f "$GEN_FILE.tmp.$$" "$GEN_FILE" \
-      && write_record "$GEN" 1
+      && write_record "$GEN" 1 && rm -f "$STATE/$ID.progress"
   } || { lock_release; umask "$old_umask"; echo "error: arm failed for $ID" >&2; exit 1; }
   lock_release
   umask "$old_umask"
@@ -160,7 +168,7 @@ if [ "$CMD" = arm ]; then
   exit 0
 fi
 
-# apply / retire
+# apply / progress / retire
 if [ "$USE_CURRENT_GEN" = 1 ] && [ "$CMD" != retire ]; then
   GEN=$(fm_busy_current_gen "$STATE" "$ID") || {
     umask "$old_umask"
@@ -175,7 +183,7 @@ fi
 lock_acquire || { umask "$old_umask"; exit 1; }
 CURRENT=$(fm_busy_current_gen "$STATE" "$ID") || {
   if [ "$CMD" = retire ] && [ ! -e "$GEN_FILE" ] && [ ! -L "$GEN_FILE" ]; then
-    rm -f "$REC" || {
+    rm -f "$REC" "$STATE/$ID.progress" || {
       lock_release
       umask "$old_umask"
       echo "error: busy-state retirement failed for $ID" >&2
@@ -200,12 +208,18 @@ if [ "$GEN" != "$CURRENT" ]; then
   exit 1
 fi
 if [ "$CMD" = retire ]; then
-  rm -f "$GEN_FILE" "$REC" || {
+  rm -f "$GEN_FILE" "$REC" "$STATE/$ID.progress" || {
     lock_release
     umask "$old_umask"
     echo "error: busy-state retirement failed for $ID" >&2
     exit 1
   }
+  lock_release
+  umask "$old_umask"
+  exit 0
+fi
+if [ "$CMD" = progress ]; then
+  touch "$STATE/$ID.progress" || { lock_release; umask "$old_umask"; exit 1; }
   lock_release
   umask "$old_umask"
   exit 0

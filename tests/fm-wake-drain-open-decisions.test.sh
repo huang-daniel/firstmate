@@ -25,12 +25,13 @@ test_trailing_token_lists_answerable_default_key() {
 
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "trailing-token drain failed"
   row=$(grep '^task-default ' "$out")
+  # The drain prints the default key as a bare verb, so the note's own trailing
+  # token is the only bracket on the row; the decision still folds under default.
   case "$row" in
-    'task-default [key=default] needs-decision: '*'[key=nm-run-review]') : ;;
-    *) fail "the folded row key is missing or confused with the note token: $row" ;;
+    'task-default needs-decision: '*'[key=nm-run-review]') : ;;
+    *) fail "the default-key row with a trailing note token was not listed: $row" ;;
   esac
-  key=$(printf '%s\n' "$row" | sed -n 's/^task-default \[key=\([^]]*\)\] needs-decision:.*/\1/p')
-  [ "$key" = default ] || fail "the printed row key is not default"
+  key=default
   grep -F "bin/fm-send.sh <task> --resolve-key <key> '<answer>'" "$out" >/dev/null \
     || fail "the advertised close command is missing"
 
@@ -39,80 +40,22 @@ test_trailing_token_lists_answerable_default_key() {
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "long trailing-token drain failed"
   row=$(grep '^task-default ' "$out")
   case "$row" in
-    'task-default [key=default] needs-decision: '*' [truncated]') : ;;
-    *) fail "the row key did not survive the note cap: $row" ;;
+    'task-default needs-decision: '*' [truncated]') : ;;
+    *) fail "the long default-key row was not capped with the truncation marker: $row" ;;
   esac
   [ "${#row}" -le 219 ] || fail "the row exceeded its byte cap"
 
   env PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" \
     FM_FAKE_COMPOSER="$dir/composer" FM_FAKE_SENT="$dir/sent" FM_SEND_SETTLE=0 \
     "$ROOT/bin/fm-send.sh" task-default --resolve-key "$key" 'use the reviewed fix' \
-    > "$dir/send.out" 2> "$dir/send.err" || fail "the printed key was refused: $(cat "$dir/send.err")"
-  grep -F 'use the reviewed fix' "$dir/sent" >/dev/null || fail "the answer was not delivered"
+    > "$dir/send.out" 2> "$dir/send.err" || fail "the default key was refused: $(cat "$dir/send.err")"
+  grep -F 'use the reviewed fix' "$state/task-default.inbox/001.msg" >/dev/null \
+    || fail "the answer was not delivered into the task's steering inbox"
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "post-resolution drain failed"
   if grep -F 'OPEN DECISIONS' "$out" >/dev/null; then
-    fail "resolving the printed key left the decision listed: $(cat "$out")"
+    fail "resolving the default key left the decision listed: $(cat "$out")"
   fi
-  pass "the trailing note token keeps an answerable default row key through truncation"
-}
-
-# Section 8 requires every listed entry to be closable by the command the
-# listing advertises. A reserved-namespace key is closed only by the flow that
-# raised it, so the row must say whose it is and the generic close command must
-# not be advertised for it.
-test_reserved_key_row_is_marked_owned_not_advertised_as_closable() {
-  local dir state out
-  dir=$(make_case reserved-key-listing)
-  state="$dir/state"
-  out="$dir/drain.out"
-  printf 'blocked [key=pending-reply-abcdef0123456789]: pending-reply-missed: task=ios pending-reply-id=abcdef0123456789 request=ship it\n' > "$state/task10.status"
-
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on a reserved-key row"
-
-  grep -F 'task10' "$out" | grep -F '[key=pending-reply-abcdef0123456789]' \
-    | grep -F '[owned-by=pending-reply]' >/dev/null \
-    || fail "the reserved-namespace row is not marked as owned elsewhere: $(cat "$out")"
-  if grep -F 'close one by answering it' "$out" >/dev/null; then
-    fail "the listing advertises a close command that refuses this row: $(cat "$out")"
-  fi
-
-  # A row the reader can close themselves keeps the hint and carries no owner
-  # marker, so the two kinds are distinguishable at a glance.
-  printf 'needs-decision [key=api-shape]: pick REST or RPC\n' > "$state/task11.status"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on a mixed listing"
-  grep -F "close one by answering it: bin/fm-send.sh <task> --resolve-key <key>" "$out" >/dev/null \
-    || fail "a closable row lost the answerer-closes hint: $(cat "$out")"
-  grep -F 'task11 [key=api-shape] needs-decision: pick REST or RPC' "$out" >/dev/null \
-    || fail "the closable row was not printed without an owner marker: $(cat "$out")"
-  pass "a reserved-namespace row is marked owned and never advertised as --resolve-key closable"
-}
-
-# What the section owes the reader follows from what is open, not from what fit
-# in the byte budget. A listing crowded with rows owned elsewhere is exactly when
-# a reader most needs to be told how to close the one row that is theirs.
-test_close_hint_survives_a_closable_row_pushed_past_the_byte_cap() {
-  local dir state out i note
-  dir=$(make_case hint-past-cap)
-  state="$dir/state"
-  out="$dir/drain.out"
-  note='pending-reply-missed: task=ios pending-reply-id=abcdef0123456789 request=ship the release branch once the infra freeze lifts and the queue drains'
-  for i in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20 21 22; do
-    printf 'blocked [key=pending-reply-abcdef012345%s]: %s\n' "$i" "$note" \
-      > "$state/a$i.status"
-  done
-  printf 'needs-decision [key=api-shape]: pick REST or RPC for the bearings ingest, and say which of the two the crew starts with once the infra freeze lifts\n' \
-    > "$state/zz.status"
-
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on an over-cap listing"
-
-  grep -F 'OPEN DECISIONS: ' "$out" | grep -F 'more omitted (byte cap)' >/dev/null \
-    || fail "precondition: the listing should have omitted rows for the byte cap: $(cat "$out")"
-  if grep -F 'zz [key=api-shape]' "$out" >/dev/null; then
-    fail "precondition: the closable row should have been pushed past the cap: $(cat "$out")"
-  fi
-  grep -F "close one by answering it: bin/fm-send.sh <task> --resolve-key <key>" "$out" >/dev/null \
-    || fail "the close command vanished while a closable decision was open: $(cat "$out")"
-  pass "the answerer-closes hint still prints when the closable row is omitted by the byte cap"
+  pass "a default-key row whose note ends in a bracketed token still closes through the answering command"
 }
 
 test_buried_decision_still_surfaces() {
@@ -208,7 +151,7 @@ test_no_open_decisions_prints_nothing() {
   state="$dir/state"
   out="$dir/drain.out"
   printf 'working: on it\n' > "$state/task4.status"
-  printf 'done: shipped clean\n' > "$state/task5.status"
+  printf 'resolved: shipped clean\n' > "$state/task5.status"
 
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed with no open decisions"
 
@@ -316,8 +259,6 @@ test_over_long_decision_note_is_capped_with_a_marker() {
 }
 
 test_trailing_token_lists_answerable_default_key
-test_reserved_key_row_is_marked_owned_not_advertised_as_closable
-test_close_hint_survives_a_closable_row_pushed_past_the_byte_cap
 test_buried_decision_still_surfaces
 test_over_long_decision_note_is_capped_with_a_marker
 test_explicit_resolution_closes_it

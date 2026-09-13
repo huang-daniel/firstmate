@@ -198,7 +198,14 @@ make_case() {
   printf '%s\n' claude > "$home/config/crew-harness"
   fm_git_worktree "$proj" "$wt" "wt-$name"
   touch "$home/state/.last-watcher-beat"
-  printf 'brief for %s\n' "$id" > "$home/data/$id/brief.md"
+  cat > "$home/data/$id/brief.md" <<EOF
+# Task
+## Captain's intent
+Exercise board dispatch for $id.
+
+## Firstmate spec
+Verify the card placement and status reflection.
+EOF
   : > "$case_dir/gh.log"
   : > "$case_dir/items"
   : > "$case_dir/issues"
