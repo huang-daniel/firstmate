@@ -177,8 +177,8 @@
 # board, recorded as present before any of them runs, so declining to import it
 # is never mistaken for it having left.
 #
-# IDEMPOTENCY. data/board-links.tsv is the durable linkage record and the single
-# thing consulted before an import. It lives in data/, not state/, so it
+# IDEMPOTENCY. data/board-links.tsv is the durable linkage record and the
+# authority for duplicate task bindings. It lives in data/, not state/, so it
 # survives task cleanup: an issue whose task was long since torn down is still
 # linked and is never imported a second time. The issue URL is the identity, so
 # one issue can hold at most one task, and `import` for an issue that already
@@ -301,9 +301,11 @@
 # It reports `lane` on success or `lane-partial` while the write is outstanding.
 #
 # The `lane` key names that column and is the whole on switch, defaulting to
-# unset in the same shape as every other optional key here. With it unset no card
-# is ever read or written as a lane, `lane` and `unlane` refuse, and every path
-# below behaves exactly as it did before the key existed.
+# unset in the same shape as every other optional key here. With it unset,
+# `lane` refuses new declarations and repairs. Existing records still exempt
+# their issues from import and decomposition, but poll skips column
+# reconciliation. `unlane` can retire an existing record while the project
+# remains configured, even without a lane column.
 #
 # NEVER INFERRED. The board column is where a declared lane is shown, never how
 # one is recognized: a card sitting in the lane column that holds no record is
@@ -313,10 +315,9 @@
 # statement, and that is what makes `unlane` a real reversal rather than
 # something the next cycle undoes.
 #
-# The one-way door is therefore three-sided rather than two. An issue holds at
-# most one of the three records, and every verb that would write one refuses
-# first when the issue already holds another: `import` and `card_ensure` refuse a
-# lane exactly as they refuse a container, `promote`, `child-add`, `decomposed`,
+# An issue holds at most one of the three records. Except for the undecomposed
+# container conversion below, writing one refuses an issue holding another:
+# `import` and `card_ensure` refuse a lane exactly as they refuse a container, `promote`, `child-add`, `decomposed`,
 # and `place --parent` refuse a lane parent exactly as they refuse a bound one,
 # and `lane` refuses an issue that already holds a task. Every such refusal exits
 # 3.

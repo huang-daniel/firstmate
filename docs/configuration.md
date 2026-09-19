@@ -242,7 +242,7 @@ Firstmate reads it, breaks it into concrete work items, and files each one as a 
 Containers also arrive the other way round.
 When you file an ordinary card that turns out to be too big to ship as one task, firstmate promotes it into the big-picture lane itself and breaks it down from there, then tells you it did and what the pieces are.
 It makes that call while reading the card and before the card is tied to any one piece of work, because an issue is tied to exactly one task permanently: a container that had already been tied to a task would be work nobody could ship, fixable only by abandoning that issue for a fresh one.
-So a card is either taken in as one task or promoted to a container, never one and then the other.
+A task binding cannot be converted into a container; standing charters follow "Persistent lanes" below.
 
 A container never becomes a task itself, and is only ever broken down once.
 Its card tracks all GitHub sub-issues, including externally attached work; the PARENT STATUS contract in [`bin/fm-board.sh`](../bin/fm-board.sh) defines how child states determine its big-picture column and how failed reads prevent stale updates.
@@ -256,23 +256,13 @@ Some work is neither one task nor a big-picture item that breaks into a known se
 A persistent lane is a standing charter: it has no fixed child set, it throws off temporary work as evidence appears for as long as the product exists, and it is never itself finished.
 Its issue stays open indefinitely, and that is the settled end state rather than something waiting to be tidied up.
 
-Treating such an issue as a big-picture item goes wrong in both directions.
-There is no breakdown to perform, so marking it broken down would claim something that never happened, and no finish line ever arrives, so its card could never honestly reach Done - which leaves firstmate asked to break it down on every cycle forever, with no legitimate way to settle the ask.
+Set `lane` to the column that holds these charters.
+Firstmate deliberately declares the classification; placing a card in that column alone does not declare a lane.
+The [board-orchestration policy](../.agents/skills/board-orchestration/SKILL.md#persistent-lanes) owns the declaration criteria, treatment of generated work, divergence response, and deliberate reversal.
+The PERSISTENT LANES contract in [the adapter header](../bin/fm-board.sh) owns commands, conversion restrictions, durable records, repair writes, and retries.
 
-Set `lane` to the column that holds those charters and firstmate gains a third answer for a filed card.
-It says once, deliberately, that a card is a standing lane; the card moves into that column; and from then on the issue is never taken in as a task, never offered for breaking down, and never given a finish state.
-Nothing is ever guessed from a title, a label, or how old an issue is - firstmate states it, and the record is kept locally so it survives cleanup and restarts.
-A card the captain later moves out of that column is reported as an ordinary difference, exactly as any other card is; a lane simply sitting there is silence.
-
-The classification cannot be reached over the top of another one, in either direction.
-An issue already taken in as a task is refused, as is one that really was broken down - its children are its breakdown, and a later classification does not get to deny that.
-An issue merely sitting in the big-picture lane that nothing has been spent on yet is exactly the case this exists to correct, so declaring it a lane retires the big-picture reading in the same step.
-
-The work a lane throws off is completely ordinary: it is taken in, carded, classified, dispatched, and finished exactly as any other task, and it is captain-gated exactly like any other work that arrived from a board.
-A lane never becomes the parent of that work on the board, because a parent's card follows its children to completion and a lane has no completion to follow them to.
-
-Deciding later that a lane really was a big-picture item, or one task after all, is one deliberate command that retires the charter and touches nothing else; no cycle ever declares or undoes one on its own.
-Leave `lane` out and none of this exists: no card is read or written as a lane and the bridge behaves exactly as it did before the key existed.
+Without `lane`, new declarations and explicit repairs are disabled.
+Removing the key after declaring lanes preserves their exemptions from import and decomposition but stops their column reconciliation; existing declarations can still be explicitly reversed while the project remains configured.
 
 ### Turning it off
 

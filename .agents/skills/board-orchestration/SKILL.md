@@ -66,13 +66,13 @@ Everything else on the board is deliberately invisible to intake, including draf
 A filed card is one of three things, and which one it is has to be settled before the card binds to anything.
 It is one shippable task; or a programme: work too large to ship as a single task, whose children are the real work; or a persistent lane: a standing charter that produces work continuously and is never itself finished.
 
-Settle it first because the judgement cannot be revisited afterwards.
+Settle it before spending the issue's permanent task binding.
 An issue binds to exactly one task permanently and a conflicting relink is refused rather than overwritten, so a programme internalized as one task has spent its issue's one binding on work no worker can ship, recoverable only by abandoning that issue and filing a fresh one.
 The adapter refuses a promotion after a binding for exactly that reason, so a refusal is the ordering being enforced rather than an obstacle to route around.
-It refuses a lane declaration on the same terms, and refuses each of the three classifications over the top of either other one.
+It refuses a lane declaration on a bound task on the same terms; the adapter header's PERSISTENT LANES contract owns the permitted container conversion and mutual exclusions.
 
 Read the issue in full, and any linked context it names, then take exactly one of three routes: "One shippable task" immediately below, "Promoting a filed card firstmate judges to be a programme" under "Programmes and their children", or "Declaring a persistent lane" under "Persistent lanes".
-Never take two of them, and never start down one route and switch.
+Choose one route; later reconsideration of a lane follows "Reversing one" below.
 When it is genuinely unclear which one it is, ask the captain rather than binding it to find out.
 
 ### One shippable task
@@ -217,11 +217,11 @@ There is no breakdown to perform, so `decomposed` would assert one that never ha
 No terminal state ever arrives, so a container's derived `done` could never be reached honestly.
 Left as a container, such an issue is offered for decomposition on every cycle forever with no legitimate way to settle the offer.
 
-Nothing here happens in a home whose board configures no lane column.
+The lane column configuration and its removal behavior are described in [configuration](../../../docs/configuration.md#persistent-lanes).
 
 ### Declaring a persistent lane
 
-This is firstmate's own call and it is made at intake, on the `new` line, before that card binds to anything - "Judge the card before anything binds" above owns why the ordering is not negotiable.
+Make this judgement at intake or when a `decompose` offer reveals a standing charter, before committing to a breakdown; "Judge the card before anything binds" above owns the binding boundary.
 The script provides the mechanism and never decides what is or is not a lane; it reads no title, label, age, or other proxy, so a card only becomes a lane because firstmate said so once, deliberately.
 
 Declare a lane when the card names an ongoing responsibility rather than an outcome: work that recurs for as long as the product exists, whose pieces are discovered rather than enumerated, and which no breakdown could ever exhaust.
@@ -317,7 +317,7 @@ Firstmate writes them outward from the backlog; a card's column never tells firs
 That covers every one of them, including the optional `processed` and `queued` columns: each is written because firstmate's own records already moved, never to make the board read better than the records support.
 So a `divergence` line - a card showing a status firstmate did not write - means change nothing, dispatch nothing, stop nothing, and tell the captain in chat.
 The adapter has already declined to reconcile it in either direction, and firstmate must not do by hand what the adapter deliberately refused.
-Raise a given divergence once and do not repeat it every cycle while it stands unresolved; when the captain decides, `bin/fm-board.sh mark <task-id> <state>` is how the card is put right.
+Raise a given divergence once and do not repeat it every cycle while it stands unresolved; when the captain decides, `bin/fm-board.sh mark <task-id> <state>` puts a linked task's card right, while "Persistent lanes" above owns the lane response.
 A `classification-divergence` line is the same situation in the classification field and gets the same answer: report it, change nothing, and put the card right with `classify` once the captain has decided which area is correct.
 
 Treat an unexplained appearance in a configured `queued` column as security-relevant, because under this model it can only mean something outside firstmate wrote to that board.
