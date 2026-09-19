@@ -1,0 +1,32 @@
+Real fm-board.sh CLI, isolated FM_HOME, installed gh executable; no mock or fixture service. Local refusal and idempotent-import paths only.
+
+$ bin/fm-board.sh card fm-validation
+error: task fm-validation holds no board status firstmate drives, so a card for it would show nothing; "mark" it to the state it is in first
+exit=2; durable links unchanged=True
+
+$ bin/fm-board.sh card https://github.com/huang-daniel/firstmate/issues/1
+error: task fm-validation holds no board status firstmate drives, so a card for it would show nothing; "mark" it to the state it is in first
+exit=2; durable links unchanged=True
+
+$ bin/fm-board.sh card fm-missing
+error: task fm-missing is not linked to a board issue
+exit=2; durable links unchanged=True
+
+$ bin/fm-board.sh card --all
+error: unknown option "--all"
+exit=2; durable links unchanged=True
+
+$ bin/fm-board.sh card fm-validation fm-missing
+error: usage: fm-board.sh card <issue-url|task-id>
+exit=2; durable links unchanged=True
+
+$ bin/fm-board.sh import validation https://github.com/huang-daniel/firstmate/issues/1 fm-validation
+already-linked validation https://github.com/huang-daniel/firstmate/issues/1 fm-validation
+exit=0; durable links unchanged=True
+
+$ GH_CONFIG_DIR=<isolated empty directory> bin/fm-board.sh card fm-validation
+Real gh with authentication unavailable (token variables removed).
+To get started with GitHub CLI, please run:  gh auth login
+Alternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.
+error: could not read whether https://github.com/huang-daniel/firstmate/issues/1 is a card on project huang-daniel/1
+exit=1; durable links unchanged=True
