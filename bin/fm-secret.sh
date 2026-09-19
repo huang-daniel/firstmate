@@ -60,12 +60,25 @@ secret_name_valid() {
   return 0
 }
 
+secret_path_under() {
+  local root=$1 name=$2 path part
+  secret_name_valid "$name" || return 1
+  [ ! -L "$root" ] || return 1
+  path=$root
+  local -a parts=()
+  IFS=/ read -r -a parts <<< "$name"
+  for part in "${parts[@]}"; do
+    path+=/$part
+    [ ! -L "$path" ] || return 1
+  done
+  printf '%s\n' "$path"
+}
+
 secret_resolve() {
   local name=$1 path
   secret_name_valid "$name" || die "invalid credential name" 2
-  path="$SECRETS/$name"
+  path=$(secret_path_under "$SECRETS" "$name") || die "credential path contains a symbolic link: $name"
   [ -e "$path" ] || die "no such credential: $name"
-  [ ! -L "$path" ] || die "credential is a symbolic link: $name"
   [ -f "$path" ] || die "credential is not a regular file: $name"
   [ -r "$path" ] || die "credential is not readable: $name"
   printf '%s\n' "$path"
@@ -155,14 +168,8 @@ secret_manifest_keys() {
 }
 
 secret_value_file() {
-  local name=$1 key=$2 part path=$VALUES
-  [ ! -L "$path" ] || return 1
-  local -a parts=()
-  IFS=/ read -r -a parts <<< "$name/$key"
-  for part in "${parts[@]}"; do
-    path+=/$part
-    [ ! -L "$path" ] || return 1
-  done
+  local name=$1 key=$2 path
+  path=$(secret_path_under "$VALUES" "$name/$key") || return 1
   [ -f "$path" ] || return 1
   cat -- "$path"
 }
@@ -308,7 +315,10 @@ secret_published_matches() (
 secret_apply() (
   local path=$1 name=$2 action=$3 ref=$4 tmp stage key value parent part
   umask 077
-  [ ! -L "$VALUES" ] || return 1
+  secret_path_under "$VALUES" "$name" >/dev/null || {
+    printf 'error: published values conflict for credential %s\n' "$name" >&2
+    return 1
+  }
   mkdir -p -- "$VALUES" || return 1
   chmod 0700 "$VALUES" || return 1
   parent=$VALUES
@@ -316,7 +326,6 @@ secret_apply() (
   IFS=/ read -r -a parts <<< "$name"
   for part in "${parts[@]:0:${#parts[@]}-1}"; do
     parent+=/$part
-    [ ! -L "$parent" ] || return 1
     mkdir -p -- "$parent" && chmod 0700 "$parent" || return 1
   done
   stage=$(mktemp -d "$VALUES/.fm-secret.XXXXXX") || return 1

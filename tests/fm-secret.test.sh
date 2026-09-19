@@ -159,6 +159,51 @@ test_reveal_refuses_to_escape_the_store() {
   assert_not_equals 0 "$status" "reveal followed a symlink out of the store"
   assert_not_contains "$out" "fakeOutsideValue" "reveal followed a symlink out of the store"
 
+  local command outside="$TMP_ROOT/escape/external" value_root
+  mkdir -p "$outside"
+  printf 'TOKEN=%s\n' "$BARE_PLAIN" > "$outside/token"
+  cp "$outside/token" "$TMP_ROOT/escape/original"
+  ln -s "$outside" "$store/redirected"
+  for command in reveal names migrate; do
+    status=0
+    case $command in
+      reveal) out=$(run_secret "$store" reveal redirected/token TOKEN 2>&1) || status=$? ;;
+      names) out=$(run_secret "$store" names redirected/token 2>&1) || status=$? ;;
+      migrate) out=$(run_secret "$store" migrate --keyed redirected/token 2>&1) || status=$? ;;
+    esac
+    [ "$status" -ne 0 ] || fail "intermediate manifest symlink accepted"
+    [[ $out != *"$BARE_PLAIN"* ]] || fail "outside credential disclosed"
+    cmp -s "$outside/token" "$TMP_ROOT/escape/original" || fail "outside credential modified"
+  done
+
+  value_root="${store%/*}/secret-values"
+  mkdir -p "$value_root" "$store/value-client"
+  printf '# fm-secret v2\nTOKEN\n' > "$store/value-client/token"
+  mkdir -p "$outside/token-values"
+  printf '%s' "$BARE_PLAIN" > "$outside/token-values/TOKEN"
+  cp "$outside/token-values/TOKEN" "$TMP_ROOT/escape/value-original"
+  ln -s "$outside" "$value_root/value-client"
+  mv "$store/value-client/token" "$store/value-client/token-values"
+  for command in reveal export; do
+    status=0
+    if [ "$command" = reveal ]; then
+      out=$(run_secret "$store" reveal value-client/token-values TOKEN 2>&1) || status=$?
+    else
+      out=$(run_secret "$store" export value-client/token-values 2>&1) || status=$?
+    fi
+    [ "$status" -ne 0 ] || fail "intermediate value symlink accepted"
+    [[ $out != *"$BARE_PLAIN"* ]] || fail "outside value disclosed"
+    cmp -s "$outside/token-values/TOKEN" "$TMP_ROOT/escape/value-original" || fail "outside value modified"
+  done
+  printf 'TOKEN=%s\n' "$BARE_PLAIN" > "$store/value-client/legacy"
+  cp "$store/value-client/legacy" "$TMP_ROOT/escape/legacy-original"
+  status=0
+  out=$(run_secret "$store" migrate --keyed value-client/legacy 2>&1) || status=$?
+  [ "$status" -ne 0 ] || fail "migration followed intermediate value symlink"
+  [[ $out != *"$BARE_PLAIN"* ]] || fail "migration disclosed outside value"
+  [ ! -e "$outside/legacy" ] || fail "migration created outside value directory"
+  cmp -s "$store/value-client/legacy" "$TMP_ROOT/escape/legacy-original" || fail "refused migration modified legacy credential"
+
   pass "reveal refuses traversal and symlinked credentials"
 }
 
