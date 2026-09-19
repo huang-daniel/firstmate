@@ -85,6 +85,11 @@ gh: Could not resolve to a Unions::ProjectV2FieldConfiguration with the name sta
 
 Filtering `fields(first: 100)` in the response costs the same 1 point as naming the field, so the tolerant match is free.
 
+**One id read already carries every single-select field, so a second synchronized field adds no request.**
+The response quoted above is the whole of the evidence: the query asks for `fields(first: $fields)` and GitHub answers with every single-select field on the board, each with its options, for the same 1 point.
+The adapter's `classify-field` support changed only which of those fields the client-side filter keeps; the query document and its variables are unchanged, so the 1-point measurement above still stands without re-measuring.
+A board wanting a third synchronized field would widen the same filter, not add a read.
+
 ## What has live evidence, and what does not
 
 Validation for this change drove a real user-owned project board, and it exercised the read path alone.
@@ -97,10 +102,25 @@ The four results, quoted from the transcript:
 
 No live write was made at all.
 The validation run issued zero `project item-edit` calls, zero `project item-add` calls, and zero `issue create` calls against the real board.
-So every write path is stub-proven rather than live-proven, and there are three of them: reconciling many owed mutations from one snapshot, resolving a single-card event without a full-board read, and per-card failure reporting with retry.
+So every write path is stub-proven rather than live-proven, and there are four of them: reconciling many owed mutations from one snapshot, resolving a single-card event without a full-board read, per-card failure reporting with retry, and setting two single-select fields on one card in one aliased GraphQL mutation.
 
 Each stays stub-proven for a reason, so a later reader can tell a deliberate limit from an oversight:
 
 - driving many owed writes live would mean manufacturing a board carrying many pending writes and then spending the real request budget to watch it, and that budget is the exact resource this change exists to protect, while the configured board is a live operational surface rather than a test fixture
 - per-card failure reporting and retry cannot be driven live at all without inducing write failures against GitHub on demand, which nothing here can do reliably
-- the complexity guard covers these against the stub, and that guard was itself proven by deliberately reintroducing six distinct regressions and confirming each one turns the suite red, which is stronger evidence than a single unrepeatable live run
+- the two-field write is a write by definition, so it cannot be exercised without writing to that same live operational surface; its shape is two aliased `updateProjectV2ItemFieldValue` mutations in one document, which is ordinary GraphQL rather than anything GitHub documents as special
+- the complexity guard covers these against the stub, and that guard was itself proven by deliberately reintroducing eight distinct regressions and confirming each one turns the suite red, which is stronger evidence than a single unrepeatable live run
+
+The two added on 2026-09-19, with the classification field, were each reintroduced and confirmed to fail `test_a_second_synchronized_field_costs_no_second_request`:
+
+```
+resolving the classification field's ids in their own request
+  not ok - a cycle synchronizing two fields cost 8 calls where one field cost 5,
+           for the same 3 changed cards
+
+writing the classification in a second item-edit rather than the batched mutation
+  not ok - a cycle synchronizing two fields cost 8 calls where one field cost 5,
+           for the same 3 changed cards
+```
+
+Both regressions produce the same call count from different causes, which is why the test asserts the per-kind `graphql ids` and `graphql write` counts as well as the total: the first leaves the write count correct and the id count wrong, the second the reverse.

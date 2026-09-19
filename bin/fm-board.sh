@@ -14,15 +14,20 @@
 #   fm-board.sh boards [<project>]
 #   fm-board.sh poll [<project>] [--limit <n>] [--all]
 #   fm-board.sh import <project> <issue-url> <task-id>
+#     [--area <name> | --unclassified]
 #   fm-board.sh place <project> <task-id> <title> [<body>]
 #     [--lands-in <owner/name>] [--parent <issue-url>] [--cleared]
+#     [--area <name> | --unclassified]
 #   fm-board.sh promote <project> <issue-url>
 #   fm-board.sh child-add <project> <parent-issue-url> <title> <body> <task-id>
+#     [--area <name> | --unclassified]
 #   fm-board.sh decomposed <project> <parent-issue-url>
 #   fm-board.sh decompositions [<project>]
 #   fm-board.sh links [<project>]
 #   fm-board.sh lookup <issue-url|task-id>
 #   fm-board.sh mark <task-id> todo|processed|queued|in-progress|done
+#   fm-board.sh classify <task-id> <area-name>
+#   fm-board.sh classifications [<project>]
 #   fm-board.sh pr <task-id> <pr-url>
 #   fm-board.sh note <task-id> <text>
 #   fm-board.sh ack <task-id>
@@ -49,6 +54,7 @@
 #   mention = @firstmate         # optional; default: mention trigger off
 #   assignee = some-login        # optional; default: assignee trigger off
 #   status-field = Status        # default: Status
+#   classify-field = Area        # optional; default: classification off
 #   todo = Todo                  # default: Todo
 #   in-progress = In Progress    # default: In Progress
 #   done = Done                  # default: Done
@@ -76,6 +82,52 @@
 # Unconfigured, `import` writes no column at all and every path below behaves
 # exactly as it did before the key existed, so an existing home never grows a
 # column it did not ask for.
+#
+# CLASSIFICATION, THE SECOND SYNCHRONIZED FIELD. `classify-field` is optional
+# and off by default in the same shape as the two keys above. Configured, it
+# names a second single-select field on the board - an area, a component, a
+# workstream, whatever that board calls it - and this adapter then treats it
+# exactly as it treats the column: it reads it on every cycle, records it, keeps
+# it, writes it, and reports a value it did not write as a divergence rather
+# than acting on it. Unconfigured, no card's value is ever read or written, the
+# `classify` refuses, `classifications` reports `off`, and every path below makes the calls it
+# made before the key existed.
+#
+# The field's options are the board's own vocabulary and appear nowhere in this
+# repository. `classifications` prints them, read from the board, so one
+# project's areas can never be another's and no code change adds a board.
+#
+# WHICH AREA A PIECE OF WORK BELONGS TO IS A JUDGEMENT, so this adapter never
+# forms one. It sets the value a caller states and refuses to infer one from a
+# title, a label, a repository, a column, or any other proxy - the same shape as
+# `--cleared` below, and for the same reason: a guess would be wrong quietly and
+# at scale. `import`, `place`, and `child-add` therefore require the classifying
+# caller to state `--area <name>` or `--unclassified` when the board configures
+# the field, so a card is classified in the call that creates it rather than by
+# a second command someone has to remember.
+#
+# Blank stays reachable because genuine ambiguity is a real answer, but only by
+# saying `--unclassified`; omitting both is refused. That is the whole
+# difference between a card left blank because its classification is genuinely
+# open and one left blank for convenience. And a blank card is not silent: every
+# cycle names it in an `unclassified` record until one is recorded, exactly as a
+# card awaiting import repeats as `new`. Work already finished or withdrawn is
+# settled and is not named, so a reconciled board still polls to nothing.
+#
+# The two flags are not symmetric on a board that configures no such field.
+# `--area` names a field that board does not have, so it is refused.
+# `--unclassified` states that no classification is being given, which is simply
+# true there, so it is accepted and does nothing.
+# Dispatch passes the caller's classification through; if none is stated for a
+# classifying board, it reports skipped placement and still launches the task.
+#
+# `classify` changes the value afterwards, which is what an issue whose scope has
+# moved into another area needs, and is also how a divergence on this field is
+# resolved - firstmate acting, exactly as an explicit `mark` resolves one on the
+# column.
+#
+# A container is not classified. It holds no task and ships nothing; its children
+# are the work, and each of them carries its own classification.
 #
 # The three `big-picture-*` keys name the container lane and are the whole on
 # switch for decomposition, defaulting to unset. Their values are ordinary
@@ -130,13 +182,18 @@
 # rather than overwritten.
 #
 # Record columns, tab separated:
-#   project  issue  task  desired  synced  pr  pr_synced
+#   project  issue  task  desired  synced  pr  pr_synced  area  area_synced
 # `desired` is the column state firstmate's execution events call for and
 # `synced` is the last state this adapter confirmed on the board, both drawn
 # from todo|processed|queued|in-progress|done|other. They differ exactly while a board write is
 # outstanding, which is what makes a failed write retryable on the next cycle.
 # `other` is a column the captain added that firstmate does not drive; it is
 # recorded so their intent is preserved, not so a fourth execution state exists.
+# `area` is the requested classification; `area_synced` is its last confirmed
+# board value, or the value observed by the existing card lookup immediately
+# before an explicit classification write. Saving that observed baseline lets
+# poll retry a failed correction while still detecting subsequent external edits.
+# Older seven-column rows read both area fields as `-`.
 # No column is ever empty: `-` is the placeholder, because bash collapses empty
 # tab-separated fields when it reads them back.
 #
@@ -374,9 +431,11 @@
 #
 # RECORDS. Every line `poll` prints is something firstmate has to act on, which
 # is the whole of the rule about what it says. The kinds are `new`, `decompose`,
-# `divergence`, `foreign`, `cancelled`, `synced`, `stale`, `truncated`, and
-# `error`; each is owned by the section above that describes the situation it
-# reports. A card already showing what firstmate recorded is not one of them: it
+# `divergence`, `foreign`, `cancelled`, `synced`, `stale`, `truncated`,
+# `error`, and - on a board that configures a classification field -
+# `unclassified`, `classified`, `classification-stale`, and
+# `classification-divergence`; each is owned by the section above that describes
+# the situation it reports. A card already showing what firstmate recorded is not one of them: it
 # prints nothing, exactly as a reconciled container has always printed nothing.
 # So a fully reconciled board polls to no output at all, and a board that grows
 # to hundreds of settled cards stays as quiet as one holding none. `--all` adds
@@ -411,25 +470,43 @@
 # field, and option node IDs come back in one request and are cached per board
 # for the rest of the invocation.
 #
-# Two properties follow, and tests/fm-board.test.sh pins both. Per-card cost is
-# a small constant rather than a function of how many cards the board carries,
-# so a board that grows does not make every write on it dearer. And no board
-# read ever reappears inside a per-item loop: growing a board by ordinary work
-# items changes what one invocation costs not at all, and growing it by a
+# Three properties follow, and tests/fm-board.test.sh pins all three. Per-card
+# cost is a small constant rather than a function of how many cards the board
+# carries, so a board that grows does not make every write on it dearer. No
+# board read ever reappears inside a per-item loop: growing a board by ordinary
+# work items changes what one invocation costs not at all, and growing it by a
 # container adds one paginated REST invocation, which the same test counts.
-# Pagination may make multiple HTTP requests; no page reads the board.
+# Pagination may make multiple HTTP requests; no page reads the board. And that
+# constant does not follow how many fields are synchronized: a cycle that
+# reconciles both the column and the classification of every card it changes
+# costs exactly what the same cycle costs on a board that classifies nothing.
 #
-# BATCHING. One GraphQL document carries the project id, the status field id,
-# and every one of that field's options, which the CLI's `project view` plus
+# BATCHING. One GraphQL document carries the project id and every single-select
+# field on the board with its options, which the CLI's `project view` plus
 # `project field-list` answer in two requests, the second of them paging every
 # field on the board to reach the one that is wanted. Both reads were measured;
 # docs/verification/board-cost.md carries the figures.
 #
-# The per-card status write is individual by choice. The normal case here is a
-# single-card event, where one write is the whole of the work, and writing each
-# card on its own keeps failure attribution exact: `synced` and `stale` name the
-# individual cards the board took and the ones still owed, which is what the
-# next cycle retries.
+# That one document is why a second synchronized field is free to read. The
+# status field and the classification field are two lookups into one cached
+# snapshot, resolved by name in the shell rather than by the query, so the read
+# count is set by how many boards a run touches and never by how many fields it
+# writes. A third field would be the same.
+#
+# Writing them is batched for the same reason. Setting two single-select fields
+# on one card is one request, not two: the CLI has no verb for it, so a
+# two-field write goes through GraphQL, where one document carries both
+# mutations under aliases. A card owing one field keeps the `project item-edit`
+# it always used, so a board that classifies nothing makes exactly the calls it
+# made before. What both halves preserve is the property the cost guard pins:
+# per-card requests follow how many cards a cycle changes, never how many fields
+# each change touches.
+#
+# The per-card write is still individual across cards by choice. The normal case
+# here is a single-card event, where one write is the whole of the work, and
+# writing each card on its own keeps failure attribution exact: `synced` and
+# `stale` name the individual cards the board took and the ones still owed,
+# which is what the next cycle retries.
 #
 # Revisit that choice when either of two things changes: this path starts
 # routinely writing several cards per event, or GitHub request cost becomes
@@ -442,8 +519,10 @@
 # with no machine-stable shape, while the status write needs the exact project,
 # field, and option node IDs that only the JSON surface returns - the same
 # `gh ... --format json` surface gh-axi itself calls. The two card and id reads
-# go through `gh api graphql` for the same reason: no CLI verb asks GitHub for
-# one issue's card, or for a project's id and one field's options together.
+# go through `gh api graphql` for the same reason, as does a write that sets two
+# fields on one card: no CLI verb asks GitHub for one issue's card, for a
+# project's id and its fields' options together, or for two field values in one
+# request.
 # `gh` also carries an embedded jq, so shaping that JSON needs no external jq
 # either. Firstmate's own conversational GitHub work stays on gh-axi. Board
 # commands need gh's `project` OAuth scope (`gh auth refresh -s project`).
@@ -491,6 +570,7 @@ print_help() {
 # boards_emit prints one tab-separated stanza per configured board:
 #   project owner number repo label mention assignee status_field todo
 #   in_progress done bp_todo bp_in_progress bp_done queued processed
+#   classify_field
 # Optional values that are unset print as `-`. Malformed configuration is an
 # actionable error rather than something to guess around.
 
@@ -498,7 +578,7 @@ CONFIG_VALUE_RE='^[A-Za-z0-9 ._-]+$'
 CONFIG_SLUG_RE='^[A-Za-z0-9._-]+$'
 
 # Emits the stanza being accumulated by boards_emit. Called only from there, and
-# deliberately reads that caller's locals rather than taking eleven arguments.
+# deliberately reads that caller's locals rather than taking a dozen arguments.
 boards_flush() {
   local set_count=0 name norm seen_cols=
   [ -n "$project" ] || return 0
@@ -526,21 +606,29 @@ boards_flush() {
     esac
     seen_cols="$seen_cols$norm$TAB"
   done
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  # Two keys naming one field would make a single card's value mean two things,
+  # exactly as two keys naming one column would, so the classification field has
+  # to be a different field from the one holding the columns.
+  if [ "$classify_field" != - ] \
+    && [ "$(norm_name "$classify_field")" = "$(norm_name "$status_field")" ]; then
+    die "config/boards: board \"$project\" gives \"$classify_field\" as both its status field and its classification field"
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$project" "$owner" "$number" "$repo" "$label" "$mention" "$assignee" \
     "$status_field" "$todo" "$in_progress" "$done_col" \
-    "$bp_todo" "$bp_in_progress" "$bp_done" "$queued" "$processed"
+    "$bp_todo" "$bp_in_progress" "$bp_done" "$queued" "$processed" \
+    "$classify_field"
 }
 boards_emit() {
   local line key value project owner number repo label mention assignee
   local status_field todo in_progress done_col lineno=0 seen=
-  local bp_todo bp_in_progress bp_done queued processed
+  local bp_todo bp_in_progress bp_done queued processed classify_field
   [ -f "$BOARDS_FILE" ] || return 0
 
   project=''
   owner=- number=- repo=- label=firstmate mention=- assignee=-
   status_field=Status todo=Todo in_progress='In Progress' done_col=Done
-  bp_todo=- bp_in_progress=- bp_done=- queued=- processed=-
+  bp_todo=- bp_in_progress=- bp_done=- queued=- processed=- classify_field=-
   while IFS= read -r line || [ -n "$line" ]; do
     lineno=$((lineno + 1))
     line=${line%$'\r'}
@@ -573,7 +661,7 @@ boards_emit() {
       project=$value
       owner=- number=- repo=- label=firstmate mention=- assignee=-
       status_field=Status todo=Todo in_progress='In Progress' done_col=Done
-      bp_todo=- bp_in_progress=- bp_done=- queued=- processed=-
+      bp_todo=- bp_in_progress=- bp_done=- queued=- processed=- classify_field=-
       continue
     fi
     [ -n "$project" ] || die "config/boards line $lineno: \"$key\" appears before any project"
@@ -597,6 +685,7 @@ boards_emit() {
         esac
         ;;
       label | todo | in-progress | done | queued | processed | status-field \
+        | classify-field \
         | big-picture-todo | big-picture-in-progress | big-picture-done)
         [[ $value =~ $CONFIG_VALUE_RE ]] \
           || die "config/boards line $lineno: \"$key\" may use only letters, digits, spaces, dot, underscore, and dash"
@@ -606,6 +695,7 @@ boards_emit() {
           in-progress) in_progress=$value ;;
           done) done_col=$value ;;
           status-field) status_field=$value ;;
+          classify-field) classify_field=$value ;;
           queued) queued=$value ;;
           processed) processed=$value ;;
           big-picture-todo) bp_todo=$value ;;
@@ -670,7 +760,7 @@ board_for() {
 
 # --- durable linkage record -------------------------------------------------
 
-LINKS_HEADER="# fm-board.sh durable issue-to-task links: project${TAB}issue${TAB}task${TAB}desired${TAB}synced${TAB}pr${TAB}pr_synced"
+LINKS_HEADER="# fm-board.sh durable issue-to-task links: project${TAB}issue${TAB}task${TAB}desired${TAB}synced${TAB}pr${TAB}pr_synced${TAB}area${TAB}area_synced"
 
 links_rows() {
   local row
@@ -683,16 +773,18 @@ links_rows() {
   done < "$LINKS"
 }
 
-# A row is seven tab-separated columns and no column is ever empty, so one
+# A row is nine tab-separated columns and no column is ever empty, so one
 # `read` splits it into named variables without a subprocess per field. The
 # record is kept forever by design, so a scan that forked per field would cost
 # more on every cycle than the one before it.
+#
+# The header owns the classification columns and legacy-row compatibility.
 LINK_PROJECT=- LINK_ISSUE=- LINK_TASK=- LINK_DESIRED=- LINK_SYNCED=-
-LINK_PR=- LINK_PR_SYNCED=-
+LINK_PR=- LINK_PR_SYNCED=- LINK_AREA=- LINK_AREA_SYNCED=-
 
 link_clear() {
   LINK_PROJECT=- LINK_ISSUE=- LINK_TASK=- LINK_DESIRED=- LINK_SYNCED=-
-  LINK_PR=- LINK_PR_SYNCED=-
+  LINK_PR=- LINK_PR_SYNCED=- LINK_AREA=- LINK_AREA_SYNCED=-
 }
 
 # links_find issue|task <value>: leave the matching record in the LINK_
@@ -701,7 +793,7 @@ link_clear() {
 links_find() {
   local by=$1 want=$2 found=
   while IFS=$TAB read -r LINK_PROJECT LINK_ISSUE LINK_TASK LINK_DESIRED \
-    LINK_SYNCED LINK_PR LINK_PR_SYNCED; do
+    LINK_SYNCED LINK_PR LINK_PR_SYNCED LINK_AREA LINK_AREA_SYNCED; do
     case "$by" in
       issue) [ "$LINK_ISSUE" = "$want" ] || continue ;;
       *) [ "$LINK_TASK" = "$want" ] || continue ;;
@@ -713,28 +805,35 @@ links_find() {
     link_clear
     return 1
   fi
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  LINK_AREA=${LINK_AREA:--}
+  LINK_AREA_SYNCED=${LINK_AREA_SYNCED:--}
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$LINK_PROJECT" "$LINK_ISSUE" "$LINK_TASK" "$LINK_DESIRED" "$LINK_SYNCED" \
-    "$LINK_PR" "$LINK_PR_SYNCED"
+    "$LINK_PR" "$LINK_PR_SYNCED" "$LINK_AREA" "$LINK_AREA_SYNCED"
 }
 
 # links_put <project> <issue> <task> <desired> <synced> <pr> <pr_synced>
+#           <area> <area_synced>
 # Atomically rewrites the record file, replacing any row for the same issue.
 links_put() {
+  [ "$#" -eq 9 ] || die "links_put requires both classification arguments"
   local project=$1 issue=$2 task=$3 desired=$4 synced=$5 pr=$6 pr_synced=$7
+  local area=$8 area_synced=$9
   local tmp r_project r_issue r_task r_desired r_synced r_pr r_pr_synced
+  local r_area r_area_synced
   mkdir -p "$DATA" || die "cannot create $DATA" 1
   tmp=$(umask 077; mktemp "$DATA/.board-links.XXXXXX") || die "cannot write the linkage record" 1
   printf '%s\n' "$LINKS_HEADER" > "$tmp"
   while IFS=$TAB read -r r_project r_issue r_task r_desired r_synced r_pr \
-    r_pr_synced; do
+    r_pr_synced r_area r_area_synced; do
     [ "$r_issue" != "$issue" ] || continue
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
       "$r_project" "$r_issue" "$r_task" "$r_desired" "$r_synced" "$r_pr" \
-      "$r_pr_synced" >> "$tmp"
+      "$r_pr_synced" "${r_area:--}" "${r_area_synced:--}" >> "$tmp"
   done < <(links_rows)
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$project" "$issue" "$task" "$desired" "$synced" "${pr:--}" "${pr_synced:--}" >> "$tmp"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$project" "$issue" "$task" "$desired" "$synced" "${pr:--}" "${pr_synced:--}" \
+    "${area:--}" "${area_synced:--}" >> "$tmp"
   mv -f "$tmp" "$LINKS" || { rm -f "$tmp"; die "cannot replace the linkage record" 1; }
 }
 
@@ -911,11 +1010,20 @@ json_string() {
 }
 
 # The board read's columns, in order:
-#   item_id  type  issue_url  status  labels  assignees  title  body
+#   item_id  type  issue_url  status  labels  assignees  title  body  class
 # Every column falls back to `-` so the reader never sees an empty field.
+#
+# `class` is the configured classification field's value on that card, read from
+# this same response rather than from a second one: the card already carries
+# every field the board sets on it, so a second synchronized field is another
+# column here and never another request. A board with no classification field
+# configured passes an empty key, which matches no field on any card, so the
+# column is `-` for every card and no path below ever reads it.
 items_jq() {
-  local status_key
+  local status_key class_key class_name=${2:--}
+  [ "$class_name" != - ] || class_name=''
   status_key=$(json_string "$(norm_name "$1")")
+  class_key=$(json_string "$(norm_name "$class_name")")
   cat <<JQ
 def dash: if (. == null or . == "") then "-" else . end;
 def clean: (. // "") | tostring | gsub("[\\\\t\\\\n\\\\r]+"; " ") | dash;
@@ -937,31 +1045,50 @@ def names:
     ((\$c.labels // \$i.labels) | names),
     ((\$c.assignees // \$i.assignees) | names),
     ((\$c.title // \$i.title) | clean),
-    ((\$c.body // \$i.body) | clean)
+    ((\$c.body // \$i.body) | clean),
+    ( \$i | to_entries
+         | map(select((.key | ascii_downcase | gsub(" "; "")) == $class_key))
+         | (.[0].value // "")
+         | (if type == "object" then (.name // "") else tostring end)
+         | dash )
   ] | @tsv
 JQ
 }
 
 # The batched id read's columns, drawn from the one document below:
-#   "project"<TAB>id, "field"<TAB>id, then "option"<TAB>id<TAB>name.
-# The wanted field is picked out here rather than in the query because GitHub's
-# own `field(name:)` lookup is an exact, case-sensitive match, while a
-# `status-field` key spelled "status" has always resolved a board field named
-# "Status". Filtering the field list keeps that tolerance.
+#   "project"<TAB>id
+#   "field"<TAB>field-id<TAB>normalized-name
+#   "option"<TAB>option-id<TAB>field-id<TAB>normalized-name<TAB>name
 #
-# The one request behind this already returns every single-select field on the
-# board with its options, so a second synchronized field needs a second filter
-# and a second cached id here, never a second read.
+# Every single-select field on the board is carried through, not just the one a
+# caller happens to want. That is what makes a second synchronized field free:
+# the one request already returns them all with their options, so the status
+# field and the classification field are two rows of one answer rather than two
+# reads. Widening this filter is how a field is added; adding a request is not.
+#
+# The wanted field is picked out in the shell rather than in the query because
+# GitHub's own `field(name:)` lookup is an exact, case-sensitive match, while a
+# `status-field` key spelled "status" has always resolved a board field named
+# "Status". Matching on the normalized name keeps that tolerance, and doing it
+# per lookup rather than per read is what lets one read serve both fields.
+#
+# The name is normalized here rather than by the shell so a board of many fields
+# costs no subshell per option. An option carries its own field's id, so a name
+# two fields both use resolves to the right one rather than to whichever came
+# last - the decoy case the suite pins.
 fields_jq() {
-  local field_key
-  field_key=$(json_string "$(norm_name "$1")")
-  cat <<JQ
+  cat <<'JQ'
+def norm: ((. // "") | tostring | ascii_downcase | gsub(" "; ""));
 (.data.repositoryOwner.projectV2 // empty)
 | (["project", (.id // "" | tostring)] | @tsv),
   ( ((.fields.nodes // [])[]
-     | select(((.name // "") | ascii_downcase | gsub(" "; "")) == $field_key)
-     | (["field", (.id // "" | tostring)] | @tsv),
-       ((.options // [])[] | ["option", (.id // "" | tostring), (.name // "" | tostring)] | @tsv)
+     | select((.id // "") != "")
+     | . as $f
+     | (["field", ($f.id // "" | tostring), ($f.name | norm)] | @tsv),
+       (($f.options // [])[]
+        | ["option", (.id // "" | tostring), ($f.id // "" | tostring),
+           (.name | norm), (.name // "" | tostring)]
+        | @tsv)
     ) )
 JQ
 }
@@ -970,20 +1097,29 @@ JQ
 # sits on. Owner logins carry no spaces, but they are normalized on both sides
 # so the comparison cannot drift from how every other name here is matched.
 card_jq() {
-  local owner_key number_key
+  local owner_key number_key class_key
+  class_key=$(json_string "$(norm_name "${3:--}")")
   owner_key=$(json_string "$(norm_name "$1")")
   number_key=$(json_string "$2")
   cat <<JQ
 [ ((.data.repository.issue.projectItems.nodes // [])[]
    | select((((.project.owner.login // "") | ascii_downcase | gsub(" "; "")) == $owner_key)
             and (((.project.number // "") | tostring) == $number_key))
-   | (.id // "" | tostring)
-   | select(. != "")) ]
+   | select((.id // "") != "")
+   | if $class_key != "-" and .fieldValues.pageInfo.hasNextPage == true then
+       error("card field values truncated")
+     else
+       [(.id | tostring),
+        ([ (.fieldValues.nodes // [])[]
+           | select(((.field.name // "") | ascii_downcase | gsub(" "; "")) == $class_key)
+           | .name ] | first // "-")]
+       | @tsv
+     end) ]
 | first // empty
 JQ
 }
 
-# board_items <owner> <number> <status_field> <limit> <outfile>
+# board_items <owner> <number> <status_field> <classify_field|-> <limit> <outfile>
 # The whole-board read, and the only call in this file whose cost grows with how
 # many cards the board carries. One reconciliation cycle makes it exactly once;
 # nothing below ever reaches for it to resolve a single card.
@@ -1001,9 +1137,9 @@ JQ
 # it counts only the ones that were. So they are read from the parent issue, one
 # flat read per container card, which COST above bounds.
 board_items() {
-  local owner=$1 number=$2 status_field=$3 limit=$4 out=$5
+  local owner=$1 number=$2 status_field=$3 classify_field=$4 limit=$5 out=$6
   "$GH" project item-list "$number" --owner "$owner" --limit "$limit" \
-    --format json --jq "$(items_jq "$status_field")" > "$out"
+    --format json --jq "$(items_jq "$status_field" "$classify_field")" > "$out"
 }
 
 # --- board writes -----------------------------------------------------------
@@ -1022,6 +1158,15 @@ CARD_QUERY='query($owner: String!, $name: String!, $number: Int!, $projects: Int
       projectItems(first: $projects, includeArchived: false) {
         nodes {
           id
+          fieldValues(first: 100) {
+            nodes {
+              ... on ProjectV2ItemFieldSingleSelectValue {
+                name
+                field { ... on ProjectV2SingleSelectField { name } }
+              }
+            }
+            pageInfo { hasNextPage }
+          }
           project {
             number
             owner {
@@ -1035,9 +1180,8 @@ CARD_QUERY='query($owner: String!, $name: String!, $number: Int!, $projects: Int
   }
 }'
 
-# board_card_id <owner> <number> <issue-url>: the id of the card this issue
-# holds on this one board, read from the issue's own node rather than by
-# scanning the board for it.
+# board_card_values <owner> <number> <issue-url> <classify-field|->:
+# the card id and observed area, tab-separated, read from the issue's own node.
 #
 # This is the whole reason a per-card write no longer costs what a board read
 # costs. GitHub answers a card's id from the issue itself, so the request is the
@@ -1045,14 +1189,14 @@ CARD_QUERY='query($owner: String!, $name: String!, $number: Int!, $projects: Int
 # holding only an issue URL never has to page the board to find its card.
 # Archived cards are excluded so this agrees with the board read, which does not
 # list them either.
-board_card_id() {
-  local owner=$1 number=$2 issue=$3 repo id
+board_card_values() {
+  local owner=$1 number=$2 issue=$3 classify_field=$4 repo id
   repo=$(issue_repo "$issue")
   id=$("$GH" api graphql \
     -f query="$CARD_QUERY" \
     -f owner="${repo%%/*}" -f name="${repo#*/}" \
     -F number="${issue##*/}" -F projects="$CARD_PROJECTS_LIMIT" \
-    --jq "$(card_jq "$owner" "$number")" </dev/null) || return 1
+    --jq "$(card_jq "$owner" "$number" "$classify_field")" </dev/null) || return 1
   [ -n "$id" ] || return 1
   printf '%s\n' "$id"
 }
@@ -1062,10 +1206,16 @@ board_card_id() {
 # Resolving them per write would turn a cheap cycle into a project read for each
 # outstanding write it retries.
 #
-# All three come back in one request, where the CLI needs two: `project view`
+# They all come back in one request, where the CLI needs two: `project view`
 # and `project field-list` are two round trips for what the API answers in one,
 # and the second of them pages every field on the board to reach the single
 # field that is wanted.
+#
+# The cache is keyed by the board alone rather than by the board and one field
+# name, because the one response carries every single-select field the board
+# has. That is the whole reason a second synchronized field costs no second
+# read: the status field and the classification field are two lookups into one
+# cached snapshot, and a third would be too.
 BOARD_FIELDS_LIMIT=100
 # shellcheck disable=SC2016
 BOARD_IDS_QUERY='query($owner: String!, $number: Int!, $fields: Int!) {
@@ -1088,15 +1238,19 @@ BOARD_IDS_QUERY='query($owner: String!, $number: Int!, $fields: Int!) {
 }'
 BOARD_IDS_KEY=
 BOARD_PROJECT_ID=
-BOARD_FIELD_ID=
+# One `name<TAB>id` line per single-select field on the board, and one
+# `field-id<TAB>normalized-name<TAB>option-id<TAB>name` line per option. The
+# normalized name is what lookups match on; the name as the board spells it is
+# kept beside it so `classifications` can answer in the board's own words.
+BOARD_FIELD_IDS=
 BOARD_OPTIONS=
 
-# board_status_ids <owner> <number> <status_field>: resolve and cache them.
+# board_ids <owner> <number>: resolve and cache the board's snapshot.
 # A failure caches nothing, so the next write retries the read.
-board_status_ids() {
-  local owner=$1 number=$2 status_field=$3
-  local key project_id field_id options tmp kind a b
-  key="$owner$TAB$number$TAB$status_field"
+board_ids() {
+  local owner=$1 number=$2
+  local key project_id field_ids options tmp kind a b c d
+  key="$owner$TAB$number"
   if [ "$BOARD_IDS_KEY" = "$key" ]; then
     return 0
   fi
@@ -1104,19 +1258,19 @@ board_status_ids() {
   if ! "$GH" api graphql \
     -f query="$BOARD_IDS_QUERY" \
     -f owner="$owner" -F number="$number" -F fields="$BOARD_FIELDS_LIMIT" \
-    --jq "$(fields_jq "$status_field")" > "$tmp" </dev/null; then
+    --jq "$(fields_jq)" > "$tmp" </dev/null; then
     rm -f "$tmp"
     warn "could not read project $owner/$number"
     return 1
   fi
   project_id=''
-  field_id=''
+  field_ids=''
   options=''
-  while IFS=$TAB read -r kind a b; do
+  while IFS=$TAB read -r kind a b c d; do
     case "$kind" in
       project) project_id=$a ;;
-      field) field_id=$a ;;
-      option) options="$options$(norm_name "${b:-}")$TAB$a"$'\n' ;;
+      field) field_ids="$field_ids${b:-}$TAB$a"$'\n' ;;
+      option) options="$options${b:-}$TAB${c:-}$TAB$a$TAB${d:-}"$'\n' ;;
     esac
   done < "$tmp"
   rm -f "$tmp"
@@ -1124,61 +1278,180 @@ board_status_ids() {
     warn "project $owner/$number reported no id"
     return 1
   fi
-  if [ -z "$field_id" ]; then
-    warn "project $owner/$number has no \"$status_field\" field"
-    return 1
-  fi
   BOARD_PROJECT_ID=$project_id
-  BOARD_FIELD_ID=$field_id
+  BOARD_FIELD_IDS=$field_ids
   BOARD_OPTIONS=$options
   BOARD_IDS_KEY=$key
   return 0
 }
 
-# board_option_id <option-name>: the cached single-select option id, or fail.
-board_option_id() {
+# board_field_id <field-name>: the cached single-select field id, or fail.
+board_field_id() {
   local want name id
   want=$(norm_name "$1")
   while IFS=$TAB read -r name id; do
     [ "$name" = "$want" ] || continue
     printf '%s\n' "$id"
     return 0
+  done <<< "$BOARD_FIELD_IDS"
+  return 1
+}
+
+# board_option_id <field-id> <option-name>: the cached option id, or fail. The
+# field id is part of the lookup because two fields on one board may well offer
+# an option of the same name, and answering with whichever was read last would
+# write the right value into the wrong field.
+board_option_id() {
+  local field=$1 want name id option
+  want=$(norm_name "$2")
+  while IFS=$TAB read -r id name option _; do
+    [ "$id" = "$field" ] && [ "$name" = "$want" ] || continue
+    printf '%s\n' "$option"
+    return 0
   done <<< "$BOARD_OPTIONS"
   return 1
 }
 
-# board_write_status <owner> <number> <status_field> <item-id> <issue-url> <option-name>
-# For a caller that already holds the card's item id, which the board read hands
-# it. Any failing step returns non-zero so the write stays outstanding.
-board_write_status() {
-  local owner=$1 number=$2 status_field=$3 item_id=$4 issue=$5 option_name=$6
-  local option_id
-  board_status_ids "$owner" "$number" "$status_field" || return 1
-  option_id=$(board_option_id "$option_name") || {
-    warn "field \"$status_field\" has no \"$option_name\" option"
-    return 1
-  }
-  "$GH" project item-edit --id "$item_id" --project-id "$BOARD_PROJECT_ID" \
-    --field-id "$BOARD_FIELD_ID" --single-select-option-id "$option_id" \
-    >/dev/null </dev/null || {
-    warn "could not move $issue to \"$option_name\""
-    return 1
-  }
+# board_field_options <field-name>: every option that field offers, in board
+# order, one per line. Used only by the read-only `classifications` verb, so the
+# vocabulary a caller must choose from comes from the board rather than from
+# anything written down here.
+board_field_options() {
+  local field id name option raw
+  field=$(board_field_id "$1") || return 1
+  while IFS=$TAB read -r id name option raw; do
+    [ "$id" = "$field" ] || continue
+    [ -n "$option" ] || continue
+    printf '%s\n' "${raw:-$name}"
+  done <<< "$BOARD_OPTIONS"
   return 0
 }
 
-# board_set_status <owner> <number> <status_field> <issue-url> <option-name>
+# Writing two single-select fields on one card is one request, not two. The CLI
+# has no verb for it - `project item-edit` sets a single field - so a two-field
+# write goes through GraphQL, where one document carries both mutations under
+# aliases and GitHub applies them in order.
+#
+# That is what keeps the cost guard's promise through a second synchronized
+# field: per-card requests are set by how many cards a cycle changes, never by
+# how many fields each change touches. A one-field write stays on `project
+# item-edit` exactly as it always was, so a board with no classification field
+# configured makes precisely the calls it made before this existed.
+# shellcheck disable=SC2016
+BOARD_PAIR_MUTATION='mutation($project: ID!, $item: ID!, $fieldA: ID!, $optionA: String!, $fieldB: ID!, $optionB: String!) {
+  a: updateProjectV2ItemFieldValue(input: {projectId: $project, itemId: $item, fieldId: $fieldA, value: {singleSelectOptionId: $optionA}}) {
+    projectV2Item { id }
+  }
+  b: updateProjectV2ItemFieldValue(input: {projectId: $project, itemId: $item, fieldId: $fieldB, value: {singleSelectOptionId: $optionB}}) {
+    projectV2Item { id }
+  }
+}'
+
+# board_write_values <owner> <number> <item-id> <issue-url>
+#                    <status-field|-> <column|-> <classify-field|-> <area|->
+# Set the named values on one card in one request, whichever of the two are
+# given. Any failing step returns non-zero so every write it was asked for stays
+# outstanding; a partial success is not reported, because the caller's record
+# has one confirmation per field and the next cycle reconciles whatever the
+# board did not take.
+board_write_values() {
+  local owner=$1 number=$2 item_id=$3 issue=$4
+  local status_field=$5 column=$6 classify_field=$7 area=$8
+  local status_id='' status_option='' class_id='' class_option=''
+
+  # Asked for nothing, so it reads nothing. A caller with no value to set never
+  # pays even the id read.
+  if [ "$column" = - ] && [ "$area" = - ]; then
+    return 0
+  fi
+  board_ids "$owner" "$number" || return 1
+  if [ "$column" != - ]; then
+    status_id=$(board_field_id "$status_field") || {
+      warn "project $owner/$number has no \"$status_field\" field"
+      return 1
+    }
+    status_option=$(board_option_id "$status_id" "$column") || {
+      warn "field \"$status_field\" has no \"$column\" option"
+      return 1
+    }
+  fi
+  if [ "$area" != - ]; then
+    class_id=$(board_field_id "$classify_field") || {
+      warn "project $owner/$number has no \"$classify_field\" field"
+      return 1
+    }
+    class_option=$(board_option_id "$class_id" "$area") || {
+      warn "field \"$classify_field\" has no \"$area\" option"
+      return 1
+    }
+  fi
+
+  if [ -n "$status_id" ] && [ -n "$class_id" ]; then
+    "$GH" api graphql -f query="$BOARD_PAIR_MUTATION" \
+      -f project="$BOARD_PROJECT_ID" -f item="$item_id" \
+      -f fieldA="$status_id" -f optionA="$status_option" \
+      -f fieldB="$class_id" -f optionB="$class_option" \
+      >/dev/null </dev/null || {
+      warn "could not set \"$column\" and \"$area\" on $issue"
+      return 1
+    }
+    return 0
+  fi
+  if [ -n "$status_id" ]; then
+    "$GH" project item-edit --id "$item_id" --project-id "$BOARD_PROJECT_ID" \
+      --field-id "$status_id" --single-select-option-id "$status_option" \
+      >/dev/null </dev/null || {
+      warn "could not move $issue to \"$column\""
+      return 1
+    }
+    return 0
+  fi
+  if [ -n "$class_id" ]; then
+    "$GH" project item-edit --id "$item_id" --project-id "$BOARD_PROJECT_ID" \
+      --field-id "$class_id" --single-select-option-id "$class_option" \
+      >/dev/null </dev/null || {
+      warn "could not set $issue to \"$area\""
+      return 1
+    }
+    return 0
+  fi
+  return 0
+}
+
+# board_write_status <owner> <number> <status_field> <item-id> <issue-url> <option-name>
+# For a caller that already holds the card's item id, which the board read hands
+# it, and owes only the column.
+board_write_status() {
+  board_write_values "$1" "$2" "$4" "$5" "$3" "$6" - -
+}
+
+# board_set_values <owner> <number> <issue-url>
+#                  <status-field|-> <column|-> <classify-field|-> <area|->
 # For a caller that holds only the issue URL and has to find its card first.
 # Two flat requests plus the write, none of them a board read, so this costs the
-# same on a board of a thousand cards as on a board of ten.
-board_set_status() {
-  local owner=$1 number=$2 status_field=$3 issue=$4 option_name=$5
-  local item_id
-  item_id=$(board_card_id "$owner" "$number" "$issue") || {
+# same on a board of a thousand cards as on a board of ten - and the same
+# whether it is setting one field or both.
+board_set_values() {
+  local owner=$1 number=$2 issue=$3
+  local status_field=$4 column=$5 classify_field=$6 area=$7
+  local card item_id observed_area
+  card=$(board_card_values "$owner" "$number" "$issue" "$classify_field") || {
     warn "$issue is not a card on project $owner/$number"
     return 1
   }
-  board_write_status "$owner" "$number" "$status_field" "$item_id" "$issue" "$option_name"
+  IFS=$TAB read -r item_id observed_area <<< "$card"
+  if [ "$area" != - ]; then
+    links_find issue "$issue" >/dev/null || return 1
+    links_put "$LINK_PROJECT" "$issue" "$LINK_TASK" "$LINK_DESIRED" \
+      "$LINK_SYNCED" "$LINK_PR" "$LINK_PR_SYNCED" "$area" "$observed_area"
+  fi
+  board_write_values "$owner" "$number" "$item_id" "$issue" \
+    "$status_field" "$column" "$classify_field" "$area"
+}
+
+# board_set_status <owner> <number> <status_field> <issue-url> <option-name>
+board_set_status() {
+  board_set_values "$1" "$2" "$4" "$3" "$5" - -
 }
 
 # board_item_add <owner> <number> <issue-url>: card an issue and print the item
@@ -1480,6 +1753,62 @@ bp_column_state() {
   fi
 }
 
+# THE CLASSIFICATION A CALL STATES.
+#
+# A board that configures a classification field expects the work firstmate
+# files or takes in to arrive carrying one, in the same call that creates the
+# card rather than in a second one someone has to remember. So the choice is
+# stated per call and is never inferred from a title, a label, a repository, or
+# any other proxy: which area a piece of work belongs to is a judgement, and an
+# adapter that guessed it would be wrong quietly and at scale.
+#
+# Blank stays reachable, because genuine ambiguity is a real answer, but only by
+# saying so. `--unclassified` is that word. Omitting both is refused rather than
+# defaulted, which is the whole difference between a card left blank because the
+# classification is genuinely open and one left blank for convenience.
+#
+# A board with no classification field configured has nothing to classify into,
+# so `--area` there is a caller believing in a field the board does not have and
+# is refused. `--unclassified` is not: it states the absence of a classification,
+# which is simply true on such a board.
+#
+# The answer is left in BOARD_AREA rather than printed. A refusal here has to
+# stop the command, and `die` inside a command substitution exits only that
+# subshell, which a caller using `||` would swallow into an empty value and
+# carry on from.
+#
+# board_area_resolve <project> <classify-field> <area> <unclassified>
+BOARD_AREA=-
+board_area_resolve() {
+  local project=$1 field=$2 area=$3 unclassified=$4
+  BOARD_AREA=-
+  if [ "$field" = - ]; then
+    [ "$area" = - ] \
+      || die "board \"$project\" configures no classification field, so --area has nothing to set"
+    return 0
+  fi
+  if [ "$unclassified" = 1 ]; then
+    [ "$area" = - ] || die "--area and --unclassified contradict each other; state one"
+    return 0
+  fi
+  [ "$area" != - ] \
+    || die "board \"$project\" classifies its cards in the \"$field\" field, so state the area with --area <name>, or --unclassified when the classification is genuinely ambiguous"
+  BOARD_AREA=$area
+  return 0
+}
+
+# board_area_report <classify-field> <area>: the trailing token a caller appends
+# to a record line, and nothing at all on a board that classifies nothing - so
+# every line an unconfigured home has ever printed is unchanged.
+board_area_report() {
+  [ "${1:--}" != - ] || return 0
+  if [ "${2:--}" = - ]; then
+    printf ' unclassified'
+  else
+    printf ' %s' "$2"
+  fi
+}
+
 # text_has <haystack> <needle>: normalized substring test.
 text_has() {
   local hay needle
@@ -1507,10 +1836,10 @@ list_has() {
 cmd_boards() {
   local want=${1:-} project owner number repo label mention assignee
   local status_field todo in_progress done_col bp_todo bp_in_progress bp_done
-  local queued processed big
+  local queued processed classify_field big
   while IFS=$'\t' read -r project owner number repo label mention assignee \
     status_field todo in_progress done_col bp_todo bp_in_progress bp_done \
-    queued processed; do
+    queued processed classify_field; do
     [ -n "$project" ] || continue
     if [ -n "$want" ] && [ "$want" != "$project" ]; then
       continue
@@ -1520,10 +1849,10 @@ cmd_boards() {
     else
       big="$bp_todo|$bp_in_progress|$bp_done"
     fi
-    printf 'board %s %s/%s repo=%s label=%s mention=%s assignee=%s field=%s columns=%s|%s|%s processed=%s queued=%s big-picture=%s\n' \
+    printf 'board %s %s/%s repo=%s label=%s mention=%s assignee=%s field=%s columns=%s|%s|%s processed=%s queued=%s big-picture=%s classify=%s\n' \
       "$project" "$owner" "$number" "$repo" "$label" "$mention" "$assignee" \
       "$status_field" "$todo" "$in_progress" "$done_col" "$processed" \
-      "$queued" "$big"
+      "$queued" "$big" "${classify_field:--}"
   done < <(boards_rows)
 }
 
@@ -1549,15 +1878,28 @@ cmd_lookup() {
   fi
 }
 
-IMPORT_USAGE='usage: fm-board.sh import <project> <issue-url> <task-id>'
+IMPORT_USAGE='usage: fm-board.sh import <project> <issue-url> <task-id> [--area <name> | --unclassified]'
 
 cmd_import() {
-  local project='' raw_issue='' task=''
-  local issue board owner number repo status_field todo processed
+  local project='' raw_issue='' task='' area=- unclassified=0
+  local issue board owner number repo status_field todo processed classify_field
   local entry entry_column
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
+      --area)
+        [ "$#" -gt 1 ] || die "--area needs a value"
+        area=$2
+        shift 2
+        ;;
+      --area=*)
+        area=${1#--area=}
+        shift
+        ;;
+      --unclassified)
+        unclassified=1
+        shift
+        ;;
       -*) die "unknown option \"$1\"" ;;
       *)
         if [ -z "$project" ]; then
@@ -1584,8 +1926,11 @@ cmd_import() {
   status_field=$(printf '%s' "$board" | cut -f8)
   todo=$(printf '%s' "$board" | cut -f9)
   processed=$(printf '%s' "$board" | cut -f16)
+  classify_field=$(printf '%s' "$board" | cut -f17)
   issue=$(issue_canonical "$raw_issue") || die "\"$raw_issue\" is not an issue URL"
   task_id_valid "$task" || die "\"$task\" is not a task id"
+  board_area_resolve "$project" "$classify_field" "$area" "$unclassified"
+  area=$BOARD_AREA
   if [ "$repo" != - ] && [ "$(issue_repo "$issue")" != "$repo" ]; then
     die "$issue is not in $repo, the repo configured for board \"$project\""
   fi
@@ -1609,27 +1954,36 @@ cmd_import() {
     die "task $task is already linked to $LINK_ISSUE" 3
   fi
 
-  # A board with no internalized column has nowhere for the card to go, so the
-  # link is the whole of the import and no board is touched at all.
+  # Internalizing is what moves the card out of the captain's inbox, and it is
+  # written the moment the record supports it rather than deferred to the next
+  # cycle. That is what keeps a card still sitting in Todo honest signal that
+  # firstmate has not picked it up yet. A move that does not land leaves an
+  # ordinary outstanding write for `poll` to retry.
+  #
+  # A board with no internalized column has nowhere to move the card to, so it
+  # owes no column write at all; the classification is what may still be owed,
+  # and the two travel together in the one request below rather than each
+  # costing its own. With neither owed the link is the whole of the import and
+  # no board is touched, exactly as it never was.
   entry=$(board_entry_state "$processed")
-  if [ "$entry" = todo ]; then
-    links_put "$project" "$issue" "$task" todo todo - -
-    printf 'linked %s %s %s\n' "$project" "$issue" "$task"
+  entry_column=-
+  [ "$entry" = todo ] || entry_column=$(board_entry_column "$todo" "$processed")
+  if [ "$entry_column" = - ] && [ "$area" = - ]; then
+    links_put "$project" "$issue" "$task" todo todo - - - -
+    printf 'linked %s %s %s%s\n' "$project" "$issue" "$task" \
+      "$(board_area_report "$classify_field" -)"
     return 0
   fi
 
-  # Otherwise internalizing is what moves the card out of the captain's inbox,
-  # and it is written the moment the record supports it rather than deferred to
-  # the next cycle. That is what keeps a card still sitting in Todo honest signal
-  # that firstmate has not picked it up yet. A move that does not land leaves an
-  # ordinary outstanding write for `poll` to retry.
-  entry_column=$(board_entry_column "$todo" "$processed")
-  links_put "$project" "$issue" "$task" "$entry" todo - -
-  if board_set_status "$owner" "$number" "$status_field" "$issue" "$entry_column"; then
-    links_put "$project" "$issue" "$task" "$entry" "$entry" - -
-    printf 'linked %s %s %s %s\n' "$project" "$issue" "$task" "$entry"
+  links_put "$project" "$issue" "$task" "$entry" todo - - "$area" -
+  if board_set_values "$owner" "$number" "$issue" \
+    "$status_field" "$entry_column" "$classify_field" "$area"; then
+    links_put "$project" "$issue" "$task" "$entry" "$entry" - - "$area" "$area"
+    printf 'linked %s %s %s %s%s\n' "$project" "$issue" "$task" "$entry" \
+      "$(board_area_report "$classify_field" "$area")"
   else
-    printf 'linked-stale %s %s %s %s\n' "$project" "$issue" "$task" "$entry"
+    printf 'linked-stale %s %s %s %s%s\n' "$project" "$issue" "$task" "$entry" \
+      "$(board_area_report "$classify_field" "$area")"
   fi
   return 0
 }
@@ -1641,7 +1995,8 @@ cmd_import() {
 
 CARD_STEP=
 
-# card_ensure <project> <owner> <number> <status_field> <state> <column> <issue> <task>
+# card_ensure <project> <owner> <number> <status_field> <state> <column> <issue>
+#             <task> <classify-field|-> <area|->
 # Card the issue, record the issue-to-task link, and set it to the column work
 # firstmate itself files belongs in. The link is written the moment the card
 # exists so the next cycle can never offer it as new work, and its `synced` stays
@@ -1655,7 +2010,7 @@ CARD_STEP=
 # no card behind and a board write that fails stays as fail-soft as it ever was.
 card_ensure() {
   local project=$1 owner=$2 number=$3 status_field=$4 state=$5 column=$6
-  local issue=$7 task=$8
+  local issue=$7 task=$8 classify_field=${9:--} area=${10:--}
   local item_id pr=- pr_synced=-
   CARD_STEP=
   if decomps_find "$issue" >/dev/null; then
@@ -1669,12 +2024,17 @@ card_ensure() {
     pr=$LINK_PR
     pr_synced=$LINK_PR_SYNCED
   fi
-  links_put "$project" "$issue" "$task" "$state" other "$pr" "$pr_synced"
-  if ! board_write_status "$owner" "$number" "$status_field" "$item_id" "$issue" "$column"; then
+  links_put "$project" "$issue" "$task" "$state" other "$pr" "$pr_synced" "$area" -
+  # Both fields share one request after card creation, but the aliased
+  # mutations are not atomic. The durable record lets poll reconcile a
+  # failed or partially applied write without another placement call.
+  if ! board_write_values "$owner" "$number" "$item_id" "$issue" \
+    "$status_field" "$column" "$classify_field" "$area"; then
     CARD_STEP=status
     return 1
   fi
-  links_put "$project" "$issue" "$task" "$state" "$state" "$pr" "$pr_synced"
+  links_put "$project" "$issue" "$task" "$state" "$state" "$pr" "$pr_synced" \
+    "$area" "$area"
   return 0
 }
 
@@ -1706,13 +2066,14 @@ issue_ensure() {
   issue_create "$repo" "$label" "$title" "$body" "$parent"
 }
 
-PLACE_USAGE='usage: fm-board.sh place <project> <task-id> <title> [<body>] [--lands-in <owner/name>] [--parent <issue-url>] [--cleared]'
-CHILD_ADD_USAGE='usage: fm-board.sh child-add <project> <parent-issue-url> <title> <body> <task-id>'
+PLACE_USAGE='usage: fm-board.sh place <project> <task-id> <title> [<body>] [--lands-in <owner/name>] [--parent <issue-url>] [--cleared] [--area <name> | --unclassified]'
+CHILD_ADD_USAGE='usage: fm-board.sh child-add <project> <parent-issue-url> <title> <body> <task-id> [--area <name> | --unclassified]'
 
 # `place` and `child-add` are one operation with different parents and different
 # vocabulary, so they run one implementation from here rather than two that can
 # drift. Callers read the outcome from these.
 PLACE_ISSUE=- PLACE_PROJECT=- PLACE_STATE=- PLACE_REPO=- PLACE_STEP=
+PLACE_AREA=- PLACE_FIELD=-
 
 # container_open <project> <parent-issue> <require-recorded>
 # Settle the container a child is being filed under, leaving its record in the
@@ -1746,7 +2107,7 @@ container_open() {
 }
 
 # place_bind <board-row> <task> <title> <body> <lands-in|-> <parent|-> <cleared>
-#            <require-recorded-container>
+#            <require-recorded-container> <area|-> <unclassified>
 # File the issue, card it in the column its entry state names, and record the
 # link. With a parent it also creates the issue as a native GitHub sub-issue and
 # records the child against that container in the same call, so work attached
@@ -1760,8 +2121,9 @@ container_open() {
 # soft outcome.
 place_bind() {
   local board=$1 task=$2 title=$3 body=$4 lands_in=$5 parent=$6 cleared=$7 require=$8
+  local area=${9:--} unclassified=${10:-0}
   local project owner number repo label status_field todo bp_todo queued processed
-  local children known column issue
+  local classify_field children known column issue
 
   project=$(printf '%s' "$board" | cut -f1)
   owner=$(printf '%s' "$board" | cut -f2)
@@ -1773,8 +2135,12 @@ place_bind() {
   bp_todo=$(printf '%s' "$board" | cut -f12)
   queued=$(printf '%s' "$board" | cut -f15)
   processed=$(printf '%s' "$board" | cut -f16)
+  classify_field=$(printf '%s' "$board" | cut -f17)
 
   PLACE_ISSUE=- PLACE_PROJECT=$project PLACE_REPO=$repo PLACE_STEP=
+  PLACE_FIELD=$classify_field
+  board_area_resolve "$project" "$classify_field" "$area" "$unclassified"
+  PLACE_AREA=$BOARD_AREA
   PLACE_STATE=$(place_entry_state "$cleared" "$queued" "$processed")
   children=- known=-
   if [ "$parent" != - ]; then
@@ -1817,7 +2183,7 @@ place_bind() {
   fi
   column=$(place_entry_column "$PLACE_STATE" "$todo" "$queued" "$processed")
   if card_ensure "$project" "$owner" "$number" "$status_field" "$PLACE_STATE" \
-    "$column" "$issue" "$task"; then
+    "$column" "$issue" "$task" "$classify_field" "$PLACE_AREA"; then
     return 0
   fi
   PLACE_STEP=$CARD_STEP
@@ -1826,10 +2192,24 @@ place_bind() {
 
 cmd_place() {
   local project='' task='' title='' body=- lands_in=- raw_parent=- parent=- cleared=0
+  local area=- unclassified=0
   local board rc=0
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
+      --area)
+        [ "$#" -gt 1 ] || die "--area needs a value"
+        area=$2
+        shift 2
+        ;;
+      --area=*)
+        area=${1#--area=}
+        shift
+        ;;
+      --unclassified)
+        unclassified=1
+        shift
+        ;;
       --lands-in)
         [ "$#" -gt 1 ] || die "--lands-in needs a value"
         lands_in=$2
@@ -1885,12 +2265,17 @@ cmd_place() {
   fi
 
   board=$(board_for "$project")
-  place_bind "$board" "$task" "$title" "$body" "$lands_in" "$parent" "$cleared" 1 || rc=$?
+  place_bind "$board" "$task" "$title" "$body" "$lands_in" "$parent" "$cleared" 1 \
+    "$area" "$unclassified" || rc=$?
   case "$rc" in
-    0) printf 'placed %s %s %s %s\n' "$project" "$PLACE_ISSUE" "$task" "$PLACE_STATE" ;;
+    0)
+      printf 'placed %s %s %s %s%s\n' "$project" "$PLACE_ISSUE" "$task" \
+        "$PLACE_STATE" "$(board_area_report "$PLACE_FIELD" "$PLACE_AREA")"
+      ;;
     1)
-      printf 'placed-partial %s %s %s %s %s\n' \
-        "$project" "$PLACE_ISSUE" "$task" "$PLACE_STATE" "$PLACE_STEP"
+      printf 'placed-partial %s %s %s %s %s%s\n' \
+        "$project" "$PLACE_ISSUE" "$task" "$PLACE_STATE" "$PLACE_STEP" \
+        "$(board_area_report "$PLACE_FIELD" "$PLACE_AREA")"
       ;;
     2) printf 'already-placed %s %s %s\n' "$PLACE_PROJECT" "$PLACE_ISSUE" "$task" ;;
     *)
@@ -1902,24 +2287,57 @@ cmd_place() {
 }
 
 cmd_child_add() {
-  local project=${1:?$CHILD_ADD_USAGE}
-  local raw_parent=${2:?$CHILD_ADD_USAGE}
-  local title=${3:?$CHILD_ADD_USAGE}
-  local body=${4:?$CHILD_ADD_USAGE}
-  local task=${5:?$CHILD_ADD_USAGE}
-  local board parent rc=0
+  local project='' raw_parent='' title='' body='' task='' area=- unclassified=0
+  local board parent rc=0 positional=0
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --area)
+        [ "$#" -gt 1 ] || die "--area needs a value"
+        area=$2
+        shift 2
+        ;;
+      --area=*)
+        area=${1#--area=}
+        shift
+        ;;
+      --unclassified)
+        unclassified=1
+        shift
+        ;;
+      -*) die "unknown option \"$1\"" ;;
+      *)
+        positional=$((positional + 1))
+        case "$positional" in
+          1) project=$1 ;;
+          2) raw_parent=$1 ;;
+          3) title=$1 ;;
+          4) body=$1 ;;
+          5) task=$1 ;;
+          *) die "$CHILD_ADD_USAGE" ;;
+        esac
+        shift
+        ;;
+    esac
+  done
+  [ "$positional" = 5 ] || die "$CHILD_ADD_USAGE"
 
   board=$(board_for "$project")
   parent=$(issue_canonical "$raw_parent") || die "\"$raw_parent\" is not an issue URL"
   task_id_valid "$task" || die "\"$task\" is not a task id"
   # A container the board itself has never shown is still broken down here, so
   # this route defaults the record rather than requiring one.
-  place_bind "$board" "$task" "$title" "$body" - "$parent" 0 0 || rc=$?
+  place_bind "$board" "$task" "$title" "$body" - "$parent" 0 0 \
+    "$area" "$unclassified" || rc=$?
   case "$rc" in
-    0) printf 'child %s %s %s %s\n' "$project" "$parent" "$PLACE_ISSUE" "$task" ;;
+    0)
+      printf 'child %s %s %s %s%s\n' "$project" "$parent" "$PLACE_ISSUE" "$task" \
+        "$(board_area_report "$PLACE_FIELD" "$PLACE_AREA")"
+      ;;
     1)
-      printf 'child-partial %s %s %s %s %s\n' \
-        "$project" "$parent" "$PLACE_ISSUE" "$task" "$PLACE_STEP"
+      printf 'child-partial %s %s %s %s %s%s\n' \
+        "$project" "$parent" "$PLACE_ISSUE" "$task" "$PLACE_STEP" \
+        "$(board_area_report "$PLACE_FIELD" "$PLACE_AREA")"
       ;;
     2) printf 'already-child %s %s %s %s\n' "$project" "$parent" "$PLACE_ISSUE" "$task" ;;
     *)
@@ -2059,7 +2477,7 @@ cmd_decompositions() {
 
 cmd_mark() {
   local task='' state=''
-  local project issue synced pr pr_synced board
+  local project issue synced pr pr_synced area area_synced board
   local owner number status_field todo in_progress done_col queued processed column
 
   while [ "$#" -gt 0 ]; do
@@ -2091,6 +2509,8 @@ cmd_mark() {
   synced=$LINK_SYNCED
   pr=$LINK_PR
   pr_synced=$LINK_PR_SYNCED
+  area=$LINK_AREA
+  area_synced=$LINK_AREA_SYNCED
   board=$(board_for "$project")
   owner=$(printf '%s' "$board" | cut -f2)
   number=$(printf '%s' "$board" | cut -f3)
@@ -2103,9 +2523,11 @@ cmd_mark() {
   column=$(state_column "$state" "$todo" "$in_progress" "$done_col" "$queued" "$processed") \
     || die "board \"$project\" has no $state column configured"
 
-  links_put "$project" "$issue" "$task" "$state" "$synced" "$pr" "$pr_synced"
+  links_put "$project" "$issue" "$task" "$state" "$synced" "$pr" "$pr_synced" \
+    "$area" "$area_synced"
   if board_set_status "$owner" "$number" "$status_field" "$issue" "$column"; then
-    links_put "$project" "$issue" "$task" "$state" "$state" "$pr" "$pr_synced"
+    links_put "$project" "$issue" "$task" "$state" "$state" "$pr" "$pr_synced" \
+      "$area" "$area_synced"
     printf 'synced %s %s %s %s\n' "$project" "$issue" "$task" "$state"
   else
     printf 'stale %s %s %s %s\n' "$project" "$issue" "$task" "$state"
@@ -2113,10 +2535,114 @@ cmd_mark() {
   return 0
 }
 
+CLASSIFY_USAGE='usage: fm-board.sh classify <task-id> <area-name>'
+
+# The classification of work already on the board, changed because the work's
+# scope changed. It is `mark` for the other synchronized field and behaves the
+# same way in every respect: it writes firstmate's own record first, reflects it
+# onto the card, and degrades to a stale board that `poll` retries rather than
+# failing the caller.
+#
+# It is also how a divergence on this field is resolved, for the same reason an
+# explicit `mark` resolves one on the column: it is firstmate acting rather than
+# the adapter reconciling behind the captain.
+cmd_classify() {
+  local task='' area=''
+  local project issue desired synced pr pr_synced area_synced board
+  local owner number status_field classify_field
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -*) die "unknown option \"$1\"" ;;
+      *)
+        if [ -z "$task" ]; then
+          task=$1
+        elif [ -z "$area" ]; then
+          area=$1
+        else
+          die "$CLASSIFY_USAGE"
+        fi
+        shift
+        ;;
+    esac
+  done
+  if [ -z "$task" ] || [ -z "$area" ]; then
+    die "$CLASSIFY_USAGE"
+  fi
+  links_find task "$task" >/dev/null || die "task $task is not linked to a board issue"
+  project=$LINK_PROJECT
+  issue=$LINK_ISSUE
+  desired=$LINK_DESIRED
+  synced=$LINK_SYNCED
+  pr=$LINK_PR
+  pr_synced=$LINK_PR_SYNCED
+  area_synced=$LINK_AREA_SYNCED
+  board=$(board_for "$project")
+  owner=$(printf '%s' "$board" | cut -f2)
+  number=$(printf '%s' "$board" | cut -f3)
+  status_field=$(printf '%s' "$board" | cut -f8)
+  classify_field=$(printf '%s' "$board" | cut -f17)
+  [ "$classify_field" != - ] \
+    || die "board \"$project\" configures no classification field, so there is nothing to classify into"
+
+  links_put "$project" "$issue" "$task" "$desired" "$synced" "$pr" "$pr_synced" \
+    "$area" "$area_synced"
+  if board_set_values "$owner" "$number" "$issue" "$status_field" - \
+    "$classify_field" "$area"; then
+    links_put "$project" "$issue" "$task" "$desired" "$synced" "$pr" "$pr_synced" \
+      "$area" "$area"
+    printf 'classified %s %s %s %s\n' "$project" "$issue" "$task" "$area"
+  else
+    printf 'classification-stale %s %s %s %s\n' "$project" "$issue" "$task" "$area"
+  fi
+  return 0
+}
+
+# Every option the configured classification field offers, in board order, read
+# from the board itself. The vocabulary lives on the board and nowhere in this
+# repository, which is what keeps one project's areas from being another's - and
+# what lets a caller pass an area it knows the board will accept rather than
+# discovering a typo as a failed write.
+cmd_classifications() {
+  local want=${1:-} board project owner number classify_field option found=
+  while IFS= read -r board; do
+    [ -n "$board" ] || continue
+    project=$(printf '%s' "$board" | cut -f1)
+    if [ -n "$want" ] && [ "$want" != "$project" ]; then
+      continue
+    fi
+    found=1
+    owner=$(printf '%s' "$board" | cut -f2)
+    number=$(printf '%s' "$board" | cut -f3)
+    classify_field=$(printf '%s' "$board" | cut -f17)
+    if [ "$classify_field" = - ]; then
+      printf 'classify %s off\n' "$project"
+      continue
+    fi
+    if ! board_ids "$owner" "$number"; then
+      printf 'error %s could not read project %s/%s\n' "$project" "$owner" "$number"
+      continue
+    fi
+    if ! board_field_id "$classify_field" >/dev/null; then
+      printf 'error %s project %s/%s has no "%s" field\n' \
+        "$project" "$owner" "$number" "$classify_field"
+      continue
+    fi
+    while IFS= read -r option; do
+      [ -n "$option" ] || continue
+      printf 'classify %s %s %s\n' "$project" "$classify_field" "$option"
+    done < <(board_field_options "$classify_field")
+  done < <(boards_rows)
+  if [ -n "$want" ] && [ -z "$found" ]; then
+    die "no board configured for project \"$want\" in config/boards"
+  fi
+  return 0
+}
+
 cmd_pr() {
   local task=${1:?usage: fm-board.sh pr <task-id> <pr-url>}
   local url=${2:?usage: fm-board.sh pr <task-id> <pr-url>}
-  local project issue desired synced pr pr_synced
+  local project issue desired synced pr pr_synced area area_synced
 
   pr_url_valid "$url" || die "\"$url\" is not a pull request URL"
   links_find task "$task" >/dev/null || die "task $task is not linked to a board issue"
@@ -2126,14 +2652,18 @@ cmd_pr() {
   synced=$LINK_SYNCED
   pr=$LINK_PR
   pr_synced=$LINK_PR_SYNCED
+  area=$LINK_AREA
+  area_synced=$LINK_AREA_SYNCED
   if [ "$pr" = "$url" ] && [ "$pr_synced" = 1 ]; then
     printf 'already-attached %s %s %s %s\n' "$project" "$issue" "$task" "$url"
     return 0
   fi
 
-  links_put "$project" "$issue" "$task" "$desired" "$synced" "$url" 0
+  links_put "$project" "$issue" "$task" "$desired" "$synced" "$url" 0 \
+    "$area" "$area_synced"
   if board_comment "$issue" "Working PR: $url"; then
-    links_put "$project" "$issue" "$task" "$desired" "$synced" "$url" 1
+    links_put "$project" "$issue" "$task" "$desired" "$synced" "$url" 1 \
+      "$area" "$area_synced"
     printf 'attached %s %s %s %s\n' "$project" "$issue" "$task" "$url"
   else
     printf 'stale %s %s %s %s\n' "$project" "$issue" "$task" "$url"
@@ -2161,15 +2691,20 @@ cmd_note() {
 
 cmd_ack() {
   local task=${1:?usage: fm-board.sh ack <task-id>}
-  local project issue pr pr_synced
+  local project issue pr pr_synced area area_synced
   links_find task "$task" >/dev/null || die "task $task is not linked to a board issue"
   project=$LINK_PROJECT
   issue=$LINK_ISSUE
   pr=$LINK_PR
   pr_synced=$LINK_PR_SYNCED
+  area=$LINK_AREA
+  area_synced=$LINK_AREA_SYNCED
   # The link stays forever so the issue can never be imported twice; only its
-  # active execution state retires.
-  links_put "$project" "$issue" "$task" other other "$pr" "$pr_synced"
+  # active execution state retires. The classification is part of what the link
+  # records rather than part of its execution state, so a withdrawn card keeps
+  # the one it was given.
+  links_put "$project" "$issue" "$task" other other "$pr" "$pr_synced" \
+    "$area" "$area_synced"
   printf 'acknowledged %s %s %s\n' "$project" "$issue" "$task"
 }
 
@@ -2186,10 +2721,11 @@ cmd_ack() {
 poll_board() {
   local board=$1 limit=$2 items=$3 all=$4
   local project owner number repo label mention assignee status_field todo in_progress done_col
-  local bp_todo bp_in_progress bp_done queued processed
-  local id type url status labels assignees title body
+  local bp_todo bp_in_progress bp_done queued processed classify_field
+  local id type url status labels assignees title body class
   local canonical task desired synced pr pr_synced board_state count=0
   local seen_file trigger column container
+  local area area_synced board_area area_owed
   local l_project l_issue l_task l_desired
 
   project=$(printf '%s' "$board" | cut -f1)
@@ -2208,9 +2744,10 @@ poll_board() {
   bp_done=$(printf '%s' "$board" | cut -f14)
   queued=$(printf '%s' "$board" | cut -f15)
   processed=$(printf '%s' "$board" | cut -f16)
+  classify_field=$(printf '%s' "$board" | cut -f17)
 
   seen_file=$(mktemp) || return 1
-  while IFS=$TAB read -r id type url status labels assignees title body; do
+  while IFS=$TAB read -r id type url status labels assignees title body class; do
     [ -n "$id" ] || continue
     count=$((count + 1))
     canonical=$(issue_canonical "$url") || continue
@@ -2234,26 +2771,86 @@ poll_board() {
       synced=$LINK_SYNCED
       pr=$LINK_PR
       pr_synced=$LINK_PR_SYNCED
+      area=$LINK_AREA
+      area_synced=$LINK_AREA_SYNCED
+
+      # THE CLASSIFICATION, RECONCILED EXACTLY AS THE COLUMN IS. It is read from
+      # this same card, compared against what firstmate recorded, and either
+      # confirmed, owed, or reported as a divergence - the same three answers,
+      # against the same direction of authority. What it never does is take the
+      # board's value as an instruction.
+      #
+      # A write it owes is not issued here. It is collected into `area_owed` and
+      # travels with the column write below, so a card owing both still costs
+      # the one request a card owing either costs.
+      area_owed=-
+      board_area=-
+      if [ "$classify_field" != - ]; then
+        [ "$class" = - ] || board_area=$(norm_name "$class")
+        if [ "$area" != - ] && [ "$board_area" = "$(norm_name "$area")" ]; then
+          if [ "$area_synced" != "$area" ]; then
+            area_synced=$area
+            links_put "$project" "$canonical" "$task" "$desired" "$synced" \
+              "$pr" "$pr_synced" "$area" "$area_synced"
+          fi
+        elif [ "$area" != "$area_synced" ] \
+          && { { [ "$area_synced" = - ] && [ "$board_area" = - ]; } \
+               || { [ "$area_synced" != - ] && [ "$board_area" = "$(norm_name "$area_synced")" ]; }; }; then
+          # Either firstmate has classified work the board has not taken yet, or
+          # the classification changed because the work's scope did and the card
+          # still shows the area last confirmed. Both are this adapter's own lag.
+          [ "$area" = - ] || area_owed=$area
+        elif [ "$area" = - ] && [ "$board_area" = - ]; then
+          : # Blank on both sides: nothing owed, and surfaced below.
+        else
+          printf 'classification-divergence %s %s %s %s %s\n' \
+            "$project" "$canonical" "$task" "$area" "$class"
+        fi
+      fi
+
       if [ "$board_state" = "$desired" ]; then
         # The board agrees. Record it as confirmed if a write was outstanding.
         if [ "$synced" != "$desired" ]; then
-          links_put "$project" "$canonical" "$task" "$desired" "$desired" "$pr" "$pr_synced"
           synced=$desired
+          links_put "$project" "$canonical" "$task" "$desired" "$desired" "$pr" \
+            "$pr_synced" "$area" "$area_synced"
         fi
+        # An outstanding classification is still owed even where the column is
+        # settled, so it is written on its own rather than waiting for a column
+        # event that may never come.
+        if [ "$area_owed" != - ]; then
+          if board_write_values "$owner" "$number" "$id" "$canonical" \
+            "$status_field" - "$classify_field" "$area_owed"; then
+            area_synced=$area_owed
+            links_put "$project" "$canonical" "$task" "$desired" "$synced" "$pr" \
+              "$pr_synced" "$area" "$area_synced"
+            printf 'classified %s %s %s %s\n' "$project" "$canonical" "$task" "$area"
+          else
+            printf 'classification-stale %s %s %s %s\n' "$project" "$canonical" "$task" "$area"
+          fi
         # Reconciled and therefore silent, exactly as a reconciled container is.
         # A board of settled cards would otherwise spend one record per card
         # every cycle saying nothing changed.
-        [ -z "$all" ] || printf 'linked %s %s %s %s\n' "$project" "$canonical" "$task" "$desired"
+        elif [ -n "$all" ]; then
+          printf 'linked %s %s %s %s\n' "$project" "$canonical" "$task" "$desired"
+        fi
       elif [ "$desired" != "$synced" ] && [ "$board_state" = "$synced" ]; then
         # A write is outstanding and the board still shows the value this adapter
         # last confirmed, so this is its own lag rather than a change to it.
         column=$(state_column "$desired" "$todo" "$in_progress" "$done_col" "$queued" "$processed") || column=
-        if [ -n "$column" ] && board_write_status "$owner" "$number" "$status_field" "$id" "$canonical" "$column"; then
-          links_put "$project" "$canonical" "$task" "$desired" "$desired" "$pr" "$pr_synced"
+        if [ -n "$column" ] && board_write_values "$owner" "$number" "$id" \
+          "$canonical" "$status_field" "$column" "$classify_field" "$area_owed"; then
           synced=$desired
+          [ "$area_owed" = - ] || area_synced=$area_owed
+          links_put "$project" "$canonical" "$task" "$desired" "$desired" "$pr" \
+            "$pr_synced" "$area" "$area_synced"
           printf 'synced %s %s %s %s\n' "$project" "$canonical" "$task" "$desired"
+          [ "$area_owed" = - ] \
+            || printf 'classified %s %s %s %s\n' "$project" "$canonical" "$task" "$area"
         else
           printf 'stale %s %s %s %s\n' "$project" "$canonical" "$task" "$desired"
+          [ "$area_owed" = - ] \
+            || printf 'classification-stale %s %s %s %s\n' "$project" "$canonical" "$task" "$area"
         fi
       else
         # The card shows a status firstmate did not write. Firstmate's records are
@@ -2261,12 +2858,40 @@ poll_board() {
         # for the captain rather than reconciled behind them.
         printf 'divergence %s %s %s %s %s %s\n' \
           "$project" "$canonical" "$task" "$desired" "$board_state" "$status"
+        # A classification this adapter owes is not held hostage by a column it
+        # must not touch, so it is still written - on its own, and only to the
+        # field this board configured for it.
+        if [ "$area_owed" != - ]; then
+          if board_write_values "$owner" "$number" "$id" "$canonical" \
+            "$status_field" - "$classify_field" "$area_owed"; then
+            area_synced=$area_owed
+            links_put "$project" "$canonical" "$task" "$desired" "$synced" "$pr" \
+              "$pr_synced" "$area" "$area_synced"
+            printf 'classified %s %s %s %s\n' "$project" "$canonical" "$task" "$area"
+          else
+            printf 'classification-stale %s %s %s %s\n' "$project" "$canonical" "$task" "$area"
+          fi
+        fi
+      fi
+
+      # BLANK IS A SIGNAL, NOT SILENCE. A card this board classifies that
+      # firstmate has recorded no area for is named every cycle until one is
+      # recorded, exactly as `new` repeats until `import` runs. Work that has
+      # already finished or left is settled and is not named, so a reconciled
+      # board still polls quiet.
+      if [ "$classify_field" != - ] && [ "$area" = - ] && [ "$board_area" = - ]; then
+        case "$desired" in
+          todo | processed | queued | in-progress)
+            printf 'unclassified %s %s %s\n' "$project" "$canonical" "$task"
+            ;;
+        esac
       fi
       # An outstanding PR attachment is retried exactly like an outstanding card
       # move, because `pr` promised the next cycle would reconcile it.
       if [ "$pr" != - ] && [ "$pr_synced" != 1 ]; then
         if board_comment "$canonical" "Working PR: $pr"; then
-          links_put "$project" "$canonical" "$task" "$desired" "$synced" "$pr" 1
+          links_put "$project" "$canonical" "$task" "$desired" "$synced" "$pr" 1 \
+            "$area" "$area_synced"
           printf 'synced %s %s %s %s\n' "$project" "$canonical" "$task" "$pr"
         else
           printf 'stale %s %s %s %s\n' "$project" "$canonical" "$task" "$pr"
@@ -2481,7 +3106,7 @@ poll_container() {
 
 cmd_poll() {
   local want='' limit=$DEFAULT_LIMIT all='' board items
-  local project owner number status_field
+  local project owner number status_field classify_field
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --all)
@@ -2515,11 +3140,12 @@ cmd_poll() {
     owner=$(printf '%s' "$board" | cut -f2)
     number=$(printf '%s' "$board" | cut -f3)
     status_field=$(printf '%s' "$board" | cut -f8)
+    classify_field=$(printf '%s' "$board" | cut -f17)
     if [ -n "$want" ] && [ "$want" != "$project" ]; then
       continue
     fi
     items=$(mktemp) || die "cannot stage the board read" 1
-    if board_items "$owner" "$number" "$status_field" "$limit" "$items"; then
+    if board_items "$owner" "$number" "$status_field" "$classify_field" "$limit" "$items"; then
       poll_board "$board" "$limit" "$items" "$all"
     else
       # A read failure never halts the cycle; the next one reconciles.
@@ -2556,6 +3182,8 @@ case "$VERB" in
   links) cmd_links "$@" ;;
   lookup) cmd_lookup "$@" ;;
   mark) cmd_mark "$@" ;;
+  classify) cmd_classify "$@" ;;
+  classifications) cmd_classifications "$@" ;;
   pr) cmd_pr "$@" ;;
   note) cmd_note "$@" ;;
   ack) cmd_ack "$@" ;;
