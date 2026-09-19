@@ -8,8 +8,13 @@
 #   1. The payload is durably recorded and never typed; only the doorbell
 #      crosses the terminal, and the send exits 0 at enqueue.
 #   2. Multi-line steers are legal and round-trip byte-exact.
-#   3. A re-send enqueues a NEW sequence and still never retypes a payload,
-#      so the terminal can never truncate, garble, or duplicate a steer.
+#   3. A re-send never retypes a payload, so the terminal can never truncate or
+#      garble a steer, and it cannot duplicate a queued instruction either: an
+#      identical instruction still pending for that target collapses onto the
+#      existing record and says so, while --again, a different instruction,
+#      another target, and an already-acknowledged instruction each still queue.
+#      No inbox-plane send is silent, which is what stops a quiet success from
+#      being read as a dead transport and resent.
 #   4. The composer pre-check is advisory: visibly pending text skips the ring
 #      with a notice, and the steer is still durably sent (exit 0).
 #   5. A failed doorbell is still a sent steer (exit 0, record durable): the
@@ -146,22 +151,120 @@ test_multiline_steer_is_legal() {
   pass "fm-send inbox: newlines are legal and the terminal can no longer truncate a steer"
 }
 
-test_resend_enqueues_new_sequence() {
-  local dir err doorbells typed
+pending_count() {  # <case-dir> <task>
+  find "$1/home/state/$2.inbox" -maxdepth 1 -name '*.msg' 2>/dev/null | wc -l | tr -d ' '
+}
+
+test_resend_of_pending_instruction_collapses() {
+  local dir err doorbells typed count
   dir=$(setup_case resend); err="$dir/send.err"
   run_send "$dir" "$err" -- t1 "check the CI result" || fail "first send failed"
+  # The whole defect in one line: exit 0 with no output reads as a dead
+  # transport, so the operator resends. It must stay one instruction.
+  assert_contains "$(cat "$err")" "steer queued for t1 at $dir/home/state/t1.inbox/001.msg" \
+    "the first send must name what it queued rather than succeeding silently"
   run_send "$dir" "$err" -- t1 "check the CI result" || fail "second send failed"
-  [ -f "$dir/home/state/t1.inbox/001.msg" ] && [ -f "$dir/home/state/t1.inbox/002.msg" ] \
-    || fail "a re-send should enqueue a new sequence:"$'\n'"$(ls "$dir/home/state/t1.inbox")"
+  count=$(pending_count "$dir" t1)
+  [ "$count" = 1 ] \
+    || fail "an identical resend must not queue a second instruction, found $count:"$'\n'"$(ls "$dir/home/state/t1.inbox")"
+  [ -f "$dir/home/state/t1.inbox/001.msg" ] || fail "the collapse lost the pending record"
+  assert_contains "$(cat "$err")" "already queued and unhandled for t1" \
+    "the collapsed resend must say plainly that it did not queue a second copy"
+  assert_contains "$(cat "$err")" "--again" \
+    "the collapse notice should name the deliberate-repeat escape hatch"
+  # A collapse still rings: the worker may not have seen the first doorbell,
+  # and a duplicate doorbell is a no-op by construction.
   doorbells=$(grep -cF 'Firstmate instruction waiting' "$dir/send.log" || true)
-  [ "$doorbells" = 1 ] || fail "each send rings once (the log is truncated per send), got $doorbells"
+  [ "$doorbells" = 1 ] || fail "a collapsed resend should still ring once, got $doorbells"
   typed=$(cat "$dir/send.log")
-  assert_contains "$typed" "numeric order" \
-    "a newer record's doorbell should preserve inbox sequence ordering"
   case "$typed" in
     *"check the CI result"*) fail "a re-send typed the payload" ;;
   esac
-  pass "fm-send inbox: a re-send is a new durable record, never a retyped payload"
+  pass "fm-send inbox: resending a still-pending instruction collapses onto it and reports it"
+}
+
+test_multiline_resend_collapses_byte_for_byte() {
+  local dir err count
+  dir=$(setup_case resendmultiline); err="$dir/send.err"
+  local text=$'run the pipeline\n\n  - keep the indent\n  - and the blank line above'
+  run_send "$dir" "$err" -- t1 "$text" || fail "first multi-line send failed"
+  run_send "$dir" "$err" -- t1 "$text" || fail "second multi-line send failed"
+  count=$(pending_count "$dir" t1)
+  [ "$count" = 1 ] || fail "an identical multi-line resend must collapse, found $count records"
+  pass "fm-send inbox: collapse identity survives a multi-line body byte-for-byte"
+}
+
+test_deliberate_repeat_queues_twice() {
+  local dir err count
+  dir=$(setup_case again); err="$dir/send.err"
+  run_send "$dir" "$err" -- t1 "check the CI result" || fail "first send failed"
+  run_send "$dir" "$err" -- t1 --again "check the CI result" || fail "--again send failed"
+  count=$(pending_count "$dir" t1)
+  [ "$count" = 2 ] \
+    || fail "--again must queue a deliberate repeat, found $count:"$'\n'"$(ls "$dir/home/state/t1.inbox")"
+  [ -f "$dir/home/state/t1.inbox/002.msg" ] || fail "the repeat did not take a new sequence"
+  assert_contains "$(cat "$err")" "deliberate repeat" \
+    "an explicit repeat should report itself as one"
+  pass "fm-send inbox: --again still queues a deliberate repeat of the same words"
+}
+
+test_different_instruction_queues_separately() {
+  local dir err count
+  dir=$(setup_case distinct); err="$dir/send.err"
+  run_send "$dir" "$err" -- t1 "check the CI result" || fail "first send failed"
+  run_send "$dir" "$err" -- t1 "check the CI result again tomorrow" || fail "second send failed"
+  count=$(pending_count "$dir" t1)
+  [ "$count" = 2 ] \
+    || fail "a different instruction must queue separately, found $count:"$'\n'"$(ls "$dir/home/state/t1.inbox")"
+  assert_contains "$(cat "$err")" "steer queued for t1 at $dir/home/state/t1.inbox/002.msg" \
+    "a genuinely new instruction should report its own new record"
+  pass "fm-send inbox: a different instruction to the same target still queues separately"
+}
+
+test_same_instruction_to_two_targets_queues_once_each() {
+  local dir err
+  dir=$(setup_case twotargets); err="$dir/send.err"
+  fm_write_meta "$dir/home/state/t2.meta" "window=sess:fm-t2" "kind=ship" "harness=claude"
+  run_send "$dir" "$err" -- t1 "check the CI result" || fail "send to t1 failed"
+  run_send "$dir" "$err" -- t2 "check the CI result" || fail "send to t2 failed"
+  [ "$(pending_count "$dir" t1)" = 1 ] || fail "t1 should hold exactly one instruction"
+  [ "$(pending_count "$dir" t2)" = 1 ] || fail "t2 should hold exactly one instruction"
+  pass "fm-send inbox: collapse is per target - the same instruction reaches each of two workers"
+}
+
+test_handled_instruction_queues_again() {
+  local dir err count
+  dir=$(setup_case handled); err="$dir/send.err"
+  run_send "$dir" "$err" -- t1 "check the CI result" || fail "first send failed"
+  # The worker's acknowledgement move: it read that instruction and acted on
+  # it, so sending the same words later is a NEW instruction, not a duplicate.
+  mv "$dir/home/state/t1.inbox/001.msg" "$dir/home/state/t1.inbox/handled/" \
+    || fail "could not stage the acknowledgement"
+  run_send "$dir" "$err" -- t1 "check the CI result" || fail "post-ack send failed"
+  count=$(pending_count "$dir" t1)
+  [ "$count" = 1 ] || fail "an acknowledged instruction must queue again, found $count pending"
+  [ -f "$dir/home/state/t1.inbox/002.msg" ] \
+    || fail "the re-queued instruction should take a new sequence:"$'\n'"$(ls "$dir/home/state/t1.inbox")"
+  assert_contains "$(cat "$err")" "steer queued for t1 at $dir/home/state/t1.inbox/002.msg" \
+    "a post-acknowledgement send should report a new record, not a collapse"
+  pass "fm-send inbox: handled is not pending - an acknowledged instruction queues again"
+}
+
+test_again_is_refused_where_nothing_collapses() {
+  local dir err rc
+  dir=$(setup_case againrefused); err="$dir/send.err"
+  # The typed plane queues nothing, so --again would silently do nothing.
+  run_send "$dir" "$err" -- t1 --again "/no-mistakes"; rc=$?
+  [ "$rc" -ne 0 ] || fail "--again on the typed plane should be refused"
+  assert_contains "$(cat "$err")" "rides the durable inbox" \
+    "the typed-plane refusal should name why nothing can collapse"
+  [ ! -s "$dir/send.log" ] || fail "a refused --again typed something:"$'\n'"$(cat "$dir/send.log")"
+  [ ! -d "$dir/home/state/t1.inbox" ] || fail "a refused --again enqueued a record"
+  run_send "$dir" "$err" -- t1 --again --key Enter; rc=$?
+  [ "$rc" -ne 0 ] || fail "--again with --key should be refused"
+  assert_contains "$(cat "$err")" "cannot accompany --key" \
+    "the --key refusal should be explicit"
+  pass "fm-send inbox: --again is refused on every plane where nothing collapses"
 }
 
 test_pending_composer_skips_ring_advisorily() {
@@ -340,7 +443,13 @@ test_unwritable_inbox_fails_loudly() {
 
 test_text_steer_rides_inbox
 test_multiline_steer_is_legal
-test_resend_enqueues_new_sequence
+test_resend_of_pending_instruction_collapses
+test_multiline_resend_collapses_byte_for_byte
+test_deliberate_repeat_queues_twice
+test_different_instruction_queues_separately
+test_same_instruction_to_two_targets_queues_once_each
+test_handled_instruction_queues_again
+test_again_is_refused_where_nothing_collapses
 test_pending_composer_skips_ring_advisorily
 test_failed_ring_is_still_sent
 test_harness_invocations_stay_typed

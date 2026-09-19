@@ -13,7 +13,10 @@
 #   2. Sequencing dedups per worker lifetime: the handled mv retires a record,
 #      re-acking it is a no-op, and an acknowledged sequence is never reissued.
 #      The idempotent enqueue (the remote steer leg's primitive) additionally
-#      dedups an exact-body re-run onto the existing record, handled or not.
+#      dedups an exact-body re-run onto the existing record, handled or not,
+#      while the local collapse absorbs only a still-PENDING identical body -
+#      handled is not pending, delivery classes never cross, and a record
+#      acknowledged mid-scan queues a new record rather than swallowing a steer.
 #   3. Concurrent writers serialize on the sequence lock: no clobbered records.
 #   4. The re-ring ladder: within grace is quiet, past grace rings, ring
 #      spacing holds, a spent budget escalates exactly once, and an
@@ -337,6 +340,87 @@ test_idempotent_write_follows_concurrent_ack() {
   count=$(find "$state/t1.inbox" -name '*.msg' | wc -l | tr -d ' ')
   [ "$count" = 1 ] || fail "acknowledgement racing dedup created a duplicate record"
   pass "inbox: idempotent enqueue follows a record concurrently moved to handled"
+}
+
+test_collapse_pending_absorbs_only_unhandled() {
+  local state r1 r2 r3 r4 count text
+  state="$TMP_ROOT/collapse/state"; mkdir -p "$state"
+  text=$'restart the pipeline\n\n  with this indented tail'
+  r1=$(inbox_lib "$state" fm_task_inbox_write_collapse_pending "$state" t1 "$text") \
+    || fail "collapse-pending write failed"
+  [ "$r1" = "queued"$'\t'"$state/t1.inbox/001.msg" ] \
+    || fail "a first enqueue should report queued with its record, got: $r1"
+  # The local defect: a send that printed nothing was read as a dead transport
+  # and resent. While the worker has not acknowledged it, that is ONE steer.
+  r2=$(inbox_lib "$state" fm_task_inbox_write_collapse_pending "$state" t1 "$text") \
+    || fail "collapse-pending resend failed"
+  [ "$r2" = "collapsed"$'\t'"$state/t1.inbox/001.msg" ] \
+    || fail "an identical pending resend should collapse onto 001.msg, got: $r2"
+  count=$(find "$state/t1.inbox" -maxdepth 1 -name '*.msg' | wc -l | tr -d ' ')
+  [ "$count" = 1 ] || fail "an identical pending resend must not duplicate, found $count records"
+  # A different instruction is a different instruction, byte-for-byte.
+  r3=$(inbox_lib "$state" fm_task_inbox_write_collapse_pending "$state" t1 $'restart the pipeline\n\n  with a different tail') \
+    || fail "collapse-pending write of a different body failed"
+  [ "$r3" = "queued"$'\t'"$state/t1.inbox/002.msg" ] \
+    || fail "a different body should enqueue a new record, got: $r3"
+  # Handled is not pending: the worker read that instruction and acted on it,
+  # so the same words later are a NEW instruction, not a swallowed duplicate.
+  mv "$state/t1.inbox/001.msg" "$state/t1.inbox/handled/"
+  r4=$(inbox_lib "$state" fm_task_inbox_write_collapse_pending "$state" t1 "$text") \
+    || fail "collapse-pending write after the ack failed"
+  [ "$r4" = "queued"$'\t'"$state/t1.inbox/003.msg" ] \
+    || fail "an acknowledged instruction must queue again, got: $r4"
+  pass "inbox: the local collapse absorbs only a still-pending identical instruction"
+}
+
+test_collapse_pending_separates_delivery_classes() {
+  local state tracked fire count
+  state="$TMP_ROOT/collapse-class/state"; mkdir -p "$state"
+  fire=$(inbox_lib "$state" fm_task_inbox_write_collapse_pending "$state" t1 "same words" fire-and-forget) \
+    || fail "fire-and-forget collapse-pending write failed"
+  [ "$fire" = "queued"$'\t'"$state/t1.inbox/001.msg" ] || fail "unexpected fire-and-forget record: $fire"
+  # A fire-and-forget record sits outside the re-ring ladder, so it must never
+  # absorb a tracked steer carrying the same words.
+  tracked=$(inbox_lib "$state" fm_task_inbox_write_collapse_pending "$state" t1 "same words") \
+    || fail "tracked collapse-pending write failed"
+  [ "$tracked" = "queued"$'\t'"$state/t1.inbox/002.msg" ] \
+    || fail "a tracked steer must not collapse onto a fire-and-forget record, got: $tracked"
+  count=$(find "$state/t1.inbox" -maxdepth 1 -name '*.msg' | wc -l | tr -d ' ')
+  [ "$count" = 2 ] || fail "delivery classes should stay separate, found $count records"
+  pass "inbox: the local collapse never crosses delivery classes"
+}
+
+test_collapse_pending_queues_when_ack_races_the_scan() {
+  local state rec result count text
+  state="$TMP_ROOT/collapse-ack-race/state"; mkdir -p "$state"
+  text="acknowledge while the collapse scans"
+  rec=$(inbox_lib "$state" fm_task_inbox_write_collapse_pending "$state" t1 "$text") \
+    || fail "race fixture write failed"
+  # The worker acknowledges the candidate in the instant it is being compared.
+  # An over-eager collapse would be worse than a duplicate here: the record it
+  # would collapse onto has already been read, so the steer would vanish. The
+  # safe direction is to enqueue.
+  result=$(FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    eval "$(declare -f fm_task_inbox_body | sed "1s/fm_task_inbox_body/_original_fm_task_inbox_body/")"
+    fm_task_inbox_body() {
+      candidate=$1
+      case "$candidate" in
+        */handled/*) ;;
+        *) mv "$candidate" "${candidate%/*}/handled/" 2>/dev/null || true ;;
+      esac
+      _original_fm_task_inbox_body "$candidate"
+    }
+    fm_task_inbox_write_collapse_pending "$2" t1 "$3"
+  ' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$state" "$text") \
+    || fail "collapse-pending enqueue failed while acknowledgement moved its candidate"
+  [ "${result%%$'\t'*}" = queued ] \
+    || fail "a candidate acknowledged mid-scan must not absorb the steer, got: $result"
+  count=$(find "$state/t1.inbox" -maxdepth 1 -name '*.msg' | wc -l | tr -d ' ')
+  [ "$count" = 1 ] || fail "the steer should be pending exactly once after the race, found $count"
+  [ "${rec#*$'\t'}" != "${result#*$'\t'}" ] \
+    || fail "the race should have produced a new record, not the acknowledged one"
+  pass "inbox: a record acknowledged mid-scan is not collapsed onto - the steer queues instead"
 }
 
 test_handled_mv_dedups_by_sequence() {
@@ -698,6 +782,9 @@ test_doorbell_rejects_terminal_controls
 test_ring_skips_dead_agent
 test_idempotent_write_dedups_exact_body
 test_idempotent_write_follows_concurrent_ack
+test_collapse_pending_absorbs_only_unhandled
+test_collapse_pending_separates_delivery_classes
+test_collapse_pending_queues_when_ack_races_the_scan
 test_handled_mv_dedups_by_sequence
 test_concurrent_writers_never_clobber
 test_writer_retries_after_a_vanished_lock_collision

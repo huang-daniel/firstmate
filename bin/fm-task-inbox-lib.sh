@@ -3,7 +3,8 @@
 # constant doorbell.
 #
 # ONE owner of the steering-inbox contract: the record format, sequence
-# allocation, the idempotent re-enqueue dedup, the handled/ acknowledgement,
+# allocation, the idempotent re-enqueue dedup, the pending-only collapse that
+# keeps a resent local steer from queueing twice, the handled/ acknowledgement,
 # the self-describing doorbell line, and the watcher's re-ring ladder policy.
 # bin/fm-send.sh writes and rings locally, the host-local remote steer leg
 # (bin/fm-remote-secondmate-control.sh cmd_send) writes idempotently and rings
@@ -43,6 +44,20 @@
 # inbox root and handled/, so a message is processed at most once per worker
 # lifetime even if every doorbell is duplicated. Concurrent writers serialize
 # on .seq.lock; the worst racing outcome is ordering, never loss.
+#
+# Record identity, for the two enqueues that deduplicate, is the record's exact
+# body bytes plus its delivery class within one task's inbox - never a hash, a
+# timestamp, or a caller-supplied key - so a multi-line body matches
+# byte-for-byte and a fire-and-forget record never absorbs a tracked one. The
+# two differ only in how far back they look:
+#   fm_task_inbox_write_idempotent        pending AND handled (remote steer leg)
+#   fm_task_inbox_write_collapse_pending  pending only (local steer)
+# Handled is not pending: a record the worker already acknowledged was read and
+# acted on, so an identical instruction sent later is a new instruction. Both
+# resolve every ambiguity - an unreadable record, one acknowledged mid-scan, a
+# comparison that could not run - toward enqueueing or failing loudly, never
+# toward collapsing, because a duplicate is visible to the worker while a
+# swallowed steer is not.
 #
 # Re-ring ladder (fm_task_inbox_due_action): an unhandled message older than
 # FM_TASK_INBOX_GRACE_SECS is due one delivery attempt per grace period; an
@@ -173,6 +188,67 @@ fm_task_inbox_write() {  # <state-dir> <task-id> <text> [delivery-mode]
   printf '%s' "$rec"
 }
 
+# The record already carrying <text> for this inbox, within <scope>:
+#   pending   only records still awaiting acknowledgement (the inbox root)
+#   any       acknowledged records under handled/ as well
+# Identity is the record's exact body bytes plus its delivery class, so a
+# multi-line body matches byte-for-byte and a fire-and-forget record never
+# matches a tracked one. Prints the matching record's path; returns 1 when
+# nothing matches, and 2 when the comparison itself could not be performed -
+# the caller must treat that as a failure rather than as "no match", because
+# silently reading it as no-match would enqueue the duplicate this scan exists
+# to prevent. Caller must hold .seq.lock.
+_fm_task_inbox_find_match_locked() {  # <inbox-dir> <text> <delivery-mode> <scope>
+  local dir=$1 text=$2 delivery_mode=$3 scope=$4 want have f cand
+  want=$(mktemp "$dir/.dedup.XXXXXX") || return 2
+  if ! have=$(mktemp "$dir/.dedup.XXXXXX"); then
+    rm -f "$want"
+    return 2
+  fi
+  if ! printf '%s' "$text" > "$want"; then
+    rm -f "$want" "$have"
+    return 2
+  fi
+  for f in "$dir"/*.msg "$dir/handled"/*.msg; do
+    cand=$f
+    case "$cand" in
+      "$dir/handled"/*)
+        [ "$scope" = any ] || continue
+        [ -e "$cand" ] || continue
+        ;;
+      *)
+        if [ ! -e "$cand" ]; then
+          # The worker acknowledged this record between the glob and this read.
+          # Under `any` it still counts; under `pending` it no longer does, and
+          # enqueueing a fresh record is the safe direction.
+          [ "$scope" = any ] || continue
+          cand="$dir/handled/${cand##*/}"
+          [ -e "$cand" ] || continue
+        fi
+        ;;
+    esac
+    if [ "$delivery_mode" = fire-and-forget ]; then
+      fm_task_inbox_is_fire_and_forget "$cand" || continue
+    elif fm_task_inbox_is_fire_and_forget "$cand"; then
+      continue
+    fi
+    fm_task_inbox_body "$cand" > "$have" 2>/dev/null || continue
+    cmp -s "$want" "$have" || continue
+    if [ "$scope" = any ]; then
+      [ ! -e "$dir/handled/${cand##*/}" ] || cand="$dir/handled/${cand##*/}"
+    elif [ ! -e "$cand" ]; then
+      # Acknowledged while its body was being compared, so it can no longer
+      # absorb this steer. Keep scanning rather than collapsing onto it.
+      continue
+    fi
+    rm -f "$want" "$have"
+    printf '%s' "$cand"
+    return 0
+  done
+  rm -f "$want" "$have"
+  return 1
+}
+
 # Durably enqueue one steer at most once: when a record with the exact same
 # body already exists - unhandled or already acknowledged in handled/ - no new
 # record is written and the existing record's path is printed instead.
@@ -181,60 +257,62 @@ fm_task_inbox_write() {  # <state-dir> <task-id> <text> [delivery-mode]
 # the same enqueue again, and this dedup is what makes the re-run land on the
 # same record instead of a duplicate the worker would act on twice. Two
 # distinct logical requests never collapse in practice because a marked
-# secondmate request embeds a per-request correlation token in its body. The
-# local plane keeps plain fm_task_inbox_write: its outcome is synchronous, so
-# a repeated identical local steer is a deliberate new instruction.
+# secondmate request embeds a per-request correlation token in its body.
+# The local plane wants a narrower window (handled is not pending), so it uses
+# fm_task_inbox_write_collapse_pending below instead.
 fm_task_inbox_write_idempotent() {  # <state-dir> <task-id> <text> [delivery-mode]
-  local state=$1 task=$2 text=$3 delivery_mode=${4:-} dir lock want have f rec='' status=0
+  local state=$1 task=$2 text=$3 delivery_mode=${4:-} dir lock rec='' find_rc=0 status=0
   dir=$(fm_task_inbox_dir "$state" "$task")
   mkdir -p "$dir/handled" || return 1
   lock="$dir/.seq.lock"
   fm_task_inbox_lock_acquire "$lock" || return 1
-  if want=$(mktemp "$dir/.dedup.XXXXXX") && have=$(mktemp "$dir/.dedup.XXXXXX"); then
-    if printf '%s' "$text" > "$want"; then
-      for f in "$dir"/*.msg "$dir/handled"/*.msg; do
-        if [ ! -e "$f" ]; then
-          case "$f" in
-            "$dir"/*.msg)
-              f="$dir/handled/${f##*/}"
-              [ -e "$f" ] || continue
-              ;;
-            *) continue ;;
-          esac
-        fi
-        if [ "$delivery_mode" = fire-and-forget ]; then
-          fm_task_inbox_is_fire_and_forget "$f" || continue
-        elif fm_task_inbox_is_fire_and_forget "$f"; then
-          continue
-        fi
-        if ! fm_task_inbox_body "$f" > "$have" 2>/dev/null; then
-          case "$f" in
-            "$dir"/*.msg)
-              f="$dir/handled/${f##*/}"
-              fm_task_inbox_body "$f" > "$have" 2>/dev/null || continue
-              ;;
-            *) continue ;;
-          esac
-        fi
-        cmp -s "$want" "$have" || continue
-        [ ! -e "$dir/handled/${f##*/}" ] || f="$dir/handled/${f##*/}"
-        rec=$f
-        break
-      done
-    else
-      status=1
-    fi
-    rm -f "$want" "$have"
-  else
-    rm -f "${want:-}" 2>/dev/null || true
-    status=1
-  fi
+  rec=$(_fm_task_inbox_find_match_locked "$dir" "$text" "$delivery_mode" any) || find_rc=$?
+  [ "$find_rc" -ne 2 ] || status=1
   if [ "$status" -eq 0 ] && [ -z "$rec" ]; then
     rec=$(_fm_task_inbox_write_record_locked "$dir" "$text" "$delivery_mode") || status=1
   fi
   fm_lock_release "$lock"
   [ "$status" -eq 0 ] || return 1
   printf '%s' "$rec"
+}
+
+# Durably enqueue one steer unless this exact instruction is ALREADY QUEUED AND
+# UNHANDLED for this task, in which case the pending record absorbs it and no
+# second record is written. Prints "<disposition>\t<record-path>", where
+# disposition is `queued` for a new record or `collapsed` for an existing one.
+#
+# This is the LOCAL steer primitive, and it exists because a local send's
+# silence is indistinguishable from a broken transport: a supervisor who reads
+# exit 0 with no output as a failed delivery resends, and without this the
+# resend stacks a second copy of an instruction the worker has not read yet.
+# Making that property mechanical is the point - a "do not resend on a silent
+# send" rule only works if it is remembered at the exact moment the transport
+# looks dead.
+#
+# The window is deliberately narrower than fm_task_inbox_write_idempotent's:
+# only a PENDING record absorbs a resend. A record the worker already moved to
+# handled/ was read and acted on, so an identical instruction sent later is a
+# new instruction and must queue again. Every ambiguity resolves toward
+# enqueueing, because a duplicate is visible to the worker while a swallowed
+# steer is not. A deliberate repeat is the caller's to request: bin/fm-send.sh
+# exposes it as --again and routes it to plain fm_task_inbox_write.
+fm_task_inbox_write_collapse_pending() {  # <state-dir> <task-id> <text> [delivery-mode]
+  local state=$1 task=$2 text=$3 delivery_mode=${4:-}
+  local dir lock rec='' find_rc=0 status=0 disposition=queued
+  dir=$(fm_task_inbox_dir "$state" "$task")
+  mkdir -p "$dir/handled" || return 1
+  lock="$dir/.seq.lock"
+  fm_task_inbox_lock_acquire "$lock" || return 1
+  rec=$(_fm_task_inbox_find_match_locked "$dir" "$text" "$delivery_mode" pending) || find_rc=$?
+  [ "$find_rc" -ne 2 ] || status=1
+  if [ "$status" -eq 0 ] && [ -n "$rec" ]; then
+    disposition=collapsed
+  elif [ "$status" -eq 0 ]; then
+    rec=$(_fm_task_inbox_write_record_locked "$dir" "$text" "$delivery_mode") || status=1
+  fi
+  fm_lock_release "$lock"
+  [ "$status" -eq 0 ] || return 1
+  printf '%s\t%s' "$disposition" "$rec"
 }
 
 # The exact enqueued text back out of a record.

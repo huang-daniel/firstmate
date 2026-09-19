@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Steer a task by durable record: write the message into the task's steering
 # inbox and ring a constant doorbell line into its terminal, best-effort.
-# Usage: fm-send.sh <target> [--resolve-key <key>]... [--fire-and-forget <delivery-id>] <text...>
+# Usage: fm-send.sh <target> [--resolve-key <key>]... [--fire-and-forget <delivery-id>] [--again] <text...>
 #   <target> may be an exact task id, a legacy fm-<id> task label resolved
 #   through this home's state/<id>.meta, or an explicit well-formed backend
 #   target. fm-send refuses unresolved guesses rather than falling back to a
@@ -24,7 +24,26 @@
 # resend is appropriate (unresolvable target, an endpoint that cannot be
 # locked and revalidated or that retired or changed, an unwritable record, a
 # failed or lost remote transport) or a decision-close append failed after
-# delivery (the error then carries the exact manual close). The remote enqueue
+# delivery (the error then carries the exact manual close).
+# No inbox-plane send is silent: every one of them names the task and the
+# record it queued, and a LOCAL steer whose exact instruction is already queued
+# and unhandled for that task collapses onto the pending record and says so
+# instead of queueing a second copy. Those two together are why reading a quiet
+# send as a dead transport can no longer stack duplicate instructions: the
+# resend has nothing to duplicate onto, and the operator is told which record
+# absorbed it. Identity is the record's exact body bytes plus delivery class
+# within one task (bin/fm-task-inbox-lib.sh owns it), so multi-line bodies
+# match byte-for-byte, a different instruction still queues separately, the
+# same instruction to another task queues once for each, and an instruction the
+# worker already acknowledged queues again because handled is not pending. A
+# deliberate repeat is the caller's to request with --again, which takes a new
+# sequence and says it did; --again is refused wherever nothing collapses (the
+# typed plane, --key) or where a per-request token already separates a repeat
+# from a retry (--fire-and-forget, a remote target). A marked secondmate
+# request embeds a fresh correlation token per request, so two logical requests
+# never collapse and only a FM_PENDING_REPLY_EXISTING_CORR resend reproduces
+# the body that does.
+# The remote enqueue
 # is idempotent: the remote leg deduplicates an exact re-run of the same
 # request onto the existing record (bin/fm-task-inbox-lib.sh), so after a lost
 # transport (ssh exit 255, completion unknown) fm-send retries the same leg
@@ -451,6 +470,7 @@ fi
 # message exactly as before, so ordinary sends are byte-identical.
 RESOLVE_KEYS=
 FIRE_AND_FORGET_ID=
+SEND_AGAIN=0
 fm_send_add_resolve_key() {  # <key>
   local k=$1
   case "$k" in
@@ -487,6 +507,11 @@ while :; do
     --fire-and-forget=*)
       [ -z "$FIRE_AND_FORGET_ID" ] || { echo "error: duplicate --fire-and-forget" >&2; exit 1; }
       FIRE_AND_FORGET_ID=${1#--fire-and-forget=}
+      shift
+      ;;
+    --again)
+      [ "$SEND_AGAIN" = 0 ] || { echo "error: duplicate --again" >&2; exit 1; }
+      SEND_AGAIN=1
       shift
       ;;
     *) break ;;
@@ -575,6 +600,20 @@ if [ -n "$FIRE_AND_FORGET_ID" ]; then
     || { echo "error: --fire-and-forget requires a recorded secondmate task selector" >&2; exit 1; }
   [ -z "$RESOLVE_KEYS" ] \
     || { echo "error: --fire-and-forget cannot accompany --resolve-key" >&2; exit 1; }
+fi
+
+# --again is the deliberate-repeat escape hatch for the local inbox plane's
+# pending collapse (see the INBOX section above). Refuse it on every plane that
+# never collapses an identical body, so it can never be passed under the belief
+# that it changed something. The two planes below already separate a deliberate
+# repeat from an uncertain retry by their own per-request token, so overriding
+# their dedup would only reintroduce the duplicate they exist to prevent; the
+# typed-plane refusal is decided later, once the message text is known.
+if [ "$SEND_AGAIN" = 1 ]; then
+  [ -z "$FIRE_AND_FORGET_ID" ] \
+    || { echo "error: --again cannot accompany --fire-and-forget: its caller-supplied delivery id already separates a deliberate repeat (a new id) from an uncertain retry (the same id)" >&2; exit 1; }
+  [ "$TARGET_BACKEND" != remote ] \
+    || { echo "error: --again is not accepted for a remote secondmate: its enqueue deduplicates on the request's own correlation id, so an ordinary re-run already delivers a separate instruction and only a FM_PENDING_REPLY_EXISTING_CORR resend lands on the existing record" >&2; exit 1; }
 fi
 
 if [ -n "$RESOLVE_KEYS" ]; then
@@ -691,9 +730,40 @@ fm_send_feed_resolved_holds() {  # <answer-text>
 # send implementation. A failed backend send is still surfaced below as a hard
 # error with the attempted resolution attached.
 
+# Data-plane classification, in ONE place (the header's INBOX/TYPED contract is
+# what this implements). Succeeds when <pre-marker-text> rides the durable
+# inbox, fails when it must be typed into the terminal itself. Both the plane
+# selection below and the --again refusal read it, so the two can never drift.
+#
+# Text addressed to a task selector resolved through this home's metadata rides
+# the inbox, unless it is a LOCAL harness-native invocation that must reach the
+# harness's own parser - a leading "/" (slash command), or a leading "$" to a
+# codex target (skill invocation). A remote secondmate selector always rides
+# the inbox: its requests are marked, and a marked request reaches the harness
+# as marker-prefixed chat rather than a parser command anyway, so no remote text
+# has a typed plane to lose. An explicit backend target stays typed even when it
+# happens to match local metadata: it names an endpoint, not a task, the same
+# boundary that keeps it unmarked and outside --resolve-key. This deliberately
+# does NOT promise that a marked parser-native secondmate request executes as a
+# parser command: the pre-existing marker-first wire bytes are retained in
+# stage 1.
+fm_send_rides_inbox() {  # <pre-marker-text>
+  [ -n "$TARGET_SELECTOR" ] || return 1
+  if [ -n "$FIRE_AND_FORGET_ID" ] || [ "$TARGET_BACKEND" = remote ]; then
+    return 0
+  fi
+  case "$1" in
+    /*) return 1 ;;
+    \$*) [ "$TARGET_HARNESS" != codex ] || return 1 ;;
+  esac
+  return 0
+}
+
 if [ "${1:-}" = "--key" ]; then
   [ -z "$FIRE_AND_FORGET_ID" ] \
     || { echo "error: --fire-and-forget cannot accompany --key" >&2; exit 1; }
+  [ "$SEND_AGAIN" = 0 ] \
+    || { echo "error: --again cannot accompany --key; a keystroke is lifecycle control, not a queued instruction" >&2; exit 1; }
   case "$*" in
     *--resolve-key*)
       echo "error: --resolve-key cannot accompany --key; answering a decision requires a text answer" >&2
@@ -735,6 +805,14 @@ else
   # The pre-marker answer text, kept for the closing resolved note so the
   # durable ledger records the plain answer without marker or corr bytes.
   RESOLVE_ANSWER_TEXT=$MESSAGE
+  # Refuse --again on the typed plane before any durable mutation: this text
+  # goes straight into the terminal, so nothing is queued and nothing can
+  # collapse. Refusing loudly here costs nothing (no record, no expectation,
+  # no keystroke) and beats accepting a flag that would silently do nothing.
+  if [ "$SEND_AGAIN" = 1 ] && ! fm_send_rides_inbox "$RESOLVE_ANSWER_TEXT"; then
+    echo "error: --again applies only to a steer that rides the durable inbox; this message is typed straight into the terminal, where nothing is queued and so nothing can collapse. Resend without --again." >&2
+    exit 1
+  fi
   if [ "$MARK_FROM_FIRSTMATE" = 1 ] && [ -n "$FIRE_AND_FORGET_ID" ]; then
     fm_message_mark_from_firstmate "$MESSAGE" MESSAGE
     MESSAGE="${FM_FROMFIRST_MARK}delivery=${FIRE_AND_FORGET_ID} ${MESSAGE#"$FM_FROMFIRST_MARK"}"
@@ -786,32 +864,10 @@ else
       exit 1
     fi
   fi
-  # Data-plane selection (see the header): text addressed to a task selector
-  # resolved through this home's metadata rides the inbox plane, unless it is
-  # a LOCAL harness-native invocation that must reach the harness's own parser
-  # - a leading "/" (slash command), or a leading "$" to a codex target (skill
-  # invocation). A remote secondmate selector always rides the inbox: its
-  # requests are marked, and a marked request reaches the harness as
-  # marker-prefixed chat rather than a parser command anyway, so no remote
-  # text has a typed plane to lose. An explicit backend target stays typed
-  # even when it happens to match local metadata: it names an endpoint, not a
-  # task, the same boundary that keeps it unmarked and outside --resolve-key.
-  # Classification reads the pre-marker text so a marked secondmate request
-  # and a plain crewmate steer classify identically. It deliberately does NOT
-  # promise that a marked parser-native secondmate request executes as a parser
-  # command: the pre-existing marker-first wire bytes are retained in stage 1.
+  # Classification reads the PRE-MARKER text so a marked secondmate request and
+  # a plain crewmate steer classify identically.
   INBOX_PLANE=0
-  if [ -n "$TARGET_SELECTOR" ]; then
-    if [ -n "$FIRE_AND_FORGET_ID" ] || [ "$TARGET_BACKEND" = remote ]; then
-      INBOX_PLANE=1
-    else
-      case "$RESOLVE_ANSWER_TEXT" in
-        /*) ;;
-        \$*) [ "$TARGET_HARNESS" = codex ] || INBOX_PLANE=1 ;;
-        *) INBOX_PLANE=1 ;;
-      esac
-    fi
-  fi
+  ! fm_send_rides_inbox "$RESOLVE_ANSWER_TEXT" || INBOX_PLANE=1
   if [ "$INBOX_PLANE" = 1 ] && [ "$TARGET_BACKEND" = remote ]; then
     # Remote inbox leg: the message becomes a durable record in the remote
     # home's steering inbox, written idempotently by the host-local leg, then
@@ -909,7 +965,11 @@ else
       echo "error: steer not sent to remote secondmate $TARGET_REMOTE_ID (the remote steering-inbox record could not be written; the remote leg's stderr above has the reason)" >&2
       exit 1
     fi
-    # The remote record is durable delivery, exactly as a local enqueue is.
+    # The remote record is durable delivery, exactly as a local enqueue is, and
+    # it says so for the same reason the local enqueue does: silence here is
+    # indistinguishable from a lost transport, and reading it as one invites the
+    # duplicate resend this plane's dedup exists to absorb.
+    echo "fm-send: steer durably recorded in remote secondmate $TARGET_REMOTE_ID's steering inbox" >&2
     if [ -n "$PENDING_REPLY_CORR" ]; then
       if fm_pending_reply_confirm_delivery "$STATE" "$PENDING_REPLY_CORR"; then
         :
@@ -958,12 +1018,28 @@ else
       echo "error: steer not sent to $INBOX_TASK_ID: the task retired or changed endpoint during target resolution" >&2
       exit 1
     fi
+    # Three enqueues, one per intent (bin/fm-task-inbox-lib.sh owns all three):
+    # a fire-and-forget request dedups on its caller-supplied delivery id across
+    # handled records too; an explicit --again is a deliberate repeat and always
+    # takes a new sequence; and an ordinary steer collapses onto a record
+    # carrying this exact instruction that the worker has not acknowledged yet,
+    # so a resend after a silent-looking send cannot queue the same instruction
+    # twice.
+    INBOX_DISPOSITION=queued
     if [ "${FM_SEND_IDEMPOTENT:-0}" = 1 ]; then
       INBOX_RECORD=$(fm_task_inbox_write_idempotent "$STATE" "$INBOX_TASK_ID" "$MESSAGE" \
         "${FIRE_AND_FORGET_ID:+fire-and-forget}") || inbox_write_rc=$?
-    else
+    elif [ "$SEND_AGAIN" = 1 ]; then
+      INBOX_DISPOSITION=repeat
       INBOX_RECORD=$(fm_task_inbox_write "$STATE" "$INBOX_TASK_ID" "$MESSAGE" \
         "${FIRE_AND_FORGET_ID:+fire-and-forget}") || inbox_write_rc=$?
+    else
+      INBOX_WRITTEN=$(fm_task_inbox_write_collapse_pending "$STATE" "$INBOX_TASK_ID" "$MESSAGE" \
+        "${FIRE_AND_FORGET_ID:+fire-and-forget}") || inbox_write_rc=$?
+      if [ "${inbox_write_rc:-0}" -eq 0 ]; then
+        INBOX_DISPOSITION=${INBOX_WRITTEN%%$'\t'*}
+        INBOX_RECORD=${INBOX_WRITTEN#*$'\t'}
+      fi
     fi
     if [ "${inbox_write_rc:-0}" -ne 0 ]; then
       fm_lock_release "$INBOX_META_LOCK"
@@ -974,6 +1050,21 @@ else
       exit 1
     fi
     fm_lock_release "$INBOX_META_LOCK"
+    # Say what was queued. A silent success is what turned one delivered steer
+    # into three: exit 0 with no output read as a dead transport, resent twice.
+    # The collapse above is what makes a duplicate impossible; naming it here is
+    # what makes it visible instead of a steer that quietly went missing.
+    case "$INBOX_DISPOSITION" in
+      collapsed)
+        echo "fm-send: this exact instruction is already queued and unhandled for $INBOX_TASK_ID, so it collapsed onto $INBOX_RECORD rather than queueing a second copy; the worker will act on it once. Pass --again to queue a deliberate repeat." >&2
+        ;;
+      repeat)
+        echo "fm-send: steer queued for $INBOX_TASK_ID at $INBOX_RECORD (deliberate repeat; --again)" >&2
+        ;;
+      *)
+        echo "fm-send: steer queued for $INBOX_TASK_ID at $INBOX_RECORD" >&2
+        ;;
+    esac
     # Enqueue IS durable delivery to the task's record: mark the pending
     # expectation delivered now, without resolving it - only a correlated
     # parent report acknowledges the request.
