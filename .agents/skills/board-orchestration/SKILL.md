@@ -154,7 +154,8 @@ This is the same rule `--parent` and `--cleared` already follow, and for the sam
 **Blank is for genuine ambiguity only.**
 `--unclassified` is a real answer when the work could honestly sit in more than one area, or when it is not yet clear enough to place, and it is the right answer then.
 It is never the answer for "this would take a moment's thought", and never for work whose area is obvious once the issue is read.
-A blank card is reported by every cycle as an `unclassified` line, so it is a question waiting on firstmate rather than something that quietly stays blank - handle those lines like any other actionable record, either by classifying the card or, when the ambiguity is the captain's to settle, by asking them.
+Handle `unclassified` lines like any other actionable record, either by classifying the card or, when the ambiguity is the captain's to settle, by asking them.
+The adapter header owns which active linked cards produce these records; completed and withdrawn work stays quiet.
 
 **Update it when the work's scope moves.**
 `bin/fm-board.sh classify <task-id> <area>` when an issue grows or narrows into a different area.
@@ -193,7 +194,9 @@ That is a judgement they may disagree with, so it is reported rather than filed 
 1. Read the container issue in full, and any linked context it names.
 2. Break it into concrete work items that can each be independently implemented and validated - not a restatement of the container in three parts. If it genuinely cannot be broken down, or the split needs a product decision, say so to the captain rather than inventing pieces.
 3. Resolve delivery mode and yolo for each piece exactly as AGENTS.md section 7 requires, at intake, on that project's standing posture.
-4. For each piece, run `bin/fm-board.sh child-add <project> <parent-issue-url> <title> <body> <task-id>`. One command per piece creates the issue as a native GitHub sub-issue of the container, cards it as work firstmate itself filed, and records its link. A `child-partial` line names the step that did not land: re-run the same command, which converges on the issue it already filed rather than creating a second one.
+4. For each piece, run `bin/fm-board.sh child-add <project> <parent-issue-url> <title> <body> <task-id>`, carrying the classification required by "Classifying work" above.
+   One command per piece creates the issue as a native GitHub sub-issue of the container, cards it as work firstmate itself filed, and records its link.
+   A `child-partial` line names the step that did not land: re-run the same command, which converges on the issue it already filed rather than creating a second one.
 5. Create each backlog item, **held**, exactly as the captain gate above requires. Creating the child cards is unattended; running them is not.
 6. Run `bin/fm-board.sh decomposed <project> <parent-issue-url>`. Until that lands the container keeps being offered, which is what finishes an interrupted breakdown; once it lands the container is never offered again.
 7. Post the breakdown as a comment on the parent issue, so the captain has the reasoning where the work lives, then report it to them.
@@ -243,7 +246,7 @@ Firstmate's own execution events are what move a card, and the ones that matter 
 - **Cleared to launch:** `bin/fm-board.sh mark <task-id> queued` when the captain's go, given in chat, releases a held item already on the board and the board configures that column.
   Work being placed after the go is already given carries it on the placement itself instead.
 - **Blocked:** `bin/fm-board.sh note <task-id> "Blocked: <what is needed>"`, alongside the ordinary captain escalation when the blocker needs the captain.
-- **Its area changed:** `bin/fm-board.sh classify <task-id> <area>` when the work's scope moved into a different one, and whenever a cycle reports the card `unclassified`.
+- **Its area changed or remains unclassified:** follow "Classifying work" above.
 - Run `mark` by hand only to correct a card, for instance after a divergence or when work leaves the cleared set.
 
 Prefer a better card to a better command: when a task deserves a human title on the roadmap, `place` it yourself before dispatching, and the dispatch will then only move the card it finds.

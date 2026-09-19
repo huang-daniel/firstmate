@@ -210,18 +210,18 @@ A board can sort its work into groupings of its own alongside the columns - area
 Add a second single-select field to the project, name it in `classify-field`, and firstmate keeps it in step exactly as it keeps the columns: it reads the field every cycle, records what each card should carry, writes it, and reports a value it did not write rather than acting on it.
 
 The field's options live on the board and nowhere in firstmate.
-Add, rename, or remove one in the GitHub UI and firstmate follows, because it asks the board what the field offers rather than carrying a copy.
+Firstmate reads the available options from GitHub; renaming or removing an option does not migrate recorded task classifications, which must be corrected through the classification workflow in [board-orchestration](../.agents/skills/board-orchestration/SKILL.md#classifying-work).
 A board that configures no `classify-field` is untouched by all of this: no card's value is read or written, and the bridge behaves exactly as it did before the key existed.
 
-Work is classified in the same pass that files it, so a card is never left blank to be tidied up later: firstmate decides the area as it takes a card in or files one, and the card carries it from the moment it exists.
+Firstmate decides the area as it takes a card in or files one and attempts the field write in that same operation; a failed write is reported and retained for reconciliation.
 Which area a piece of work belongs to is a judgement, so firstmate makes it and the bridge never guesses one from a title, a label, or a repository.
 When an issue's scope moves into another area, firstmate updates the field.
 
-Blank is reserved for work whose area is genuinely open, and it is never quiet: firstmate reports an unclassified card every cycle until an area is recorded, so a blank field is a question waiting for you rather than something that stays blank by default.
+The [classification policy](../.agents/skills/board-orchestration/SKILL.md#classifying-work) governs deliberate blanks and handling unclassified work.
 Automatic placement during dispatch uses the classification firstmate supplies to `fm-spawn.sh` (see its header for the flags).
 If none is supplied on a classifying board, dispatch still succeeds but reports that placement was skipped, so firstmate can place the card deliberately with its area stated.
 
-Configuring this adds no board reads and no extra writes.
+Synchronizing both fields on a card costs no more requests than synchronizing one; an area change alone still requires a write.
 Firstmate already reads the whole board once a cycle and that read carries every field each card holds, and setting a card's column and its area is one request rather than two.
 
 Adding a second view grouped by the field is worth doing and is a one-off in the GitHub UI; firstmate does not create views.

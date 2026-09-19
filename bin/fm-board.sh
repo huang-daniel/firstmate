@@ -90,7 +90,7 @@
 # exactly as it treats the column: it reads it on every cycle, records it, keeps
 # it, writes it, and reports a value it did not write as a divergence rather
 # than acting on it. Unconfigured, no card's value is ever read or written, the
-# classification verbs refuse, and every path below makes precisely the calls it
+# `classify` refuses, `classifications` reports `off`, and every path below makes the calls it
 # made before the key existed.
 #
 # The field's options are the board's own vocabulary and appear nowhere in this
@@ -189,6 +189,11 @@
 # outstanding, which is what makes a failed write retryable on the next cycle.
 # `other` is a column the captain added that firstmate does not drive; it is
 # recorded so their intent is preserved, not so a fourth execution state exists.
+# `area` is the requested classification; `area_synced` is its last confirmed
+# board value, or the value observed by the existing card lookup immediately
+# before an explicit classification write. Saving that observed baseline lets
+# poll retry a failed correction while still detecting subsequent external edits.
+# Older seven-column rows read both area fields as `-`.
 # No column is ever empty: `-` is the placeholder, because bash collapses empty
 # tab-separated fields when it reads them back.
 #
@@ -773,12 +778,7 @@ links_rows() {
 # record is kept forever by design, so a scan that forked per field would cost
 # more on every cycle than the one before it.
 #
-# `area` and `area_synced` are the classification field's pair, carrying exactly
-# what `desired` and `synced` carry for the column: what firstmate's records
-# call for, and what this adapter last confirmed the board showed. A row written
-# before this field existed is seven columns, which `read` leaves empty rather
-# than `-`, so every read normalizes them back to the placeholder - an existing
-# home keeps its record and reads as unclassified rather than as corrupt.
+# The header owns the classification columns and legacy-row compatibility.
 LINK_PROJECT=- LINK_ISSUE=- LINK_TASK=- LINK_DESIRED=- LINK_SYNCED=-
 LINK_PR=- LINK_PR_SYNCED=- LINK_AREA=- LINK_AREA_SYNCED=-
 
@@ -2025,9 +2025,9 @@ card_ensure() {
     pr_synced=$LINK_PR_SYNCED
   fi
   links_put "$project" "$issue" "$task" "$state" other "$pr" "$pr_synced" "$area" -
-  # The column and the classification are set in the one request, so a card
-  # firstmate files is never briefly on the board carrying one and not the
-  # other, and a second synchronized field costs the placement no second call.
+  # Both fields share one request after card creation, but the aliased
+  # mutations are not atomic. The durable record lets poll reconcile a
+  # failed or partially applied write without another placement call.
   if ! board_write_values "$owner" "$number" "$item_id" "$issue" \
     "$status_field" "$column" "$classify_field" "$area"; then
     CARD_STEP=status
