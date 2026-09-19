@@ -2484,6 +2484,7 @@ poll_container() {
   else
     rm -f "$kids"
     printf 'error %s could not read the children of %s\n' "$project" "$parent"
+    return 0
   fi
 
   # Nothing to reconcile until firstmate has recorded a state for this card,

@@ -1729,9 +1729,15 @@ test_children_that_cannot_be_read_derive_nothing_and_say_so() {
   parent=https://github.com/harbour-collective/app/issues/290
   item "$home" PVTI_p Issue "$parent" 'Big Picture Todo' firstmate - 'Rebuild the harbour' -
   board "$home" child-add harbourlight "$parent" 'Piece one' 'body' fm-recorded >/dev/null
-  sub_issue "$home" https://github.com/harbour-collective/app/issues/291 "$parent" open
   board "$home" decomposed harbourlight "$parent" >/dev/null
   board "$home" mark fm-recorded 'done' >/dev/null
+
+  out=$(GH_FAIL='project item-edit' board "$home" poll)
+  assert_contains "$out" "stale harbourlight $parent - done" \
+    "the setup did not leave a pending Done transition"
+  assert_equals "$(printf 'done\t-')" "$(board "$home" decompositions | cut -f4,5)" \
+    "the failed write did not persist an outstanding Done transition"
+  sub_issue "$home" https://github.com/harbour-collective/app/issues/291 "$parent" open
 
   : > "$home/gh.log"
   out=$(GH_FAIL='api repos/*sub_issues' board "$home" poll)
@@ -1741,6 +1747,9 @@ test_children_that_cannot_be_read_derive_nothing_and_say_so() {
     "an unreadable read fell back to the recorded children and finished the container"
   assert_not_contains "$(gh_log "$home")" 'item-edit' \
     "a container whose state could not be told was still written to the board"
+  assert_equals 'Big Picture Todo' \
+    "$(awk -F'\t' '$1 == "PVTI_p" { print $4 }' "$home/items")" \
+    "a failed children read moved the container to Done"
 
   # The next cycle reads them and reconciles, so nothing is lost by declining.
   out=$(board "$home" poll)
