@@ -1097,15 +1097,24 @@ JQ
 # sits on. Owner logins carry no spaces, but they are normalized on both sides
 # so the comparison cannot drift from how every other name here is matched.
 card_jq() {
-  local owner_key number_key
+  local owner_key number_key class_key
+  class_key=$(json_string "$(norm_name "${3:--}")")
   owner_key=$(json_string "$(norm_name "$1")")
   number_key=$(json_string "$2")
   cat <<JQ
 [ ((.data.repository.issue.projectItems.nodes // [])[]
    | select((((.project.owner.login // "") | ascii_downcase | gsub(" "; "")) == $owner_key)
             and (((.project.number // "") | tostring) == $number_key))
-   | (.id // "" | tostring)
-   | select(. != "")) ]
+   | select((.id // "") != "")
+   | if $class_key != "-" and .fieldValues.pageInfo.hasNextPage == true then
+       error("card field values truncated")
+     else
+       [(.id | tostring),
+        ([ (.fieldValues.nodes // [])[]
+           | select(((.field.name // "") | ascii_downcase | gsub(" "; "")) == $class_key)
+           | .name ] | first // "-")]
+       | @tsv
+     end) ]
 | first // empty
 JQ
 }
@@ -1149,6 +1158,15 @@ CARD_QUERY='query($owner: String!, $name: String!, $number: Int!, $projects: Int
       projectItems(first: $projects, includeArchived: false) {
         nodes {
           id
+          fieldValues(first: 100) {
+            nodes {
+              ... on ProjectV2ItemFieldSingleSelectValue {
+                name
+                field { ... on ProjectV2SingleSelectField { name } }
+              }
+            }
+            pageInfo { hasNextPage }
+          }
           project {
             number
             owner {
@@ -1162,9 +1180,8 @@ CARD_QUERY='query($owner: String!, $name: String!, $number: Int!, $projects: Int
   }
 }'
 
-# board_card_id <owner> <number> <issue-url>: the id of the card this issue
-# holds on this one board, read from the issue's own node rather than by
-# scanning the board for it.
+# board_card_values <owner> <number> <issue-url> <classify-field|->:
+# the card id and observed area, tab-separated, read from the issue's own node.
 #
 # This is the whole reason a per-card write no longer costs what a board read
 # costs. GitHub answers a card's id from the issue itself, so the request is the
@@ -1172,14 +1189,14 @@ CARD_QUERY='query($owner: String!, $name: String!, $number: Int!, $projects: Int
 # holding only an issue URL never has to page the board to find its card.
 # Archived cards are excluded so this agrees with the board read, which does not
 # list them either.
-board_card_id() {
-  local owner=$1 number=$2 issue=$3 repo id
+board_card_values() {
+  local owner=$1 number=$2 issue=$3 classify_field=$4 repo id
   repo=$(issue_repo "$issue")
   id=$("$GH" api graphql \
     -f query="$CARD_QUERY" \
     -f owner="${repo%%/*}" -f name="${repo#*/}" \
     -F number="${issue##*/}" -F projects="$CARD_PROJECTS_LIMIT" \
-    --jq "$(card_jq "$owner" "$number")" </dev/null) || return 1
+    --jq "$(card_jq "$owner" "$number" "$classify_field")" </dev/null) || return 1
   [ -n "$id" ] || return 1
   printf '%s\n' "$id"
 }
@@ -1417,11 +1434,17 @@ board_write_status() {
 board_set_values() {
   local owner=$1 number=$2 issue=$3
   local status_field=$4 column=$5 classify_field=$6 area=$7
-  local item_id
-  item_id=$(board_card_id "$owner" "$number" "$issue") || {
+  local card item_id observed_area
+  card=$(board_card_values "$owner" "$number" "$issue" "$classify_field") || {
     warn "$issue is not a card on project $owner/$number"
     return 1
   }
+  IFS=$TAB read -r item_id observed_area <<< "$card"
+  if [ "$area" != - ]; then
+    links_find issue "$issue" >/dev/null || return 1
+    links_put "$LINK_PROJECT" "$issue" "$LINK_TASK" "$LINK_DESIRED" \
+      "$LINK_SYNCED" "$LINK_PR" "$LINK_PR_SYNCED" "$area" "$observed_area"
+  fi
   board_write_values "$owner" "$number" "$item_id" "$issue" \
     "$status_field" "$column" "$classify_field" "$area"
 }
