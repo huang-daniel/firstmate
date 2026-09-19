@@ -2,7 +2,7 @@
 name: board-orchestration
 description: >-
   Agent-only policy for bridging a configured project board and firstmate's existing backlog.
-  Load on a session-start or heartbeat cycle when a project board is configured, before judging whether a filed card is one task or a programme, before importing, promoting, or decomposing a board item, before placing existing work on a board, before reflecting a dispatch, PR, blocker, or merge onto a board, and whenever a card's status disagrees with firstmate's own records.
+  Load on a session-start or heartbeat cycle when a project board is configured, before judging whether a filed card is one task or a programme, before importing, promoting, or decomposing a board item, before placing existing work on a board, before reflecting a dispatch, PR, blocker, or merge onto a board, and whenever a card's status or classification disagrees with firstmate's own records or a cycle reports a card unclassified.
 user-invocable: false
 metadata:
   internal: true
@@ -80,7 +80,7 @@ Import each such `new` line exactly once, in this order:
 
 1. Confirm no backlog item already names that issue URL.
 2. Create the ordinary backlog item, recording the issue URL in its note, and resolve delivery mode and yolo at intake exactly as AGENTS.md section 7 requires.
-3. Immediately run `bin/fm-board.sh import <project> <issue-url> <task-id>` so the linkage is durable before the turn ends.
+3. Immediately run `bin/fm-board.sh import <project> <issue-url> <task-id>` so the linkage is durable before the turn ends, adding the classification flag "Classifying work" requires when that board configures one.
 
 Step 3 is also what moves the card out of the captain's inbox on a board that configures the Processed column, so it is what makes the board's own reading of "picked up" true.
 It is what makes import idempotent, so it is never deferred to a later turn.
@@ -135,6 +135,34 @@ When the go came before the card existed, the placement carries it instead - see
 The board reports that go; it never issues it.
 A card that appears in `queued` on its own is a divergence to report exactly as any other is, and is never authorization to launch anything - see "Filing is intent; status is firstmate's report" below, which this does not weaken.
 
+## Classifying work
+
+A board may configure a second synchronized field that sorts its work into areas of its own - `classify-field` in its `config/boards` stanza.
+Where it does, that field is firstmate's report exactly as the columns are, and firstmate keeps it current for the same reason: a roadmap nobody has to maintain by hand is the only kind that stays true.
+Where it does not, none of this section applies and no command here takes a classification at all.
+
+**The area is firstmate's judgement, and the adapter will not make it.**
+`import`, `place`, and `child-add` refuse on a classifying board unless the call states `--area <name>` or `--unclassified`, so read the work and decide before the card exists.
+Run `bin/fm-board.sh classifications <project>` to see the areas that board offers, in its own words, and pass one of them.
+Never pick an area from a title substring, a label, a repository, or a file path: those are the proxies the adapter deliberately refuses to use, and firstmate adopting them by hand would be the same mistake one level up.
+Read what the work actually changes, and match it against what each area means on that board.
+
+**Classify in the pass that files the card.**
+The area goes on the `import` or `place` call itself, never as a second command afterwards.
+This is the same rule `--parent` and `--cleared` already follow, and for the same reason: a fact left to a follow-up command is a fact that eventually does not get sent.
+
+**Blank is for genuine ambiguity only.**
+`--unclassified` is a real answer when the work could honestly sit in more than one area, or when it is not yet clear enough to place, and it is the right answer then.
+It is never the answer for "this would take a moment's thought", and never for work whose area is obvious once the issue is read.
+A blank card is reported by every cycle as an `unclassified` line, so it is a question waiting on firstmate rather than something that quietly stays blank - handle those lines like any other actionable record, either by classifying the card or, when the ambiguity is the captain's to settle, by asking them.
+
+**Update it when the work's scope moves.**
+`bin/fm-board.sh classify <task-id> <area>` when an issue grows or narrows into a different area.
+It is `mark` for this field in every respect, including that it degrades to a stale board the next cycle retries.
+
+A programme is not classified; its children are the work and each carries its own area.
+A card firstmate dispatched without placing it first arrives unclassified, because the dispatch has no view of the area; classify it when the cycle reports it.
+
 ## Programmes and their children
 
 A `decompose <project> <parent-issue-url>` line is a container: an issue whose children are the real work, and which no worker can ship as it stands.
@@ -186,6 +214,9 @@ A fact firstmate holds at placement and leaves to a second command is a fact it 
   When the task exists as follow-on from a container already on the board, pass `--parent <parent-issue-url>`.
   The issue is created as a native GitHub sub-issue of that container and recorded as its child in the same operation, and the container's card then follows it exactly as it follows the children a decomposition created.
   That is GitHub's own sub-issue relationship and nothing else, as "Programmes and their children" already requires; never attach it afterwards by hand.
+- **The area it belongs to.**
+  On a board that configures a classification field, pass `--area <name>` or, for genuinely ambiguous work, `--unclassified`, exactly as "Classifying work" sets out.
+  The call is refused without one, so this is not a flag to forget.
 - **That the captain has already cleared it.**
   When their go was given before the card existed, pass `--cleared` and the card is filed in `queued` rather than `processed`.
   State it only when they actually gave it: never infer it from the absence of a hold, from the task existing, or from any other proxy, because an inferred go turns a filed card into a launch authorization the moment the inference is wrong.
@@ -211,6 +242,7 @@ Firstmate's own execution events are what move a card, and the ones that matter 
 - **Cleared to launch:** `bin/fm-board.sh mark <task-id> queued` when the captain's go, given in chat, releases a held item already on the board and the board configures that column.
   Work being placed after the go is already given carries it on the placement itself instead.
 - **Blocked:** `bin/fm-board.sh note <task-id> "Blocked: <what is needed>"`, alongside the ordinary captain escalation when the blocker needs the captain.
+- **Its area changed:** `bin/fm-board.sh classify <task-id> <area>` when the work's scope moved into a different one, and whenever a cycle reports the card `unclassified`.
 - Run `mark` by hand only to correct a card, for instance after a divergence or when work leaves the cleared set.
 
 Prefer a better card to a better command: when a task deserves a human title on the roadmap, `place` it yourself before dispatching, and the dispatch will then only move the card it finds.
@@ -226,12 +258,13 @@ This is the single most important rule here, and it has two halves that must not
 **Filing work on the board is the captain's intent.**
 A new labelled card is them adding work, and intake above is unchanged - including that it stays captain-gated before anything runs.
 
-**The status columns are firstmate's own report of its records.**
-Firstmate writes them outward from the backlog; a card's column never tells firstmate what to do.
+**The status columns, and the classification field where one is configured, are firstmate's own report of its records.**
+Firstmate writes them outward from the backlog; a card's column never tells firstmate what to do, and neither does its area.
 That covers every one of them, including the optional `processed` and `queued` columns: each is written because firstmate's own records already moved, never to make the board read better than the records support.
 So a `divergence` line - a card showing a status firstmate did not write - means change nothing, dispatch nothing, stop nothing, and tell the captain in chat.
 The adapter has already declined to reconcile it in either direction, and firstmate must not do by hand what the adapter deliberately refused.
 Raise a given divergence once and do not repeat it every cycle while it stands unresolved; when the captain decides, `bin/fm-board.sh mark <task-id> <state>` is how the card is put right.
+A `classification-divergence` line is the same situation in the classification field and gets the same answer: report it, change nothing, and put the card right with `classify` once the captain has decided which area is correct.
 
 Treat an unexplained appearance in a configured `queued` column as security-relevant, because under this model it can only mean something outside firstmate wrote to that board.
 It never launches a crew.

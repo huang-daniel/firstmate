@@ -140,6 +140,7 @@ label = firstmate
 mention = @firstmate
 assignee = firstmate-bot
 status-field = Status
+classify-field = Area
 todo = Todo
 in-progress = In Progress
 done = Done
@@ -153,6 +154,7 @@ big-picture-done = Big Picture Done
 `project` is the project's name in the local project registry (`data/projects.md`), and `owner` plus `number` are the GitHub Projects owner login and project number.
 Everything else is optional: `repo` restricts intake to one repository on a board that carries several and is also the repository firstmate files a new card's issue in, `status-field` names the single-select field holding the columns, and `todo`, `in-progress`, and `done` name that field's three options.
 The defaults are `Status`, `Todo`, `In Progress`, and `Done`, and the names are matched ignoring case and spaces, so a field exported as `status` still resolves.
+`classify-field` is described under "Classifying work" below and is unset by default.
 Nothing about the board is baked into firstmate's tracked code; every identifier comes from this file, so any project can gain a board without a code change.
 
 `processed` and `queued` are optional and unset by default, and each is inert until you configure it.
@@ -196,11 +198,32 @@ Firstmate's own records are the source of truth and the board shows them; chat, 
 That splits into two halves worth knowing:
 
 - **Filing work on the board is you adding work.** A new labelled card is picked up as before.
-- **The status columns are firstmate's report.** If a card's column changes to something firstmate did not put there, it changes nothing, starts nothing, stops nothing, and tells you in chat instead - including if a card appears in the `queued` column, which under this model can only mean something outside firstmate wrote to the board.
+- **The status columns and the classification are firstmate's report.** If a card's column changes to something firstmate did not put there, it changes nothing, starts nothing, stops nothing, and tells you in chat instead - including if a card appears in the `queued` column, which under this model can only mean something outside firstmate wrote to the board.
   That covers `processed` too: firstmate writes it because it really did take the work in, never to make an untouched board look current.
 
 So moving a card yourself is a fine way to tell firstmate something, but tell it in chat too: it will report the difference rather than act on it.
 Nothing here ever discards unlanded work.
+
+### Classifying work
+
+A board can sort its work into groupings of its own alongside the columns - areas, components, workstreams, whatever that board calls them.
+Add a second single-select field to the project, name it in `classify-field`, and firstmate keeps it in step exactly as it keeps the columns: it reads the field every cycle, records what each card should carry, writes it, and reports a value it did not write rather than acting on it.
+
+The field's options live on the board and nowhere in firstmate.
+Add, rename, or remove one in the GitHub UI and firstmate follows, because it asks the board what the field offers rather than carrying a copy.
+A board that configures no `classify-field` is untouched by all of this: no card's value is read or written, and the bridge behaves exactly as it did before the key existed.
+
+Work is classified in the same pass that files it, so a card is never left blank to be tidied up later: firstmate decides the area as it takes a card in or files one, and the card carries it from the moment it exists.
+Which area a piece of work belongs to is a judgement, so firstmate makes it and the bridge never guesses one from a title, a label, or a repository.
+When an issue's scope moves into another area, firstmate updates the field.
+
+Blank is reserved for work whose area is genuinely open, and it is never quiet: firstmate reports an unclassified card every cycle until an area is recorded, so a blank field is a question waiting for you rather than something that stays blank by default.
+The one card that starts out blank on its own is work firstmate dispatched that nobody had placed on the board, which the bridge files so the roadmap is complete and then keeps reporting until it is classified.
+
+Configuring this adds no board reads and no extra writes.
+Firstmate already reads the whole board once a cycle and that read carries every field each card holds, and setting a card's column and its area is one request rather than two.
+
+Adding a second view grouped by the field is worth doing and is a one-off in the GitHub UI; firstmate does not create views.
 
 ### Big-picture items and their children
 

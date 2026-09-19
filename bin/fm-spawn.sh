@@ -4158,8 +4158,15 @@ spawn_reflect_on_board() {
   project=$(basename "$PROJ_ABS")
   [ -n "$(FM_HOME="$FM_HOME" "$board_sh" boards "$project" 2>/dev/null)" ] || return 0
   if ! FM_HOME="$FM_HOME" "$board_sh" lookup "$ID" >/dev/null 2>&1; then
+    # This is the safety net for a task nobody placed deliberately, so there is
+    # no classification to state: a dispatch has no view of which area the work
+    # belongs to, and a guess here would be a judgement made by the wrong thing.
+    # `--unclassified` says exactly that, and the board adapter then names the
+    # card every cycle until firstmate classifies it - which is what keeps a
+    # blank card a signal rather than something that quietly stays blank. A
+    # board with no classification field ignores the flag's absence entirely.
     FM_HOME="$FM_HOME" "$board_sh" place "$project" "$ID" "$ID" \
-      "Dispatched by firstmate as task $ID." >&2 || true
+      "Dispatched by firstmate as task $ID." --unclassified >&2 || true
   fi
   FM_HOME="$FM_HOME" "$board_sh" mark "$ID" in-progress >&2 || true
   return 0

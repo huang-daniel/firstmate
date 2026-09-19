@@ -96,9 +96,26 @@ gh_jq_filter() {
   printf '.'
 }
 command -v jq >/dev/null || { printf 'stub gh: jq is required\n' >&2; exit 9; }
+# board_apply_edit <item-id> <option-id>: set that card's value for whichever
+# field the option belongs to, exactly as the real board would.
+board_apply_edit() {
+  local e_id=$1 e_option=$2 e_name e_col e_tmp
+  [ -n "$e_option" ] || return 0
+  e_name=$(awk -F'\t' -v o="$e_option" '$1 == "option" && $2 == o { print $3 }' "$GH_FIELDS")
+  e_col=$(awk -F'\t' -v o="$e_option" '
+    $1 == "option" && $2 == o { f = $4 }
+    $1 == "field" { col[$2] = $4 }
+    END { print (f in col ? col[f] : 4) }
+  ' "$GH_FIELDS")
+  e_tmp=$(mktemp)
+  awk -F'\t' -v OFS='\t' -v id="$e_id" -v s="$e_name" -v c="$e_col" \
+    '$1 == id { $c = s } { print }' "$GH_ITEMS" > "$e_tmp"
+  mv "$e_tmp" "$GH_ITEMS"
+}
 kind="$1 $2"
 if [ "$kind" = "api graphql" ]; then
   case "$*" in
+    *updateProjectV2ItemFieldValue*) kind="graphql write" ;;
     *projectItems*) kind="graphql card" ;;
     *repositoryOwner*) kind="graphql ids" ;;
   esac
@@ -115,7 +132,48 @@ if [ -n "${GH_FAIL:-}" ]; then
   esac
 fi
 case "$kind" in
-  "project item-list") cat "$GH_ITEMS" ;;
+  "project item-list")
+    # The real response shape, reduced by the adapter's own filter. A board read
+    # carries every field the board sets on a card as a key named after that
+    # field, so this is where the adapter's own translation of a card's column
+    # and its classification is put under test rather than stood in for. The
+    # payload carries a decoy field key alongside them, so a selector matching
+    # everything comes away with the decoy exactly as it does above.
+    {
+      printf '{"items":['
+      awk -F'\t' '
+        function esc(v) { gsub(/\\/, "\\\\", v); gsub(/"/, "\\\"", v); return v }
+        function names(v,   parts, n, i, out) {
+          if (v == "-" || v == "") return "[]"
+          n = split(v, parts, ",")
+          out = "["
+          for (i = 1; i <= n; i++) out = out (i > 1 ? "," : "") "\"" esc(parts[i]) "\""
+          return out "]"
+        }
+        function field(name, v) {
+          if (name == "" || v == "-") return ""
+          return ",\"" esc(name) "\":{\"name\":\"" esc(v) "\"}"
+        }
+        # The field names come from the fixture itself, read ahead of the cards.
+        FILENAME == fieldsfile {
+          if ($1 == "field") {
+            if ($4 == 4) statusname = $3
+            if ($4 == 9) classname = $3
+          }
+          next
+        }
+        NF == 0 { next }
+        {
+          if (nr++) printf ","
+          printf "{\"id\":\"%s\",\"decoyField\":{\"name\":\"decoy\"}%s%s", \
+            esc($1), field(statusname, $4), field(classname, $9)
+          printf ",\"content\":{\"type\":\"%s\",\"url\":\"%s\",\"title\":\"%s\",\"body\":\"%s\",\"labels\":%s,\"assignees\":%s}}", \
+            esc($2), esc($3), esc($7), esc($8), names($5), names($6)
+        }
+      ' fieldsfile="$GH_FIELDS" "$GH_FIELDS" "$GH_ITEMS"
+      printf ']}'
+    } | jq -r "$(gh_jq_filter "$@")"
+    ;;
   "graphql ids")
     # The real response shape, reduced by the adapter's own filter. The stub
     # never reproduces what that filter does; running it is the point.
@@ -181,7 +239,9 @@ case "$kind" in
     } | jq -r "$(gh_jq_filter "$@")"
     ;;
   "project item-edit")
-    # Behave like the real board: the edit is visible to the next read.
+    # Behave like the real board: the edit is visible to the next read, and it
+    # lands in the column the edited field owns rather than always in the first
+    # one - which is what makes writing the wrong field a visible failure.
     edit_id=''
     edit_option=''
     while [ "$#" -gt 0 ]; do
@@ -191,11 +251,21 @@ case "$kind" in
         *) shift ;;
       esac
     done
-    edit_name=$(awk -F'\t' -v o="$edit_option" '$1 == "option" && $2 == o { print $3 }' "$GH_FIELDS")
-    edit_tmp=$(mktemp)
-    awk -F'\t' -v OFS='\t' -v id="$edit_id" -v s="$edit_name" \
-      '$1 == id { $4 = s } { print }' "$GH_ITEMS" > "$edit_tmp"
-    mv "$edit_tmp" "$GH_ITEMS"
+    board_apply_edit "$edit_id" "$edit_option"
+    ;;
+  "graphql write")
+    # The two-field write: one document, both mutations, applied in order.
+    w_item=''; w_a=''; w_b=''
+    for w_arg in "$@"; do
+      case "$w_arg" in
+        item=*) w_item=${w_arg#item=} ;;
+        optionA=*) w_a=${w_arg#optionA=} ;;
+        optionB=*) w_b=${w_arg#optionB=} ;;
+      esac
+    done
+    board_apply_edit "$w_item" "$w_a"
+    board_apply_edit "$w_item" "$w_b"
+    printf '{}\n'
     ;;
   "issue comment") : ;;
   "issue create")
@@ -247,7 +317,7 @@ case "$kind" in
     # A real board keeps a card with no status until one is set.
     a_title=$(awk -F'\t' -v u="$a_url" '$2 == u { print $3 }' "$GH_ISSUES")
     a_labels=$(awk -F'\t' -v u="$a_url" '$2 == u { print $5 }' "$GH_ISSUES")
-    printf '%s\tIssue\t%s\t-\t%s\t-\t%s\t-\n' \
+    printf '%s\tIssue\t%s\t-\t%s\t-\t%s\t-\t-\n' \
       "$a_id" "$a_url" "${a_labels:--}" "${a_title:--}" >> "$GH_ITEMS"
     printf '%s\n' "$a_id"
     ;;
@@ -331,10 +401,15 @@ board() {
 }
 
 # item <home> <id> <type> <url> <status> <labels> <assignees> <title> <body>
+#      [<classification>]
+# The classification defaults to blank, which is what a real board shows for a
+# card nobody has classified.
 item() {
-  local home=$1
+  local home=$1 class
   shift
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$@" >> "$home/items"
+  class=${9:--}
+  set -- "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$@" "$class" >> "$home/items"
 }
 
 # sub_issue <home> <url> <parent> [open|closed]: an issue GitHub records as a
@@ -372,9 +447,25 @@ fields() {
   fi
   field=$1
   shift
-  printf 'field\t%s\t%s\n' "$field" "$name" > "$home/fields"
+  # The trailing column is the card column this field's value lives in, which is
+  # what lets the stub apply an edit to the right one once a board carries two
+  # single-select fields. Each option carries its own field for the same reason.
+  printf 'field\t%s\t%s\t4\n' "$field" "$name" > "$home/fields"
   for spec in "$@"; do
-    printf 'option\t%s\t%s\n' "${spec%%:*}" "${spec#*:}" >> "$home/fields"
+    printf 'option\t%s\t%s\t%s\n' "${spec%%:*}" "${spec#*:}" "$field" >> "$home/fields"
+  done
+}
+
+# classify_field <home> <field-name> <field-id> <option-id:option-name>...
+# A second single-select field on the same board, appended to the one above. The
+# adapter reads both from one request, so a fixture that could only describe one
+# could not show that.
+classify_field() {
+  local home=$1 name=$2 field=$3 spec
+  shift 3
+  printf 'field\t%s\t%s\t9\n' "$field" "$name" >> "$home/fields"
+  for spec in "$@"; do
+    printf 'option\t%s\t%s\t%s\n' "${spec%%:*}" "${spec#*:}" "$field" >> "$home/fields"
   done
 }
 
@@ -2513,3 +2604,429 @@ test_parenting_recovers_an_issue_created_without_a_parent
 test_placing_under_a_programme_refuses_rather_than_inventing_one
 test_placing_cleared_work_records_the_go_in_the_same_operation
 test_a_board_with_no_go_column_never_grows_one
+
+# --- the second synchronized field -------------------------------------------
+#
+# A board may classify its work in a field of its own beside the column - an
+# area, a component, a workstream. The properties worth pinning are that the
+# adapter treats that field exactly as it treats the column, that it never forms
+# the judgement of which value a card should carry, that a board configuring no
+# such field is untouched, and - the one that made this more than a small change
+# - that synchronizing a second field costs no second request per card.
+
+# A board that classifies its work, with an Area field beside the columns. Area
+# deliberately offers an option the status field also offers, because two fields
+# sharing an option name is the case a lookup that ignored which field it was
+# resolving for would write into the wrong one.
+classified_board() {
+  local home=$1
+  cat > "$home/config/boards" <<'EOF'
+project = harbourlight
+owner = harbour-collective
+number = 4
+repo = harbour-collective/app
+label = firstmate
+processed = Processed
+classify-field = Area
+EOF
+  fields "$home" PVTSSF_status opt_todo:Todo 'opt_prog:In Progress' \
+    opt_done:Done opt_proc:Processed
+  classify_field "$home" Area PVTSSF_area opt_platform:Platform \
+    'opt_auth:Auth & Portal' opt_area_todo:Todo
+}
+
+test_a_card_is_classified_in_the_call_that_creates_it() {
+  local home issue out
+  home=$(new_home a_card_is_classified_in_the_call_that_creates_it)
+  classified_board "$home"
+  issue=https://github.com/harbour-collective/app/issues/501
+  item "$home" PVTI_a Issue "$issue" Todo firstmate - 'Something to take in' -
+
+  # Taking work in and classifying it are one operation, not a card filed now
+  # and tidied up later.
+  out=$(board "$home" import harbourlight "$issue" fm-taken --area Platform)
+  assert_contains "$out" "linked harbourlight $issue fm-taken processed Platform" \
+    "the import did not report the area it filed"
+  assert_contains "$(board "$home" lookup fm-taken)" "	Platform	Platform" \
+    "the classification was not recorded as confirmed"
+  assert_contains "$(gh_log "$home")" 'optionA=opt_proc' \
+    "the column and the area were not written together"
+  assert_contains "$(gh_log "$home")" 'optionB=opt_platform' \
+    "the area was not part of that same write"
+
+  # And the board really shows it, in its own field rather than in the column's.
+  out=$(board "$home" poll)
+  assert_not_contains "$out" 'unclassified' "a classified card was reported as blank"
+  assert_not_contains "$out" 'divergence' "the area landed somewhere firstmate did not expect"
+
+  # Work firstmate files itself carries its area from the same call.
+  out=$(board "$home" place harbourlight fm-filed 'Filed by firstmate' 'body' \
+    --area 'Auth & Portal')
+  assert_contains "$out" 'fm-filed processed Auth & Portal' \
+    "the placement did not report the area it filed"
+  assert_contains "$(board "$home" lookup fm-filed)" "	Auth & Portal	Auth & Portal" \
+    "the placed card's classification was not confirmed"
+  pass "work is classified in the call that files or takes it in, never afterwards"
+}
+
+test_the_adapter_never_decides_a_classification() {
+  local home issue rc=0 out
+  home=$(new_home the_adapter_never_decides_a_classification)
+  classified_board "$home"
+  issue=https://github.com/harbour-collective/app/issues/502
+  item "$home" PVTI_a Issue "$issue" Todo firstmate - 'Contractor template work' -
+
+  # The title says "Contractor template" and the board has areas: an adapter
+  # that guessed would take it. Stating neither flag is refused instead.
+  out=$(board "$home" import harbourlight "$issue" fm-guess 2>&1) && rc=0 || rc=$?
+  expect_code 2 "$rc" "an import with no stated area was accepted"
+  assert_contains "$out" '--area' "the refusal did not say how to state one"
+  assert_not_contains "$(gh_log "$home")" 'item-edit' "the refused import still wrote to the board"
+  [ -z "$(board "$home" links)" ] || fail "the refused import still recorded a link"
+
+  # Contradicting yourself is refused too, rather than one flag quietly winning.
+  rc=0
+  board "$home" import harbourlight "$issue" fm-guess --area Platform --unclassified \
+    >/dev/null 2>&1 && rc=0 || rc=$?
+  expect_code 2 "$rc" "--area and --unclassified together were accepted"
+
+  # An area the board does not offer is not invented; the write degrades to a
+  # stale board exactly as any other write that does not land.
+  out=$(board "$home" import harbourlight "$issue" fm-guess --area 'Invented Area' 2>&1)
+  assert_contains "$out" 'linked-stale' "an area the board never offered was reported as landed"
+  pass "which area work belongs to is stated by the caller, never guessed here"
+}
+
+test_a_blank_classification_is_surfaced_rather_than_silent() {
+  local home issue out
+  home=$(new_home a_blank_classification_is_surfaced_rather_than_silent)
+  classified_board "$home"
+  issue=https://github.com/harbour-collective/app/issues/503
+  item "$home" PVTI_a Issue "$issue" Todo firstmate - 'Genuinely ambiguous' -
+
+  # Blank is reachable, but only by saying so.
+  out=$(board "$home" import harbourlight "$issue" fm-open --unclassified)
+  assert_contains "$out" "linked harbourlight $issue fm-open processed unclassified" \
+    "the import did not report that it filed the card unclassified"
+
+  # And it is named every cycle until an area is recorded, exactly as a card
+  # awaiting import repeats as `new`.
+  out=$(board "$home" poll)
+  assert_contains "$out" "unclassified harbourlight $issue fm-open" \
+    "a blank card was passed over in silence"
+  out=$(board "$home" poll)
+  assert_contains "$out" "unclassified harbourlight $issue fm-open" \
+    "the blank card was reported once and then forgotten"
+
+  # Recording one stops it, and the card stops being reported at all.
+  out=$(board "$home" classify fm-open Platform)
+  assert_contains "$out" "classified harbourlight $issue fm-open Platform" \
+    "classifying the card did not report it"
+  out=$(board "$home" poll)
+  assert_not_contains "$out" 'unclassified' "a classified card was still reported as blank"
+  [ -z "$out" ] || fail "a settled classified board did not poll to silence: $out"
+
+  # Work that has already finished is settled, not something to go back and
+  # classify, so it is never named.
+  board "$home" mark fm-open 'done' >/dev/null
+  : > "$home/data/board-links.tsv"
+  board "$home" import harbourlight "$issue" fm-open --unclassified >/dev/null
+  board "$home" mark fm-open 'done' >/dev/null
+  out=$(board "$home" poll)
+  assert_not_contains "$out" 'unclassified' "finished work was reported as needing an area"
+  pass "a card left blank is named until an area is recorded, and never quietly"
+}
+
+test_a_classification_the_work_outgrew_is_updated() {
+  local home issue out
+  home=$(new_home a_classification_the_work_outgrew_is_updated)
+  classified_board "$home"
+  issue=https://github.com/harbour-collective/app/issues/504
+  item "$home" PVTI_a Issue "$issue" Todo firstmate - 'Scope moved' -
+  board "$home" import harbourlight "$issue" fm-moved --area Platform >/dev/null
+
+  out=$(board "$home" classify fm-moved 'Auth & Portal')
+  assert_contains "$out" "classified harbourlight $issue fm-moved Auth & Portal" \
+    "the changed area was not reported"
+  assert_contains "$(board "$home" lookup fm-moved)" "	Auth & Portal	Auth & Portal" \
+    "the changed area was not confirmed in the record"
+  assert_contains "$(gh_log "$home")" 'opt_auth' "the board was never told about the change"
+
+  # A change the board does not take stays outstanding, and the next cycle
+  # finishes it rather than losing it.
+  : > "$home/gh.log"
+  out=$(GH_FAIL='project item-edit' board "$home" classify fm-moved Platform 2>/dev/null)
+  assert_contains "$out" 'classification-stale' "a change the board refused was reported as landed"
+  assert_contains "$(board "$home" lookup fm-moved)" "	Platform	Auth & Portal" \
+    "the outstanding change was not recorded as owed"
+  out=$(board "$home" poll)
+  assert_contains "$out" "classified harbourlight $issue fm-moved Platform" \
+    "the next cycle did not finish the outstanding change"
+  assert_contains "$(board "$home" lookup fm-moved)" "	Platform	Platform" \
+    "the retried change was not confirmed"
+  pass "an area that changed with the work's scope is updated, and retried if it does not land"
+}
+
+test_a_classification_firstmate_did_not_write_is_reported_never_corrected() {
+  local home issue out
+  home=$(new_home a_classification_firstmate_did_not_write_is_reported)
+  classified_board "$home"
+  issue=https://github.com/harbour-collective/app/issues/505
+  item "$home" PVTI_a Issue "$issue" Todo firstmate - 'Reclassified by hand' -
+  board "$home" import harbourlight "$issue" fm-hand --area Platform >/dev/null
+
+  # Someone moves the card into another area on the board. Firstmate's records
+  # are the truth here, so this is reported and nothing is written in either
+  # direction - the same answer the column gets.
+  : > "$home/items"
+  : > "$home/gh.log"
+  item "$home" PVTI_a Issue "$issue" Processed firstmate - 'Reclassified by hand' - \
+    'Auth & Portal'
+  out=$(board "$home" poll)
+  assert_contains "$out" "classification-divergence harbourlight $issue fm-hand Platform Auth & Portal" \
+    "an area firstmate never wrote was not reported"
+  assert_not_contains "$(gh_log "$home")" 'item-edit' "the divergence was corrected behind the captain"
+  assert_not_contains "$(gh_log "$home")" 'updateProjectV2ItemFieldValue' \
+    "the divergence was corrected behind the captain"
+  assert_contains "$(board "$home" lookup fm-hand)" "	Platform	Platform" \
+    "the divergence changed firstmate's own record"
+
+  # An explicit classify is how it is resolved, because that is firstmate acting.
+  board "$home" classify fm-hand 'Auth & Portal' >/dev/null
+  out=$(board "$home" poll)
+  assert_not_contains "$out" 'classification-divergence' \
+    "the resolved divergence was still reported"
+  pass "an area the board shows that firstmate did not write is reported, never reconciled away"
+}
+
+test_two_fields_sharing_an_option_name_stay_apart() {
+  local home issue
+  home=$(new_home two_fields_sharing_an_option_name_stay_apart)
+  classified_board "$home"
+  issue=https://github.com/harbour-collective/app/issues/506
+  item "$home" PVTI_a Issue "$issue" Todo firstmate - 'Both offer Todo' -
+  board "$home" import harbourlight "$issue" fm-both --area Todo >/dev/null
+
+  # Both fields offer an option called Todo. The card must come away with the
+  # Area field's Todo in Area and the column untouched by it.
+  assert_contains "$(gh_log "$home")" 'optionB=opt_area_todo' \
+    "the area write resolved the column field's option of the same name"
+  board "$home" poll >/dev/null
+  assert_contains "$(board "$home" lookup fm-both)" "	Todo	Todo" \
+    "the area the board came back with was not the one that was written"
+  pass "an option name two fields share resolves to the field being written"
+}
+
+test_the_board_names_the_areas_it_accepts() {
+  local home out
+  home=$(new_home the_board_names_the_areas_it_accepts)
+  classified_board "$home"
+  : > "$home/calls"
+  out=$(board "$home" classifications)
+  assert_contains "$out" 'classify harbourlight Area Platform' "the board's own areas were not listed"
+  assert_contains "$out" 'classify harbourlight Area Auth & Portal' "an area with a space was not listed"
+  assert_not_contains "$out" 'In Progress' "the column field's options were listed as areas"
+  [ "$(gh_calls "$home")" = 1 ] || fail \
+    "listing the areas cost more than the one id read: $(cat "$home/calls")"
+
+  # A board that classifies nothing says so rather than failing.
+  ordinary_board "$home"
+  assert_contains "$(board "$home" classifications)" 'classify harbourlight off' \
+    "a board with no classification field did not say so"
+  pass "the areas a board accepts come from the board, and cost one read to list"
+}
+
+test_a_board_that_classifies_nothing_is_untouched() {
+  local home issue rc=0 out
+  home=$(new_home a_board_that_classifies_nothing_is_untouched)
+  ordinary_board "$home"
+  issue=https://github.com/harbour-collective/app/issues/507
+  item "$home" PVTI_a Issue "$issue" Todo firstmate - 'Ordinary work' -
+
+  # Naming a field this board does not have is refused, on every route that
+  # takes one. `place` is checked as carefully as `import` because a refusal
+  # raised inside a command substitution is only a message, not a refusal: the
+  # caller reads an empty value and carries on, which is how this one first got
+  # as far as trying to file the issue.
+  out=$(board "$home" import harbourlight "$issue" fm-plain --area Platform 2>&1) && rc=0 || rc=$?
+  expect_code 2 "$rc" "--area was accepted on a board that configures no such field"
+  rc=0
+  out=$(board "$home" place harbourlight fm-plain 'Work' 'body' --area Platform 2>&1) && rc=0 || rc=$?
+  expect_code 2 "$rc" "place accepted --area on a board that configures no such field"
+  assert_not_contains "$out" 'could not' "the refused placement went on to try the board anyway"
+  [ "$(wc -l < "$home/issues")" = 0 ] || fail "the refused placement still filed an issue"
+  rc=0
+  board "$home" classify fm-plain Platform >/dev/null 2>&1 && rc=0 || rc=$?
+  expect_code 2 "$rc" "classify was accepted on a board that configures no such field"
+  [ -z "$(cat "$home/gh.log")" ] || fail "a refused classification still reached the board"
+
+  # And every ordinary path answers exactly as it did before the field existed:
+  # the same records, the same calls, and no trailing area on any line.
+  : > "$home/calls"
+  out=$(board "$home" import harbourlight "$issue" fm-plain)
+  [ "$out" = "linked harbourlight $issue fm-plain" ] || fail \
+    "an unclassified board's import line changed: $out"
+  [ "$(gh_calls "$home")" = 0 ] || fail \
+    "an unclassified board's import reached the board: $(cat "$home/calls")"
+  out=$(board "$home" poll)
+  [ -z "$out" ] || fail "an unclassified board's poll grew a record: $out"
+  assert_contains "$(board "$home" boards)" 'classify=-' "the listing did not say classification was off"
+
+  # Stating that no classification is being given is simply true here, so it is
+  # accepted and changes nothing. That asymmetry is what lets a caller with no
+  # view of the board's configuration - the dispatch reflection in
+  # bin/fm-spawn.sh, which files a card for work nobody placed deliberately -
+  # state it on every call and stay correct on every board. Configured last, so
+  # nothing above is measured against a board it did not run on.
+  processed_board "$home"
+  out=$(board "$home" place harbourlight fm-said-nothing 'Work' 'body' --unclassified)
+  assert_contains "$out" 'placed harbourlight' \
+    "--unclassified was refused on a board that classifies nothing: $out"
+  assert_not_contains "$out" 'unclassified' \
+    "a board that classifies nothing reported a classification anyway: $out"
+  assert_contains "$(board "$home" lookup fm-said-nothing)" 'processed	processed	-	-	-	-' \
+    "the placement recorded a classification on a board that has none"
+  pass "a board configuring no classification field behaves exactly as it did before one could be"
+}
+
+test_a_record_written_before_classification_reads_as_unclassified() {
+  local home issue out
+  home=$(new_home a_record_written_before_classification)
+  classified_board "$home"
+  issue=https://github.com/harbour-collective/app/issues/508
+  item "$home" PVTI_a Issue "$issue" Processed firstmate - 'From an older home' -
+
+  # The seven-column row an existing home already holds, written before this
+  # field existed. It must read as work with no area rather than as a broken
+  # record, and keep every column it already had.
+  printf '%s\n' '# fm-board.sh durable issue-to-task links' > "$home/data/board-links.tsv"
+  printf 'harbourlight\t%s\tfm-old\tprocessed\tprocessed\t-\t-\n' "$issue" \
+    >> "$home/data/board-links.tsv"
+
+  out=$(board "$home" lookup fm-old)
+  assert_contains "$out" 'fm-old	processed	processed' "the older row did not read back"
+  out=$(board "$home" poll)
+  assert_contains "$out" "unclassified harbourlight $issue fm-old" \
+    "an older row was not read as work with no area recorded"
+  board "$home" classify fm-old Platform >/dev/null
+  assert_contains "$(board "$home" lookup fm-old)" 'processed	processed	-	-	Platform	Platform' \
+    "classifying an older row did not preserve its other columns"
+  pass "a record written before this field existed reads as unclassified, not as broken"
+}
+
+# THE COST GUARD, FOR THE SECOND FIELD.
+#
+# The guard above pins that what an invocation costs follows the work it does
+# rather than the board's size. This one pins the property that made adding a
+# second synchronized field more than a small change: that cost must not follow
+# how many FIELDS each change touches either.
+#
+# Two boards of the same size run the same cycle, one synchronizing the column
+# alone and one synchronizing the column and the area, with every changed card
+# owing a write on both. Equal call counts are the whole assertion, and the
+# per-kind counts say why they are equal: one board read and one id read however
+# many fields are wanted, because the one id document carries every field on the
+# board; and one write per changed card however many fields that write sets,
+# because two fields on one card go in one batched mutation.
+#
+# Each half was broken on purpose and confirmed to fail. Resolving the area's
+# field id in its own request took the classified board from 5 calls to 8 at
+# three changed cards, failing the equality and the `graphql ids` count. Writing
+# the area in a second `item-edit` took it from 5 to 8 as well, failing the
+# equality and the write count while leaving the id count untouched - which is
+# why both counts are asserted rather than either alone.
+
+# settled_classified_board <home> <cards>: the classified board's equivalent of
+# settled_board, every card taken in with an area and moved to in progress.
+settled_classified_board() {
+  local home=$1 cards=$2 i=1 issue
+  classified_board "$home"
+  while [ "$i" -le "$cards" ]; do
+    issue="https://github.com/harbour-collective/app/issues/$((7000 + i))"
+    item "$home" "PVTI_c$i" Issue "$issue" Todo firstmate - "Card $i" -
+    board "$home" import harbourlight "$issue" "fm-card-$i" --area Platform >/dev/null
+    board "$home" mark "fm-card-$i" in-progress >/dev/null
+    i=$((i + 1))
+  done
+}
+
+# owing_both <home> <count>: leave that many cards owing a write on both fields.
+owing_both() {
+  local home=$1 count=$2 i=1
+  while [ "$i" -le "$count" ]; do
+    GH_FAIL='project item-edit' board "$home" mark "fm-card-$i" 'done' >/dev/null 2>&1
+    GH_FAIL='project item-edit' board "$home" classify "fm-card-$i" 'Auth & Portal' \
+      >/dev/null 2>&1
+    i=$((i + 1))
+  done
+}
+
+test_a_second_synchronized_field_costs_no_second_request() {
+  local plain classified k=3 plain_calls classified_calls out
+  plain=$(new_home second_field_cost_plain)
+  classified=$(new_home second_field_cost_classified)
+  settled_board "$plain" 12
+  settled_classified_board "$classified" 12
+  owing "$plain" "$k"
+  owing_both "$classified" "$k"
+
+  : > "$plain/calls"
+  : > "$classified/calls"
+  board "$plain" poll >/dev/null
+  out=$(board "$classified" poll)
+  plain_calls=$(gh_calls "$plain")
+  classified_calls=$(gh_calls "$classified")
+
+  [ "$plain_calls" = "$classified_calls" ] || fail \
+    "a cycle synchronizing two fields cost $classified_calls calls where one field cost $plain_calls, for the same $k changed cards"
+  # One board read, one id read for the run, one write per card that owes one -
+  # unchanged by the second field.
+  [ "$classified_calls" = "$((k + 2))" ] || fail \
+    "a two-field cycle with $k changed cards cost $classified_calls calls, not $((k + 2)): $(cat "$classified/calls")"
+  [ "$(gh_calls_of "$classified" 'project item-list')" = 1 ] || fail \
+    "the classified cycle read the board more than once"
+  [ "$(gh_calls_of "$classified" 'graphql ids')" = 1 ] || fail \
+    "a second synchronized field resolved its ids in a second request"
+  [ "$(gh_calls_of "$classified" 'graphql write')" = "$k" ] || fail \
+    "a card owing both fields did not have them written in one request: $(cat "$classified/calls")"
+  [ "$(gh_calls_of "$classified" 'project item-edit')" = 0 ] || fail \
+    "a card owing both fields paid a second write as well as the batched one"
+
+  # Both fields really did land, so the equal cost is not the cost of doing less.
+  assert_contains "$out" 'synced harbourlight' "the column write did not land"
+  assert_contains "$out" 'classified harbourlight' "the area write did not land"
+  assert_contains "$(board "$classified" lookup fm-card-1)" 'done	done' \
+    "the column was not confirmed"
+  assert_contains "$(board "$classified" lookup fm-card-1)" 'Auth & Portal	Auth & Portal' \
+    "the area was not confirmed"
+
+  # A single-card event costs the same on both boards too: the card lookup, the
+  # ids, and the one write.
+  : > "$plain/calls"
+  : > "$classified/calls"
+  board "$plain" mark fm-card-1 todo >/dev/null
+  board "$classified" classify fm-card-1 Platform >/dev/null
+  [ "$(gh_calls "$classified")" = "$(gh_calls "$plain")" ] || fail \
+    "a single classification cost $(gh_calls "$classified") calls where a single move cost $(gh_calls "$plain")"
+  [ "$(gh_calls_of "$classified" 'project item-list')" = 0 ] || fail \
+    "classifying one card read the whole board"
+
+  # And a settled two-field cycle still costs its one board read and nothing
+  # else, the same as a settled one-field cycle.
+  : > "$classified/calls"
+  board "$classified" poll >/dev/null
+  [ "$(gh_calls "$classified")" = 1 ] || fail \
+    "a settled two-field cycle cost more than its one board read: $(cat "$classified/calls")"
+  pass "synchronizing a second field costs no extra request, per card or per cycle"
+}
+
+test_a_card_is_classified_in_the_call_that_creates_it
+test_the_adapter_never_decides_a_classification
+test_a_blank_classification_is_surfaced_rather_than_silent
+test_a_classification_the_work_outgrew_is_updated
+test_a_classification_firstmate_did_not_write_is_reported_never_corrected
+test_two_fields_sharing_an_option_name_stay_apart
+test_the_board_names_the_areas_it_accepts
+test_a_board_that_classifies_nothing_is_untouched
+test_a_record_written_before_classification_reads_as_unclassified
+test_a_second_synchronized_field_costs_no_second_request
