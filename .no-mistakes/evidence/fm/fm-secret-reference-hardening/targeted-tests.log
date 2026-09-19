@@ -1,0 +1,10 @@
+ok - store path spellings preserve the manifest boundary
+ok - partial publication resumes only for identical values
+ok - quoted comments and export preserve independently extracted values
+ok - the fixtures reproduce the incident: the bare file prints its own secret
+ok - list emits credential names and no credential material
+ok - names emits no credential material for the bare, padded-bare or KEY=value shape
+ok - reveal returns each value, for both shapes, without the caller knowing the shape
+ok - reveal refuses traversal and symlinked credentials
+ok - migration closes the incident for both shapes and preserves every value
+ok - migration refuses to guess a shape it cannot tell apart without printing it

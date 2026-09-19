@@ -1,0 +1,52 @@
+$ fm-secret.sh list
+service
+exit=0
+$ fm-secret.sh names service
+TOKEN
+REGION
+note: service is not migrated; its keys were read from its shape. Run: fm-secret.sh migrate --apply
+exit=0
+$ fm-secret.sh migrate
+service                                  would mark, keys unchanged
+
+This was a report. Re-run with --apply to change the store.
+exit=0
+$ fm-secret.sh migrate --apply
+service                                  marked
+exit=0
+$ cat config/secrets/service
+# fm-secret v2
+TOKEN
+REGION
+Recursive manifest-tree byte scan: zero synthetic-value matches
+$ fm-secret.sh reveal service TOKEN
+[value output captured privately and compared]
+exit=0
+$ fm-secret.sh export service
+[value output captured privately and compared]
+exit=0
+Export evaluated by Bash: exact original value restored
+$ fm-secret.sh migrate --apply
+service                                  already migrated
+exit=0
+$ fm-secret.sh names redirected/token
+error: credential path contains a symbolic link: redirected/token
+exit=1
+$ fm-secret.sh reveal redirected/token TOKEN
+error: credential path contains a symbolic link: redirected/token
+exit=1
+$ fm-secret.sh migrate --keyed redirected/token
+error: credential path contains a symbolic link: redirected/token
+exit=1
+Outside credential unchanged after all three refused commands
+$ fm-secret.sh migrate --bare resume
+resume relabelled under key RESUME.
+exit=0
+$ fm-secret.sh reveal resume RESUME
+[value output captured privately and compared]
+exit=0
+$ fm-secret.sh migrate --bare conflict
+error: published values conflict for credential conflict
+error: conflict could not be rewritten; it is unchanged
+exit=1
+Conflicting publication: both legacy and published bytes unchanged
