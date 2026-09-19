@@ -52,12 +52,14 @@
 # two differ only in how far back they look:
 #   fm_task_inbox_write_idempotent        pending AND handled (remote steer leg)
 #   fm_task_inbox_write_collapse_pending  pending only (local steer)
-# Handled is not pending: a record the worker already acknowledged was read and
-# acted on, so an identical instruction sent later is a new instruction. Both
-# resolve every ambiguity - an unreadable record, one acknowledged mid-scan, a
-# comparison that could not run - toward enqueueing or failing loudly, never
-# toward collapsing, because a duplicate is visible to the worker while a
-# swallowed steer is not.
+# Pending-only collapse excludes acknowledged records, including a candidate
+# moved to handled/ during the scan, so a later steer is not swallowed.
+# The idempotent enqueue instead follows that move, including when the original
+# body read fails after the move, and may reuse the handled record.
+# Unreadable or nonmatching candidates are skipped; temporary comparison-file
+# setup failures fail the enqueue. A nonzero cmp result also skips the candidate.
+# Pending-only uncertainty favors a visible duplicate over a swallowed steer.
+# tests/fm-task-inbox.test.sh covers the opposing acknowledgement-race outcomes.
 #
 # Re-ring ladder (fm_task_inbox_due_action): an unhandled message older than
 # FM_TASK_INBOX_GRACE_SECS is due one delivery attempt per grace period; an
@@ -194,10 +196,9 @@ fm_task_inbox_write() {  # <state-dir> <task-id> <text> [delivery-mode]
 # Identity is the record's exact body bytes plus its delivery class, so a
 # multi-line body matches byte-for-byte and a fire-and-forget record never
 # matches a tracked one. Prints the matching record's path; returns 1 when
-# nothing matches, and 2 when the comparison itself could not be performed -
-# the caller must treat that as a failure rather than as "no match", because
-# silently reading it as no-match would enqueue the duplicate this scan exists
-# to prevent. Caller must hold .seq.lock.
+# nothing matches, and 2 when temporary comparison-file setup fails.
+# Callers must treat 2 as a failure rather than as "no match".
+# Caller must hold .seq.lock; the header owns identity and race semantics.
 _fm_task_inbox_find_match_locked() {  # <inbox-dir> <text> <delivery-mode> <scope>
   local dir=$1 text=$2 delivery_mode=$3 scope=$4 want have f cand
   want=$(mktemp "$dir/.dedup.XXXXXX") || return 2
@@ -290,21 +291,8 @@ fm_task_inbox_write_idempotent() {  # <state-dir> <task-id> <text> [delivery-mod
 # second record is written. Prints "<disposition>\t<record-path>", where
 # disposition is `queued` for a new record or `collapsed` for an existing one.
 #
-# This is the LOCAL steer primitive, and it exists because a local send's
-# silence is indistinguishable from a broken transport: a supervisor who reads
-# exit 0 with no output as a failed delivery resends, and without this the
-# resend stacks a second copy of an instruction the worker has not read yet.
-# Making that property mechanical is the point - a "do not resend on a silent
-# send" rule only works if it is remembered at the exact moment the transport
-# looks dead.
-#
-# The window is deliberately narrower than fm_task_inbox_write_idempotent's:
-# only a PENDING record absorbs a resend. A record the worker already moved to
-# handled/ was read and acted on, so an identical instruction sent later is a
-# new instruction and must queue again. Every ambiguity resolves toward
-# enqueueing, because a duplicate is visible to the worker while a swallowed
-# steer is not. A deliberate repeat is the caller's to request: bin/fm-send.sh
-# exposes it as --again and routes it to plain fm_task_inbox_write.
+# The header owns the pending-only scope and acknowledgement-race policy.
+# bin/fm-send.sh owns the caller's deliberate-repeat option.
 fm_task_inbox_write_collapse_pending() {  # <state-dir> <task-id> <text> [delivery-mode]
   local state=$1 task=$2 text=$3 delivery_mode=${4:-}
   local dir lock rec='' find_rc=0 status=0 disposition=queued

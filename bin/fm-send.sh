@@ -25,24 +25,16 @@
 # locked and revalidated or that retired or changed, an unwritable record, a
 # failed or lost remote transport) or a decision-close append failed after
 # delivery (the error then carries the exact manual close).
-# No inbox-plane send is silent: every one of them names the task and the
-# record it queued, and a LOCAL steer whose exact instruction is already queued
-# and unhandled for that task collapses onto the pending record and says so
-# instead of queueing a second copy. Those two together are why reading a quiet
-# send as a dead transport can no longer stack duplicate instructions: the
-# resend has nothing to duplicate onto, and the operator is told which record
-# absorbed it. Identity is the record's exact body bytes plus delivery class
-# within one task (bin/fm-task-inbox-lib.sh owns it), so multi-line bodies
-# match byte-for-byte, a different instruction still queues separately, the
-# same instruction to another task queues once for each, and an instruction the
-# worker already acknowledged queues again because handled is not pending. A
-# deliberate repeat is the caller's to request with --again, which takes a new
-# sequence and says it did; --again is refused wherever nothing collapses (the
-# typed plane, --key) or where a per-request token already separates a repeat
-# from a retry (--fire-and-forget, a remote target). A marked secondmate
-# request embeds a fresh correlation token per request, so two logical requests
-# never collapse and only a FM_PENDING_REPLY_EXISTING_CORR resend reproduces
-# the body that does.
+# Every successful inbox-plane send prints a receipt on stderr: local sends
+# name the task and record path; remote sends confirm the target's durable
+# inbox. A receipt confirms storage, not that the worker has acted on it.
+# Ordinary local steers use the pending-only collapse owned by
+# bin/fm-task-inbox-lib.sh and report whether they queued or reused a record.
+# Pass --again to queue a deliberate local repeat with a new sequence;
+# --again is refused on the typed plane, with --key or --fire-and-forget, and
+# for remote targets. A marked secondmate request embeds a fresh correlation
+# token per request, so separate requests do not collapse; only a
+# FM_PENDING_REPLY_EXISTING_CORR resend reproduces that request's body.
 # The remote enqueue
 # is idempotent: the remote leg deduplicates an exact re-run of the same
 # request onto the existing record (bin/fm-task-inbox-lib.sh), so after a lost
@@ -1050,10 +1042,8 @@ else
       exit 1
     fi
     fm_lock_release "$INBOX_META_LOCK"
-    # Say what was queued. A silent success is what turned one delivered steer
-    # into three: exit 0 with no output read as a dead transport, resent twice.
-    # The collapse above is what makes a duplicate impossible; naming it here is
-    # what makes it visible instead of a steer that quietly went missing.
+    # Report durable storage before the best-effort ring, so a transport
+    # warning cannot obscure the successful enqueue or pending-record reuse.
     case "$INBOX_DISPOSITION" in
       collapsed)
         echo "fm-send: this exact instruction is already queued and unhandled for $INBOX_TASK_ID, so it collapsed onto $INBOX_RECORD rather than queueing a second copy; the worker will act on it once. Pass --again to queue a deliberate repeat." >&2
