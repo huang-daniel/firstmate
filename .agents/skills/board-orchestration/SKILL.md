@@ -171,7 +171,10 @@ That is a judgement they may disagree with, so it is reported rather than filed 
 
 Use GitHub's own sub-issue relationship and nothing else: the board already surfaces `Parent issue` and `Sub-issues progress`, so invent no parallel taxonomy, label scheme, or naming convention to express it.
 
-The container's own card then follows its children with no further action - any child in progress moves it to the big-picture In Progress column, all children done moves it to big-picture Done - and it is silent while it already shows what firstmate recorded.
+The container's own card then follows its children with no further action, and its children are every sub-issue GitHub records under it rather than only the ones `child-add` created.
+A sub-issue anyone attached to the container counts as work whether or not firstmate holds a task for it, so any open child keeps the card out of the big-picture Done column and only every child being finished moves it there; a container part finished and part open shows as big-picture In Progress.
+The card is silent while it already shows what firstmate recorded.
+A cycle that could not read a container's children says so and derives nothing, which is the one case where a quiet card is not a reconciled one.
 
 ## Putting work firstmate already holds on the board
 

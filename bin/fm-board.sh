@@ -207,7 +207,10 @@
 # a `promoted` one is offered until it is closed, because firstmate's own
 # recorded judgement is. `children` is `-`, or a comma-separated list of `task=child-url`
 # pairs; neither half can contain a comma or an `=`, so the pair parses back
-# unambiguously. `desired` and `synced` carry the parent card's status exactly as
+# unambiguously. It records the one thing only firstmate knows - which task it
+# made for which child issue - and is a subset of the container's real children
+# rather than the list of them; PARENT STATUS owns that distinction.
+# `desired` and `synced` carry the parent card's status exactly as
 # the linkage record's own two columns do.
 #
 # PLACEMENT, the inverse of import. `place` puts a task firstmate already holds
@@ -295,15 +298,38 @@
 # -write retry to finish the job on the next cycle.
 #
 # PARENT STATUS. Once a parent has children, `poll` keeps its card honest from
-# their recorded states: any child in progress derives in-progress, all children
-# done derives done, and anything else derives todo. A child recorded in a column
-# firstmate does not drive is left out of that entirely, because a withdrawn
-# child must not hold its parent short of done forever. The derived state moves
-# the card through the three big-picture columns exactly as `mark` moves an
-# ordinary card, is retried on the next cycle when the write does not land, and
-# is reported with the same `synced` and `stale` vocabulary. A parent already
-# showing what firstmate recorded prints nothing at all, and one showing anything
-# firstmate did not write diverges exactly as any other card does.
+# them. Its children are the sub-issues GitHub records under it, read from the
+# parent issue itself on the cycle that needs them; the durable children record
+# is a subset of those and never the answer to who they are. That is the
+# difference between a card that reports the work and one that reports the
+# record: a container whose recorded children had all closed used to derive done
+# with most of its real sub-issues still open, and a poll called it settled
+# because the card and the record agreed with each other. Nothing compared
+# either against GitHub, so a silent cycle was never evidence an umbrella was
+# tracking correctly, which is the property this read restores.
+#
+# Each child contributes the best state anyone holds for it. One firstmate
+# created carries its task's recorded state, because firstmate's own records are
+# the truth for work it drives; a child recorded in a column firstmate does not
+# drive is left out entirely, because a withdrawn child must not hold its parent
+# short of done forever. Every other sub-issue carries the only state GitHub has
+# for it, closed or open, so a child with no firstmate task still counts as
+# work.
+#
+# From those: every child finished derives done and nothing else does, an open
+# child alongside anything in progress or already finished derives in-progress,
+# and a container nothing has started yet derives todo. A read of the children
+# that did not land derives nothing at all and reports an `error` line, because
+# deriving from the recorded subset is the exact wrong answer this read exists to
+# replace; the card keeps showing what it showed before and the next cycle
+# reconciles it.
+#
+# The derived state moves the card through the three big-picture columns exactly
+# as `mark` moves an ordinary card, is retried on the next cycle when the write
+# does not land, and is reported with the same `synced` and `stale` vocabulary. A
+# parent already showing what firstmate recorded prints nothing at all, and one
+# showing anything firstmate did not write diverges exactly as any other card
+# does.
 #
 # FAIL SOFT. Every board write degrades to a stale board instead of blocking
 # delivery: `mark`, `pr`, and `note` exit 0 whether or not the write landed,
@@ -378,7 +404,16 @@
 #
 # Nothing here reads the board to resolve a single card. One reconciliation
 # cycle reads it exactly once, and every write that cycle then makes reuses a
-# card id from that one read. Outside a cycle, `mark`, `import`, and `promote`
+# card id from that one read.
+#
+# The one per-card read a cycle makes is a container's sub-issues, and it is
+# affordable for the reason this whole section turns on: it contains no board
+# read. It is a flat REST read of one issue, made only for a card in the
+# container lane rather than for every card, and a board's containers are its
+# programmes - a small set beside its work items by construction. It is also a
+# different budget: REST requests rather than GraphQL points.
+#
+# Outside a cycle, `mark`, `import`, and `promote`
 # resolve their card from the issue that holds it - GitHub answers a card's id
 # from the issue's own node, so the request is the same size whether the board
 # carries ten cards or a thousand - and `place` and `child-add` read nothing at
@@ -389,9 +424,11 @@
 #
 # Two properties follow, and tests/fm-board.test.sh pins both. Per-card cost is
 # a small constant rather than a function of how many cards the board carries,
-# so a board that grows does not make every write on it dearer. And the number
-# of requests one invocation makes does not change when the board grows, so a
-# board read cannot reappear inside a per-item loop without a test failing.
+# so a board that grows does not make every write on it dearer. And no board
+# read ever reappears inside a per-item loop: growing a board by ordinary work
+# items changes what one invocation costs not at all, and growing it by a
+# container adds exactly that container's one flat read, which the same test
+# counts.
 #
 # BATCHING. One GraphQL document carries the project id, the status field id,
 # and every one of that field's options, which the CLI's `project view` plus
@@ -820,14 +857,6 @@ children_add() {
   printf '%s\n' "${out:+$out,}$task=$url"
 }
 
-# children_tasks <children>: print one child task id per line.
-children_tasks() {
-  local pair
-  while IFS= read -r pair; do
-    printf '%s\n' "${pair%%=*}"
-  done < <(children_pairs "${1:--}")
-}
-
 # --- identifiers ------------------------------------------------------------
 
 # issue_canonical <url>: print the canonical issue URL, or fail.
@@ -972,9 +1001,16 @@ JQ
 #
 # What this read does not carry is an issue's open or closed state: `gh project
 # item-list` answers `content` with body, number, repository, title, type, and
-# url alone. Anything needing that state belongs in this one read - widened here
-# or asked for in GraphQL, which returns it beside the card - and never in a
-# per-card lookup, which is the shape the cost guard exists to refuse.
+# url alone. Anything needing that state for the board's own cards belongs in
+# this one read - widened here or asked for in GraphQL, which returns it beside
+# the card - and never in a per-card lookup, which is the shape the cost guard
+# exists to refuse.
+#
+# A container's children are the one thing this read cannot be widened to carry,
+# because they are not cards: a sub-issue anyone attached to a container need
+# never have been put on the board at all, and PARENT STATUS is wrong the moment
+# it counts only the ones that were. So they are read from the parent issue, one
+# flat read per container card, which COST below bounds.
 board_items() {
   local owner=$1 number=$2 status_field=$3 limit=$4 out=$5
   "$GH" project item-list "$number" --owner "$owner" --limit "$limit" \
@@ -1266,6 +1302,25 @@ issue_parent_has_child() {
   done < "$tmp"
   rm -f "$tmp"
   return "$found"
+}
+
+# issue_sub_issues <parent-issue-url> <outfile>: write one `url<TAB>state` line
+# per sub-issue GitHub records under that parent. Returns non-zero when the read
+# did not land, which is what lets a caller tell "this container has no children"
+# apart from "this container's children could not be read".
+#
+# GitHub's own sub-issue relationship is the whole of a container's membership,
+# so a child anyone attached to the parent issue counts exactly like one
+# `child-add` created. The durable children record stays what it has always
+# been - the binding between a child issue and the task firstmate made for it -
+# and is a subset of what this read returns rather than the answer to who the
+# children are.
+issue_sub_issues() {
+  local parent=$1 out=$2 repo number
+  repo=$(issue_repo "$parent")
+  number=${parent##*/}
+  "$GH" api "repos/$repo/issues/$number/sub_issues" --paginate \
+    --jq '.[] | [.html_url, .state] | @tsv' > "$out" </dev/null || return 1
 }
 
 issue_parent_ensure() {
@@ -2309,8 +2364,9 @@ poll_board() {
 poll_container() {
   local board=$1 id=$2 parent=$3 container=$4 raw=$5 labels=$6
   local project owner number label status_field bp_todo bp_in_progress bp_done
-  local state desired synced children now column task child_state pair
-  local any_in_progress='' any_open='' any_driven=''
+  local state desired synced children now column child_state kids
+  local child_url child_issue
+  local any_in_progress='' any_open='' any_closed='' any_driven=''
 
   project=$(printf '%s' "$board" | cut -f1)
   owner=$(printf '%s' "$board" | cut -f2)
@@ -2353,33 +2409,68 @@ poll_container() {
     fi
   fi
 
-  # The parent's own column follows its children once it has any. A child
-  # recorded in a column firstmate does not drive is left out entirely, so a
-  # withdrawn child cannot hold its parent short of done forever.
-  if [ "$children" != - ]; then
-    while IFS= read -r task; do
-      child_state=todo
-      if links_find task "$task" >/dev/null; then
+  # The parent's own column follows its real children: every sub-issue GitHub
+  # records under it, not the subset firstmate happens to have created. That
+  # distinction is the whole point of reading them here. A container whose
+  # recorded children had all closed used to derive done however many other
+  # sub-issues were still open, because the record it derived from could only
+  # ever hold what `child-add` put there, and nothing compared that record
+  # against GitHub. A card and a record agreeing with each other is not evidence
+  # either matches the work.
+  #
+  # Each child contributes the best state anyone holds for it. One firstmate
+  # created carries its task's recorded state, because firstmate's own records
+  # are the truth for work it drives, and a child recorded in a column firstmate
+  # does not drive is left out entirely, so a withdrawn child cannot hold its
+  # parent short of done forever. Any other sub-issue carries the only state
+  # GitHub has for it: closed is done and open is open. Not having a task is
+  # therefore never mistaken for not being work.
+  #
+  # A read that did not land derives nothing at all and says so. Falling back to
+  # the recorded children would be exactly the wrong answer the honest read
+  # exists to replace, and a container whose state this cycle could not tell is
+  # left showing what it showed before.
+  kids=$(mktemp) || return 0
+  if issue_sub_issues "$parent" "$kids"; then
+    while IFS=$TAB read -r child_url child_issue; do
+      [ -n "$child_url" ] || continue
+      child_url=$(issue_canonical "$child_url") || continue
+      if links_find issue "$child_url" >/dev/null; then
         child_state=$LINK_DESIRED
+      elif [ "$child_issue" = closed ]; then
+        child_state='done'
+      else
+        child_state=todo
       fi
       case "$child_state" in
         in-progress)
           any_driven=1
           any_in_progress=1
           ;;
-        done) any_driven=1 ;;
+        done)
+          any_driven=1
+          any_closed=1
+          ;;
         todo | processed | queued)
           any_driven=1
           any_open=1
           ;;
         *) ;;
       esac
-    done < <(children_tasks "$children")
+    done < "$kids"
+    rm -f "$kids"
     if [ -n "$any_driven" ]; then
-      if [ -n "$any_in_progress" ]; then
+      if [ -n "$any_open" ]; then
+        # Only every child being finished finishes the container. Between those
+        # two ends, a container with some work finished and some still open is
+        # under way, which is the one honest thing its card can say.
+        if [ -n "$any_in_progress" ] || [ -n "$any_closed" ]; then
+          now=in-progress
+        else
+          now=todo
+        fi
+      elif [ -n "$any_in_progress" ]; then
         now=in-progress
-      elif [ -n "$any_open" ]; then
-        now=todo
       else
         now='done'
       fi
@@ -2390,6 +2481,9 @@ poll_container() {
         decomps_put "$project" "$parent" "$state" "$desired" "$synced" "$children"
       fi
     fi
+  else
+    rm -f "$kids"
+    printf 'error %s could not read the children of %s\n' "$project" "$parent"
   fi
 
   # Nothing to reconcile until firstmate has recorded a state for this card,

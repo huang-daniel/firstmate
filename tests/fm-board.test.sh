@@ -219,7 +219,7 @@ case "$kind" in
     fi
     c_next=$(( $(wc -l < "$GH_ISSUES") + 900 ))
     c_url="https://github.com/$c_repo/issues/$c_next"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$c_repo" "$c_url" "$c_title" \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\topen\n' "$c_repo" "$c_url" "$c_title" \
       "$(printf '%s' "$c_body" | tr '\n' ' ')" "$c_labels" "$c_parent" >> "$GH_ISSUES"
     printf '%s\n' "$c_url"
     ;;
@@ -273,7 +273,20 @@ case "$kind" in
             '$2 ~ ("/issues/" id "$") { $6 = p } { print }' "$GH_ISSUES" > "$api_tmp"
           mv "$api_tmp" "$GH_ISSUES"
         else
-          awk -F'\t' -v p="$api_parent" '$6 == p { print $2 }' "$GH_ISSUES"
+          # The real response shape, reduced by the adapter's own filter, for
+          # the same reason the GraphQL stubs do it: the adapter asks this one
+          # path for two different shapes, and a stub that answered the already
+          # reduced form would stand in for both filters rather than run them.
+          {
+            printf '['
+            awk -F'\t' -v p="$api_parent" '
+              $6 == p {
+                if (n++) printf ","
+                printf "{\"html_url\":\"%s\",\"state\":\"%s\"}", $2, ($7 == "" ? "open" : $7)
+              }
+            ' "$GH_ISSUES"
+            printf ']'
+          } | jq -r "$(gh_jq_filter "$@")"
         fi
         ;;
       repos/*/issues/*)
@@ -322,6 +335,28 @@ item() {
   local home=$1
   shift
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$@" >> "$home/items"
+}
+
+# sub_issue <home> <url> <parent> [open|closed]: an issue GitHub records as a
+# sub-issue of that container, which firstmate did not create and holds no task
+# for. This is the case the recorded children can never see, so a fixture that
+# only ever used `child-add` could not show it.
+sub_issue() {
+  local home=$1 url=$2 parent=$3 state=${4:-open} repo
+  repo=${url#https://github.com/}
+  repo=${repo%%/issues/*}
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$repo" "$url" 'Attached on GitHub' '-' '-' "$parent" "$state" >> "$home/issues"
+}
+
+# close_sub_issue <home> <url>: close that issue on GitHub, the only signal a
+# sub-issue firstmate holds no task for ever gives about being finished.
+close_sub_issue() {
+  local tmp
+  tmp=$(mktemp)
+  awk -F'\t' -v OFS='\t' -v u="$2" '$2 == u { $7 = "closed" } { print }' \
+    "$1/issues" > "$tmp"
+  mv "$tmp" "$1/issues"
 }
 
 # fields <home> [--name <field-name>] <field-id> <option-id:option-name>...
@@ -1600,6 +1635,163 @@ test_a_container_card_follows_its_children() {
   pass "a container card follows its children's recorded states, and is silent once it matches"
 }
 
+# THE DEFECT THIS PINS. A container's card used to be derived from the children
+# firstmate had recorded, which only ever holds what `child-add` put there. A
+# programme whose sub-issues someone added on GitHub therefore derived done the
+# moment the handful firstmate created had closed, and moved to the big-picture
+# done column with most of its real work still open. A poll of that board
+# reported everything settled and printed nothing, because the card and the
+# record agreed with each other; the disagreement was between the record and
+# GitHub, and nothing compared those. So the assertion that matters most here is
+# the silent one: a clean cycle has to stop being compatible with an umbrella
+# that is wrong.
+test_a_container_follows_every_sub_issue_github_records() {
+  local home parent recorded out
+  home=$(new_home a_container_follows_every_sub_issue_github_records)
+  big_picture_board "$home"
+  parent=https://github.com/harbour-collective/app/issues/270
+  item "$home" PVTI_p Issue "$parent" 'Big Picture Todo' firstmate - 'Rebuild the harbour' -
+
+  # One piece firstmate created and holds a task for, and four more attached to
+  # the container on GitHub by someone else. The record can only ever see the
+  # first of them.
+  out=$(board "$home" child-add harbourlight "$parent" 'Piece one' 'body' fm-recorded)
+  recorded=$(printf '%s' "$out" | cut -d" " -f4)
+  sub_issue "$home" https://github.com/harbour-collective/app/issues/271 "$parent" closed
+  sub_issue "$home" https://github.com/harbour-collective/app/issues/272 "$parent" closed
+  sub_issue "$home" https://github.com/harbour-collective/app/issues/273 "$parent" open
+  sub_issue "$home" https://github.com/harbour-collective/app/issues/274 "$parent" open
+  board "$home" decomposed harbourlight "$parent" >/dev/null
+
+  assert_contains "$(board "$home" decompositions)" "fm-recorded=$recorded" \
+    "the recorded children stopped holding the child-to-task binding"
+  assert_not_contains "$(board "$home" decompositions)" 'issues/273' \
+    "the fixture recorded a child firstmate never created, so it proves nothing"
+
+  # Every child firstmate recorded is finished. Under the old derivation that was
+  # the whole of the answer and the container moved to done.
+  board "$home" mark fm-recorded 'done' >/dev/null
+  : > "$home/gh.log"
+  out=$(board "$home" poll)
+  assert_not_contains "$out" "$parent - done" \
+    "a container with four open sub-issues was finished by its recorded children alone"
+  assert_not_contains "$(gh_log "$home")" '--single-select-option-id opt_bpdone' \
+    "the card was moved to the container Done column with work still open"
+  assert_contains "$out" "synced harbourlight $parent - in-progress" \
+    "a container part finished and part open did not report itself under way"
+  assert_contains "$(gh_log "$home")" '--single-select-option-id opt_bpprog' \
+    "the card was not moved to this board's own container In Progress column"
+
+  # Finishing the sub-issues firstmate holds no task for is what finishes the
+  # container, which is the other half of counting them at all.
+  close_sub_issue "$home" https://github.com/harbour-collective/app/issues/273
+  : > "$home/gh.log"
+  out=$(board "$home" poll)
+  assert_not_contains "$out" "$parent - done" \
+    "one of two remaining children closing already finished the container"
+  assert_not_contains "$(gh_log "$home")" 'item-edit' \
+    "a container already showing under way was written to the board again"
+  close_sub_issue "$home" https://github.com/harbour-collective/app/issues/274
+  out=$(board "$home" poll)
+  assert_contains "$out" "synced harbourlight $parent - done" \
+    "every child being closed did not finish the container"
+  out=$(board "$home" poll)
+  assert_not_contains "$out" "$parent" "a settled container kept reporting"
+  pass "a container is finished by every sub-issue GitHub records under it, not by the ones firstmate created"
+}
+
+test_a_container_with_no_sub_issues_derives_nothing() {
+  local home parent out
+  home=$(new_home a_container_with_no_sub_issues_derives_nothing)
+  big_picture_board "$home"
+  parent=https://github.com/harbour-collective/app/issues/280
+  item "$home" PVTI_p Issue "$parent" 'Big Picture Todo' firstmate - 'Nothing under it yet' -
+  board "$home" decomposed harbourlight "$parent" >/dev/null
+
+  : > "$home/gh.log"
+  out=$(board "$home" poll)
+  assert_not_contains "$out" "synced harbourlight $parent" \
+    "a container with no children was given a derived state"
+  assert_not_contains "$(gh_log "$home")" 'item-edit' \
+    "a container with no children was written to the board"
+  # Emphatically not done: having nothing under it is not having finished.
+  assert_not_contains "$out" 'done' "a container with no children was reported finished"
+  pass "a container with no sub-issues derives no state at all, exactly as before"
+}
+
+# A read that did not land must not fall back to the recorded children, because
+# that subset is the wrong answer this read exists to replace: falling back is
+# how a container reports done while its real work is open.
+test_children_that_cannot_be_read_derive_nothing_and_say_so() {
+  local home parent out
+  home=$(new_home children_that_cannot_be_read_derive_nothing_and_say_so)
+  big_picture_board "$home"
+  parent=https://github.com/harbour-collective/app/issues/290
+  item "$home" PVTI_p Issue "$parent" 'Big Picture Todo' firstmate - 'Rebuild the harbour' -
+  board "$home" child-add harbourlight "$parent" 'Piece one' 'body' fm-recorded >/dev/null
+  sub_issue "$home" https://github.com/harbour-collective/app/issues/291 "$parent" open
+  board "$home" decomposed harbourlight "$parent" >/dev/null
+  board "$home" mark fm-recorded 'done' >/dev/null
+
+  : > "$home/gh.log"
+  out=$(GH_FAIL='api repos/*sub_issues' board "$home" poll)
+  assert_contains "$out" "error harbourlight could not read the children of $parent" \
+    "a container whose children could not be read said nothing about it"
+  assert_not_contains "$out" "$parent - done" \
+    "an unreadable read fell back to the recorded children and finished the container"
+  assert_not_contains "$(gh_log "$home")" 'item-edit' \
+    "a container whose state could not be told was still written to the board"
+
+  # The next cycle reads them and reconciles, so nothing is lost by declining.
+  out=$(board "$home" poll)
+  assert_contains "$out" "synced harbourlight $parent - in-progress" \
+    "the cycle after a failed children read did not reconcile the container"
+  pass "children that cannot be read derive nothing, report it, and are reconciled next cycle"
+}
+
+# The cost guard's own reasoning applied to the one per-card read in this file.
+# What makes it affordable is not that it is free but that it contains no board
+# read, and that only a card in the container lane pays it.
+test_a_container_costs_one_flat_read_and_never_a_board_read() {
+  local home parent i out containers
+  home=$(new_home a_container_costs_one_flat_read_and_never_a_board_read)
+  big_picture_board "$home"
+  parent=https://github.com/harbour-collective/app/issues/300
+  item "$home" PVTI_p Issue "$parent" 'Big Picture Todo' firstmate - 'Rebuild the harbour' -
+  board "$home" decomposed harbourlight "$parent" >/dev/null
+  # Forty ordinary cards beside it, each imported, moved, and confirmed.
+  i=1
+  while [ "$i" -le 40 ]; do
+    item "$home" "PVTI_c$i" Issue "https://github.com/harbour-collective/app/issues/$((7000 + i))" \
+      Todo firstmate - "Card $i" -
+    board "$home" import harbourlight "https://github.com/harbour-collective/app/issues/$((7000 + i))" "fm-card-$i" >/dev/null
+    board "$home" mark "fm-card-$i" in-progress >/dev/null
+    i=$((i + 1))
+  done
+
+  : > "$home/calls"
+  out=$(board "$home" poll)
+  containers=$(grep -c 'sub_issues' "$home/calls" || true)
+  [ "$containers" = 1 ] || fail \
+    "a cycle over one container and forty ordinary cards read sub-issues $containers times"
+  [ "$(gh_calls "$home")" = 2 ] || fail \
+    "a settled cycle with one container cost more than its board read and that container's children: $(cat "$home/calls")"
+  [ "$(gh_calls_of "$home" 'project item-list')" = 1 ] || fail \
+    "reading a container's children read the board"
+
+  # A second container costs one more flat read, and the ordinary cards cost none.
+  item "$home" PVTI_q Issue https://github.com/harbour-collective/app/issues/301 \
+    'Big Picture Todo' firstmate - 'Another programme' -
+  board "$home" decomposed harbourlight https://github.com/harbour-collective/app/issues/301 >/dev/null
+  : > "$home/calls"
+  board "$home" poll >/dev/null
+  [ "$(grep -c 'sub_issues' "$home/calls" || true)" = 2 ] || fail \
+    "two containers did not cost exactly two flat reads: $(cat "$home/calls")"
+  [ "$(gh_calls "$home")" = 3 ] || fail \
+    "the cycle cost more than its board read and one read per container: $(cat "$home/calls")"
+  pass "a container's children cost one flat read per container, never a board read, and ordinary cards pay nothing"
+}
+
 test_an_outstanding_container_move_is_retried_on_the_next_cycle() {
   local home parent out
   home=$(new_home an_outstanding_container_move_is_retried_on_the_next_cycle)
@@ -2289,6 +2481,10 @@ test_a_container_is_never_offered_twice_once_decomposed
 test_a_child_is_created_linked_and_never_re_imported
 test_child_add_converges_instead_of_filing_a_second_issue
 test_a_container_card_follows_its_children
+test_a_container_follows_every_sub_issue_github_records
+test_a_container_with_no_sub_issues_derives_nothing
+test_children_that_cannot_be_read_derive_nothing_and_say_so
+test_a_container_costs_one_flat_read_and_never_a_board_read
 test_an_outstanding_container_move_is_retried_on_the_next_cycle
 test_place_is_the_inverse_of_import
 test_place_says_where_the_change_actually_lands
