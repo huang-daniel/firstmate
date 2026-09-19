@@ -327,8 +327,7 @@ test_idempotent_write_follows_concurrent_ack() {
       candidate=$1
       case "$candidate" in
         */handled/*) ;;
-        *) mv "$candidate" "${candidate%/*}/handled/" || return 1
-           candidate="${candidate%/*}/handled/${candidate##*/}" ;;
+        *) mv "$candidate" "${candidate%/*}/handled/" || return 1 ;;
       esac
       _original_fm_task_inbox_body "$candidate"
     }

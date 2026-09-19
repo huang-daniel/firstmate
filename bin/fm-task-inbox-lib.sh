@@ -232,7 +232,16 @@ _fm_task_inbox_find_match_locked() {  # <inbox-dir> <text> <delivery-mode> <scop
     elif fm_task_inbox_is_fire_and_forget "$cand"; then
       continue
     fi
-    fm_task_inbox_body "$cand" > "$have" 2>/dev/null || continue
+    if ! fm_task_inbox_body "$cand" > "$have" 2>/dev/null; then
+      [ "$scope" = any ] || continue
+      case "$cand" in
+        "$dir/handled"/*) continue ;;
+        *)
+          cand="$dir/handled/${cand##*/}"
+          fm_task_inbox_body "$cand" > "$have" 2>/dev/null || continue
+          ;;
+      esac
+    fi
     cmp -s "$want" "$have" || continue
     if [ "$scope" = any ]; then
       [ ! -e "$dir/handled/${cand##*/}" ] || cand="$dir/handled/${cand##*/}"
