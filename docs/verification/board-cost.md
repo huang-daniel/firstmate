@@ -40,6 +40,11 @@ The last two are what it uses now, so the same event spends 2 before the same wr
 The write's own cost is not measured here, because no write was made against the real board at all.
 `poll` still makes one `project item-list` per configured board per cycle, which is the one whole-board read the design keeps.
 
+## The one per-card read, and why it is outside this budget
+
+The COST section of [`bin/fm-board.sh`](../../bin/fm-board.sh) owns the container read budget, which uses REST rather than the GraphQL calls measured here.
+`test_a_container_costs_one_flat_read_and_never_a_board_read` in [`tests/fm-board.test.sh`](../../tests/fm-board.test.sh) checks CLI invocation counts with a stub; it does not measure live HTTP pagination or rate-limit consumption.
+
 ## The targeted lookup returns the same card the board read does
 
 The board read and the flat lookup were run against the same issue and agree:

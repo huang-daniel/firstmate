@@ -171,7 +171,7 @@ That is a judgement they may disagree with, so it is reported rather than filed 
 
 Use GitHub's own sub-issue relationship and nothing else: the board already surfaces `Parent issue` and `Sub-issues progress`, so invent no parallel taxonomy, label scheme, or naming convention to express it.
 
-The container's own card then follows its children with no further action - any child in progress moves it to the big-picture In Progress column, all children done moves it to big-picture Done - and it is silent while it already shows what firstmate recorded.
+Container reconciliation follows the PARENT STATUS contract in [`bin/fm-board.sh`](../../../bin/fm-board.sh); a failed child read must be surfaced rather than treated as a settled card.
 
 ## Putting work firstmate already holds on the board
 

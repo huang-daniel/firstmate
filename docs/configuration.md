@@ -213,7 +213,7 @@ It makes that call while reading the card and before the card is tied to any one
 So a card is either taken in as one task or promoted to a container, never one and then the other.
 
 A container never becomes a task itself, and is only ever broken down once.
-Its own card then follows its children: any child in progress moves it to the big-picture In Progress column, and all children done moves it to big-picture Done.
+Its card tracks all GitHub sub-issues, including externally attached work; the PARENT STATUS contract in [`bin/fm-board.sh`](../bin/fm-board.sh) defines how child states determine its big-picture column and how failed reads prevent stale updates.
 
 Creating those child cards is unattended; running them is not.
 Children are captain-gated exactly like any other work that arrived from a board.
