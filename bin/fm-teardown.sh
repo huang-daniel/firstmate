@@ -66,7 +66,7 @@
 # bin/fm-pr-merge.sh requires, so removing it after a refused merge leaves a
 # healthy pull request unmergeable through the protected path. An unreadable
 # forge, a missing forge CLI, and a head disagreeing with the recorded pr_head
-# are all unknown, and unknown refuses; only --force skips it.
+# are all unknown, and unknown refuses even under --force.
 # local-only projects additionally accept work merged into the local default
 # branch (firstmate performs that merge after configured approval) as a fallback
 # for the common case where there is no remote at all.
@@ -159,8 +159,8 @@
 # never left leased forever. If the treehouse return fails, teardown leaves the
 # leased home and state in place instead of hiding a still-held lease.
 # Usage: fm-teardown.sh <task-id> [--force] [--legacy-record]
-#   --force skips ordinary-task dirty, landed-work, and recorded-PR merge
-#   checks, skips scout report checks, and discards secondmate child work for
+#   --force skips ordinary-task dirty and landed-work checks,
+#   skips scout report checks, and discards secondmate child work for
 #   kind=secondmate. Only use it when the captain has explicitly said to discard
 #   the work.
 #   --legacy-record accepts a task record that predates the spawn_gen field:
@@ -1423,6 +1423,14 @@ PR_MERGE_VERIFY_READ=
 recorded_pr_merge_verified() {  # <pr-url> <recorded-head>
   local url=$1 recorded_head=$2 view state head raw
   PR_MERGE_VERIFY_READ=
+  if [ -z "$recorded_head" ]; then
+    PR_MERGE_VERIFY_READ="no expected head is recorded for this task; bind its head with bin/fm-pr-check.sh"
+    return 1
+  fi
+  if ! fm_pr_head_valid "$recorded_head"; then
+    PR_MERGE_VERIFY_READ="the expected head recorded for this task is invalid"
+    return 1
+  fi
   if ! fm_pr_url_parse "$url"; then
     PR_MERGE_VERIFY_READ="$url is not a canonical GitHub pull request or GitLab merge request URL, so its merge state cannot be read"
     return 1
@@ -1461,39 +1469,15 @@ recorded_pr_merge_verified() {  # <pr-url> <recorded-head>
       # A rebase or a later push moves the head, so a merge at some other head
       # is not the merge this record expects. bin/fm-pr-check.sh re-reads and
       # re-records the head, which is the ordinary way to settle a disagreement.
-      if [ -n "$recorded_head" ] && [ "$recorded_head" != "$head" ]; then
+      if [ "$recorded_head" != "$head" ]; then
         PR_MERGE_VERIFY_READ="GitHub reports $FM_PR_URL merged at head $head, not at the expected head $recorded_head"
         return 1
       fi
       PR_MERGE_VERIFY_READ="GitHub reports $FM_PR_URL merged at head $head"
       return 0 ;;
     gitlab)
-      if ! command -v glab >/dev/null 2>&1; then
-        PR_MERGE_VERIFY_READ="glab is not on PATH, so GitLab could not be asked about $FM_PR_URL"
-        return 1
-      fi
-      # glab resolves the instance from the project URL passed to -R, matching
-      # bin/fm-pr-poll.sh, so the host comes from the validated record rather
-      # than glab's configured default, and no JSON processor is required.
-      # Only glab's own output is parsed, never its diagnostics, so no message
-      # on the error stream can present itself to this gate as a state line.
-      if ! raw=$(glab mr view "$FM_PR_NUMBER" -R "https://$FM_PR_HOST/$FM_PR_PATH" 2>/dev/null); then
-        PR_MERGE_VERIFY_READ="GitLab could not be read for $FM_PR_URL"
-        return 1
-      fi
-      state=$(printf '%s\n' "$raw" | sed -n 's/^state:[[:space:]]*//p' | head -1)
-      if [ "$state" != merged ]; then
-        PR_MERGE_VERIFY_READ="GitLab reports $FM_PR_URL as state=${state:-unreadable}, not merged"
-        return 1
-      fi
-      # bin/fm-pr-check.sh records no pr_head for GitLab, so a head recorded on
-      # a GitLab task is one this read cannot check against - unknown, not proof.
-      if [ -n "$recorded_head" ]; then
-        PR_MERGE_VERIFY_READ="GitLab reports $FM_PR_URL merged, but the expected head $recorded_head cannot be re-read from this merge request"
-        return 1
-      fi
-      PR_MERGE_VERIFY_READ="GitLab reports $FM_PR_URL merged"
-      return 0 ;;
+      PR_MERGE_VERIFY_READ="the GitLab forge read cannot verify the expected head $recorded_head"
+      return 1 ;;
   esac
   PR_MERGE_VERIFY_READ="$url names no forge this teardown can read a merge from"
   return 1
@@ -3283,15 +3267,14 @@ fi
 # independently of whether the worktree looks safe to discard: a pushed branch
 # proves nothing about the merge. The carve-out matches the landed-work gate's -
 # a secondmate is no backlog item and a scout's deliverable is its report, and
-# neither records a pr=. --force remains the one escape hatch, on the same
-# explicit-discard authority it already carries.
-if [ "$FORCE" != "--force" ] && [ -n "$PR_URL" ] \
+# neither records a pr=.
+if [ -n "$PR_URL" ] \
     && [ "$KIND" != secondmate ] && [ "$KIND" != scout ]; then
   if ! recorded_pr_merge_verified "$PR_URL" "$PR_HEAD_RECORDED"; then
     echo "REFUSED: task $ID records $PR_URL, whose merge could not be verified at cleanup time." >&2
-    printf 'read from the forge: %s\n' "$PR_MERGE_VERIFY_READ" >&2
+    printf 'merge verification: %s\n' "$PR_MERGE_VERIFY_READ" >&2
     echo "Cleanup removes the record bin/fm-pr-merge.sh needs, so it would leave an unmerged pull request unmergeable through that path." >&2
-    echo "Merge it with bin/fm-pr-merge.sh, re-record its head with bin/fm-pr-check.sh $ID $PR_URL, or get the captain's explicit OK to discard, then --force." >&2
+    echo "Establish the expected head with bin/fm-pr-check.sh $ID $PR_URL when missing; investigate any head disagreement and verify the merge with bin/fm-pr-merge.sh before retrying." >&2
     exit 1
   fi
 fi

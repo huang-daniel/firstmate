@@ -2714,7 +2714,7 @@ test_retained_row_artifacts_survive_captain_answers() {
   fm_write_meta "$home/state/$approved_id.meta" \
     "window=firstmate:fm-$approved_id" "endpoint_task_id=$approved_id" "worktree=$wt" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
-    "pr=$approved_pr" "spawn_gen=fixture-$approved_id"
+    "pr=$approved_pr" "pr_head=1111111111111111111111111111111111111111" "spawn_gen=fixture-$approved_id"
   printf 'done: PR %s merged\n' "$approved_pr" > "$home/state/$approved_id.status"
   run_captain "$home" hold "$approved_id" --reason "captain merge approval pending" \
     >/dev/null || fail "could not hold the approved merge"
@@ -3168,7 +3168,7 @@ test_merge_approval_releases_before_zero_done_retention() {
   fm_write_meta "$home/state/$id.meta" \
     "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$wt" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
-    "pr=$pr" "spawn_gen=fixture-$id"
+    "pr=$pr" "pr_head=1111111111111111111111111111111111111111" "spawn_gen=fixture-$id"
   printf 'done: merge ready\n' > "$home/state/$id.status"
   run_captain "$home" hold "$id" --reason "captain merge approval pending" >/dev/null \
     || fail "could not hold the zero-retention merge"
@@ -3210,7 +3210,7 @@ test_pr_merge_entrypoint_refuses_a_captain_held_task() {
   fm_write_meta "$home/state/$pr_id.meta" \
     "window=firstmate:fm-$pr_id" "endpoint_task_id=$pr_id" "worktree=$wt" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
-    "pr=$pr" "spawn_gen=fixture-$pr_id"
+    "pr=$pr" "pr_head=1111111111111111111111111111111111111111" "spawn_gen=fixture-$pr_id"
   run_captain "$home" hold "$pr_id" --reason "captain merge approval pending" >/dev/null \
     || fail "could not hold the PR entrypoint fixture"
 
@@ -3790,7 +3790,7 @@ test_released_merge_passes_the_entrypoint_and_lands() {
   fm_write_meta "$home/state/$id.meta" \
     "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$wt" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
-    "pr=$pr" "spawn_gen=fixture-$id"
+    "pr=$pr" "pr_head=1111111111111111111111111111111111111111" "spawn_gen=fixture-$id"
   printf 'done: merge ready\n' > "$home/state/$id.status"
   run_captain "$home" hold "$id" --reason "captain merge approval pending" >/dev/null \
     || fail "could not hold the released merge fixture"
