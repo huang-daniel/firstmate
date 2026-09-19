@@ -42,10 +42,8 @@ The write's own cost is not measured here, because no write was made against the
 
 ## The one per-card read, and why it is outside this budget
 
-A container card's own state is derived from the sub-issues GitHub records under its parent issue, read with `gh api repos/OWNER/REPO/issues/NUMBER/sub_issues`.
-That is REST rather than GraphQL, so it is charged against the 5,000-requests-an-hour core limit and spends none of the 5,000 GraphQL points this record's figures protect.
-Its point cost is therefore not measured here; what bounds it instead is that only a card in the container lane makes it, one read per container per cycle, and that the read contains no board read.
-`tests/fm-board.test.sh` pins both properties against the stub, and that guard was proven by making the adapter read one container's children twice and confirming it turns the suite red.
+The COST section of [`bin/fm-board.sh`](../../bin/fm-board.sh) owns the container read budget, which uses REST rather than the GraphQL calls measured here.
+`test_a_container_costs_one_flat_read_and_never_a_board_read` in [`tests/fm-board.test.sh`](../../tests/fm-board.test.sh) checks CLI invocation counts with a stub; it does not measure live HTTP pagination or rate-limit consumption.
 
 ## The targeted lookup returns the same card the board read does
 

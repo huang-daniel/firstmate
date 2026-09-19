@@ -297,39 +297,28 @@
 # unconfirmed until the column write lands, which leaves the ordinary outstanding
 # -write retry to finish the job on the next cycle.
 #
-# PARENT STATUS. Once a parent has children, `poll` keeps its card honest from
-# them. Its children are the sub-issues GitHub records under it, read from the
-# parent issue itself on the cycle that needs them; the durable children record
-# is a subset of those and never the answer to who they are. That is the
-# difference between a card that reports the work and one that reports the
-# record: a container whose recorded children had all closed used to derive done
-# with most of its real sub-issues still open, and a poll called it settled
-# because the card and the record agreed with each other. Nothing compared
-# either against GitHub, so a silent cycle was never evidence an umbrella was
-# tracking correctly, which is the property this read restores.
+# PARENT STATUS. `poll` derives a container's state from every sub-issue GitHub
+# currently records under its parent issue, including children absent from the
+# board or the durable decomposition record. That record binds tasks to children;
+# using it as membership would allow unrecorded open work to disappear.
 #
-# Each child contributes the best state anyone holds for it. One firstmate
-# created carries its task's recorded state, because firstmate's own records are
-# the truth for work it drives; a child recorded in a column firstmate does not
-# drive is left out entirely, because a withdrawn child must not hold its parent
-# short of done forever. Every other sub-issue carries the only state GitHub has
-# for it, closed or open, so a child with no firstmate task still counts as
-# work.
+# A child with an issue-to-task link contributes LINK_DESIRED, regardless of who
+# created it. Linked states outside todo/processed/queued, in-progress, and done
+# are excluded, so withdrawn work does not prevent completion. An unlinked child
+# contributes done when GitHub says closed, otherwise todo.
 #
-# From those: every child finished derives done and nothing else does, an open
-# child alongside anything in progress or already finished derives in-progress,
-# and a container nothing has started yet derives todo. A read of the children
-# that did not land derives nothing at all and reports an `error` line, because
-# deriving from the recorded subset is the exact wrong answer this read exists to
-# replace; the card keeps showing what it showed before and the next cycle
-# reconciles it.
+# Among contributing children, any in-progress child or a mixture of open and
+# done children derives in-progress; all done derives done; otherwise derive todo.
+# No contributing children derives no new state, leaving any saved desired state
+# unchanged. A failed sub-issue read reports an `error` and returns before any
+# reconciliation, including retries of saved desired states: stale evidence must
+# never finish a container. There is no fallback to the recorded subset.
 #
-# The derived state moves the card through the three big-picture columns exactly
-# as `mark` moves an ordinary card, is retried on the next cycle when the write
-# does not land, and is reported with the same `synced` and `stale` vocabulary. A
-# parent already showing what firstmate recorded prints nothing at all, and one
-# showing anything firstmate did not write diverges exactly as any other card
-# does.
+# Derived states move the card through the big-picture columns using the same
+# outstanding-write and divergence rules as ordinary cards. Failed writes report
+# `stale` and retry after a successful read on a later cycle; successful writes
+# report `synced`. A matching card is silent; a card showing a state firstmate
+# did not write reports divergence. Regression coverage: tests/fm-board.test.sh.
 #
 # FAIL SOFT. Every board write degrades to a stale board instead of blocking
 # delivery: `mark`, `pr`, and `note` exit 0 whether or not the write landed,
@@ -427,8 +416,8 @@
 # so a board that grows does not make every write on it dearer. And no board
 # read ever reappears inside a per-item loop: growing a board by ordinary work
 # items changes what one invocation costs not at all, and growing it by a
-# container adds exactly that container's one flat read, which the same test
-# counts.
+# container adds one paginated REST invocation, which the same test counts.
+# Pagination may make multiple HTTP requests; no page reads the board.
 #
 # BATCHING. One GraphQL document carries the project id, the status field id,
 # and every one of that field's options, which the CLI's `project view` plus
@@ -1010,7 +999,7 @@ JQ
 # because they are not cards: a sub-issue anyone attached to a container need
 # never have been put on the board at all, and PARENT STATUS is wrong the moment
 # it counts only the ones that were. So they are read from the parent issue, one
-# flat read per container card, which COST below bounds.
+# flat read per container card, which COST above bounds.
 board_items() {
   local owner=$1 number=$2 status_field=$3 limit=$4 out=$5
   "$GH" project item-list "$number" --owner "$owner" --limit "$limit" \
@@ -1309,12 +1298,7 @@ issue_parent_has_child() {
 # did not land, which is what lets a caller tell "this container has no children"
 # apart from "this container's children could not be read".
 #
-# GitHub's own sub-issue relationship is the whole of a container's membership,
-# so a child anyone attached to the parent issue counts exactly like one
-# `child-add` created. The durable children record stays what it has always
-# been - the binding between a child issue and the task firstmate made for it -
-# and is a subset of what this read returns rather than the answer to who the
-# children are.
+# Membership and state authority are defined in PARENT STATUS above.
 issue_sub_issues() {
   local parent=$1 out=$2 repo number
   repo=$(issue_repo "$parent")
@@ -2356,7 +2340,7 @@ poll_board() {
 
 # poll_container <board-row> <card-id> <parent-issue> <container-state> <raw-status> <labels>
 # A container is offered for decomposition until it is recorded as decomposed,
-# and once it has children its own card follows their recorded states. A parent
+# and its card is reconciled under PARENT STATUS above. A parent
 # whose card already shows what firstmate recorded prints nothing at all, so a
 # reconciled board stays silent. The container state is `-` for a card sitting
 # outside the container lane, which is what a promoted container looks like
@@ -2409,27 +2393,7 @@ poll_container() {
     fi
   fi
 
-  # The parent's own column follows its real children: every sub-issue GitHub
-  # records under it, not the subset firstmate happens to have created. That
-  # distinction is the whole point of reading them here. A container whose
-  # recorded children had all closed used to derive done however many other
-  # sub-issues were still open, because the record it derived from could only
-  # ever hold what `child-add` put there, and nothing compared that record
-  # against GitHub. A card and a record agreeing with each other is not evidence
-  # either matches the work.
-  #
-  # Each child contributes the best state anyone holds for it. One firstmate
-  # created carries its task's recorded state, because firstmate's own records
-  # are the truth for work it drives, and a child recorded in a column firstmate
-  # does not drive is left out entirely, so a withdrawn child cannot hold its
-  # parent short of done forever. Any other sub-issue carries the only state
-  # GitHub has for it: closed is done and open is open. Not having a task is
-  # therefore never mistaken for not being work.
-  #
-  # A read that did not land derives nothing at all and says so. Falling back to
-  # the recorded children would be exactly the wrong answer the honest read
-  # exists to replace, and a container whose state this cycle could not tell is
-  # left showing what it showed before.
+  # Apply PARENT STATUS above; membership must come from this cycle's read.
   kids=$(mktemp) || return 0
   if issue_sub_issues "$parent" "$kids"; then
     while IFS=$TAB read -r child_url child_issue; do
