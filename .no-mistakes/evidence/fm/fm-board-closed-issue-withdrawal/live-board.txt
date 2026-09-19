@@ -1,0 +1,18 @@
+Setup: real GitHub board; isolated local links in todo, in-progress, done; no remote mutations permitted.
+$ fm-board.sh poll
+closed live-check https://github.com/overheadautomationsolutions/overhead-automation-solutions/issues/299 test-todo todo
+closed live-check https://github.com/overheadautomationsolutions/overhead-automation-solutions/issues/321 test-in-progress in-progress
+$ fm-board.sh poll (repeat)
+closed live-check https://github.com/overheadautomationsolutions/overhead-automation-solutions/issues/299 test-todo todo
+closed live-check https://github.com/overheadautomationsolutions/overhead-automation-solutions/issues/321 test-in-progress in-progress
+$ fm-board.sh ack test-todo
+acknowledged live-check https://github.com/overheadautomationsolutions/overhead-automation-solutions/issues/299 test-todo
+$ fm-board.sh ack test-in-progress
+acknowledged live-check https://github.com/overheadautomationsolutions/overhead-automation-solutions/issues/321 test-in-progress
+$ fm-board.sh poll (after ack; expected empty)
+$ fm-board.sh links
+live-check	https://github.com/overheadautomationsolutions/overhead-automation-solutions/issues/317	test-done	done	done	-	-	-	-
+live-check	https://github.com/overheadautomationsolutions/overhead-automation-solutions/issues/299	test-todo	other	other	-	-	-	-
+live-check	https://github.com/overheadautomationsolutions/overhead-automation-solutions/issues/321	test-in-progress	other	other	-	-	-	-
+$ fm-board.sh poll --limit 2
+truncated live-check 2
