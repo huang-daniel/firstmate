@@ -246,7 +246,8 @@ Attaching a piece of work to a lane as a GitHub sub-issue would make that work a
 File its work as ordinary tasks instead.
 
 A lane sitting open, cycle after cycle, produces no record at all - that is a settled charter, not something to reconcile.
-The only thing reported about one is a card someone moved out of the lane column, which is an ordinary divergence and gets the ordinary answer: report it, change nothing, and put the card right once the captain has decided.
+The only thing reported about one is a card someone moved out of the lane column, which is an ordinary divergence and gets the ordinary answer: report it, change nothing, and re-run `lane` to restore the card once the captain has decided.
+The adapter header's PERSISTENT LANES contract owns the repair write and retry mechanics.
 
 ### Reversing one
 

@@ -2961,6 +2961,29 @@ test_a_lane_sitting_open_forever_is_settled_not_divergent() {
   out=$(board "$home" poll)
   assert_contains "$out" "divergence harbourlight $charter - lane done Done" \
     "a lane card the captain moved was not reported"
+  out=$(board "$home" lane harbourlight "$charter")
+  assert_contains "$out" "lane harbourlight $charter" "the explicit repair was not reported"
+  assert_equals 'Lanes' \
+    "$(awk -F'\t' -v u="$charter" '$3 == u { print $4 }' "$home/items")" "the explicit repair did not restore the lane column"
+  out=$(board "$home" poll)
+  [ -z "$out" ] || fail "a repaired lane kept reporting divergence: $out"
+
+  tmp=$(mktemp)
+  awk -F'\t' -v OFS='\t' -v u="$charter" '$3 == u { $4 = "Done" } { print }' \
+    "$home/items" > "$tmp"
+  mv "$tmp" "$home/items"
+  out=$(GH_FAIL='graphql card' board "$home" lane harbourlight "$charter" 2>/dev/null)
+  assert_contains "$out" "lane-partial harbourlight $charter" \
+    "a failed repair was not reported as outstanding"
+  assert_contains "$(board "$home" lanes)" "harbourlight	$charter	-" \
+    "a failed repair lost its durable retry state"
+  out=$(board "$home" poll)
+  assert_contains "$out" "synced harbourlight $charter - lane" \
+    "poll did not retry the failed explicit repair"
+  assert_equals 'Lanes' \
+    "$(awk -F'\t' -v u="$charter" '$3 == u { print $4 }' "$home/items")" "the repair retry did not restore the lane column"
+  out=$(board "$home" poll)
+  [ -z "$out" ] || fail "a retried lane repair kept reporting: $out"
   pass "a lane sitting open forever is settled, and only a card someone else moved is reported"
 }
 

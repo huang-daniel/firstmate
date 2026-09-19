@@ -296,6 +296,9 @@
 # lane column and `-` while that write is still outstanding. There is no
 # `desired` column because a lane has exactly one board state, so there would be
 # nothing for one to vary.
+# An explicit `lane` call reapplies the configured column even for an existing
+# record, setting `synced` to `-` before the write so failure remains retryable.
+# It reports `lane` on success or `lane-partial` while the write is outstanding.
 #
 # The `lane` key names that column and is the whole on switch, defaulting to
 # unset in the same shape as every other optional key here. With it unset no card
@@ -2795,7 +2798,7 @@ UNLANE_USAGE='usage: fm-board.sh unlane <project> <issue-url>'
 # promises holds from that instant even when the move does not land; the move is
 # then an ordinary outstanding write that `poll` retries.
 cmd_lane() {
-  local project='' raw='' board owner number repo status_field lane_col issue synced
+  local project='' raw='' board owner number repo status_field lane_col issue
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -2832,15 +2835,9 @@ cmd_lane() {
   if links_find issue "$issue" >/dev/null; then
     die "$issue is already linked to task $LINK_TASK, so it is ordinary work rather than a standing lane" 3
   fi
-  synced=-
   if lanes_find "$issue" >/dev/null; then
     [ "$LANE_PROJECT" = "$project" ] \
       || die "$issue is already a persistent lane under project $LANE_PROJECT" 3
-    if [ "$LANE_SYNCED" = lane ]; then
-      printf 'already-lane %s %s\n' "$project" "$issue"
-      return 0
-    fi
-    synced=$LANE_SYNCED
   elif decomps_find "$issue" >/dev/null; then
     # A breakdown that really happened is not something a later classification
     # may deny, so only a container nothing has been spent on is reclassified.
@@ -2853,7 +2850,7 @@ cmd_lane() {
     decomps_drop "$issue"
   fi
 
-  lanes_put "$project" "$issue" "$synced"
+  lanes_put "$project" "$issue" -
   if board_set_status "$owner" "$number" "$status_field" "$issue" "$lane_col"; then
     lanes_put "$project" "$issue" lane
     printf 'lane %s %s\n' "$project" "$issue"
