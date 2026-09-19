@@ -1,0 +1,69 @@
+Live read-only GitHub preconditions: [{"headRefOid": "1fc6af42d06d11d944a4ec137cbab3718d45aa7e", "state": "MERGED", "url": "https://github.com/huang-daniel/firstmate/pull/15"}, {"headRefOid": "65c34080a3b46373cfe333f9541d1a8925d7d342", "state": "OPEN", "url": "https://github.com/huang-daniel/firstmate/pull/16"}]
+
+missing-github-head: bin/fm-teardown.sh phase-live --force
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 2s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: task phase-live records https://github.com/huang-daniel/firstmate/pull/15, whose merge could not be verified at cleanup time.
+merge verification: no expected head is recorded for this task; bind its head with bin/fm-pr-check.sh
+Cleanup removes the record bin/fm-pr-merge.sh needs, so it would leave an unmerged pull request unmergeable through that path.
+Establish the expected head with bin/fm-pr-check.sh phase-live https://github.com/huang-daniel/firstmate/pull/15 when missing; investigate any head disagreement and verify the merge with bin/fm-pr-merge.sh before retrying.
+
+exit=1; record_exists=True; record_unchanged=True
+
+missing-gitlab-head: bin/fm-teardown.sh phase-live --force
+WARNING: watcher still down (same stale episode; last beat: 2s ago, grace 300s) - full banner already printed this episode.
+REFUSED: task phase-live records https://gitlab.com/example/repo/-/merge_requests/7, whose merge could not be verified at cleanup time.
+merge verification: no expected head is recorded for this task; bind its head with bin/fm-pr-check.sh
+Cleanup removes the record bin/fm-pr-merge.sh needs, so it would leave an unmerged pull request unmergeable through that path.
+Establish the expected head with bin/fm-pr-check.sh phase-live https://gitlab.com/example/repo/-/merge_requests/7 when missing; investigate any head disagreement and verify the merge with bin/fm-pr-merge.sh before retrying.
+
+exit=1; record_exists=True; record_unchanged=True
+
+open-pr: bin/fm-teardown.sh phase-live
+WARNING: watcher still down (same stale episode; last beat: 2s ago, grace 300s) - full banner already printed this episode.
+REFUSED: task phase-live records https://github.com/huang-daniel/firstmate/pull/16, whose merge could not be verified at cleanup time.
+merge verification: GitHub reports https://github.com/huang-daniel/firstmate/pull/16 as state=OPEN, not merged
+Cleanup removes the record bin/fm-pr-merge.sh needs, so it would leave an unmerged pull request unmergeable through that path.
+Establish the expected head with bin/fm-pr-check.sh phase-live https://github.com/huang-daniel/firstmate/pull/16 when missing; investigate any head disagreement and verify the merge with bin/fm-pr-merge.sh before retrying.
+
+exit=1; record_exists=True; record_unchanged=True
+
+forced-open-pr: bin/fm-teardown.sh phase-live --force
+WARNING: watcher still down (same stale episode; last beat: 1s ago, grace 300s) - full banner already printed this episode.
+REFUSED: task phase-live records https://github.com/huang-daniel/firstmate/pull/16, whose merge could not be verified at cleanup time.
+merge verification: GitHub reports https://github.com/huang-daniel/firstmate/pull/16 as state=OPEN, not merged
+Cleanup removes the record bin/fm-pr-merge.sh needs, so it would leave an unmerged pull request unmergeable through that path.
+Establish the expected head with bin/fm-pr-check.sh phase-live https://github.com/huang-daniel/firstmate/pull/16 when missing; investigate any head disagreement and verify the merge with bin/fm-pr-merge.sh before retrying.
+
+exit=1; record_exists=True; record_unchanged=True
+
+mismatched-head: bin/fm-teardown.sh phase-live --force
+WARNING: watcher still down (same stale episode; last beat: 1s ago, grace 300s) - full banner already printed this episode.
+REFUSED: task phase-live records https://github.com/huang-daniel/firstmate/pull/15, whose merge could not be verified at cleanup time.
+merge verification: GitHub reports https://github.com/huang-daniel/firstmate/pull/15 merged at head 1fc6af42d06d11d944a4ec137cbab3718d45aa7e, not at the expected head aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Cleanup removes the record bin/fm-pr-merge.sh needs, so it would leave an unmerged pull request unmergeable through that path.
+Establish the expected head with bin/fm-pr-check.sh phase-live https://github.com/huang-daniel/firstmate/pull/15 when missing; investigate any head disagreement and verify the merge with bin/fm-pr-merge.sh before retrying.
+
+exit=1; record_exists=True; record_unchanged=True
+
+unreadable-pr: bin/fm-teardown.sh phase-live --force
+WARNING: watcher still down (same stale episode; last beat: 1s ago, grace 300s) - full banner already printed this episode.
+REFUSED: task phase-live records https://github.com/huang-daniel/firstmate/pull/999999, whose merge could not be verified at cleanup time.
+merge verification: GitHub could not be read for https://github.com/huang-daniel/firstmate/pull/999999: GraphQL: Could not resolve to a PullRequest with the number of 999999. (repository.pullRequest)
+Cleanup removes the record bin/fm-pr-merge.sh needs, so it would leave an unmerged pull request unmergeable through that path.
+Establish the expected head with bin/fm-pr-check.sh phase-live https://github.com/huang-daniel/firstmate/pull/999999 when missing; investigate any head disagreement and verify the merge with bin/fm-pr-merge.sh before retrying.
+
+exit=1; record_exists=True; record_unchanged=True
+
+verified-merge: bin/fm-teardown.sh phase-live --force
+WARNING: watcher still down (same stale episode; last beat: 1s ago, grace 300s) - full banner already printed this episode.
+/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/absent-project: skipped: not a directory
+teardown phase-live complete (window phase-test-nonexistent:fm-phase-live, worktree /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/absent-tree)
+Backlog: phase-live just finished (config/backlog-backend selects manual editing). Update /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/live/data/backlog.md - move phase-live to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+exit=0; record_exists=False; record_unchanged=False

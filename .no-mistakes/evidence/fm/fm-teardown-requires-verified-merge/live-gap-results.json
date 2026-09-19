@@ -1,0 +1,20 @@
+{
+  "verdict": "pass",
+  "tested_head_sha": "35702059b627ef111568510db45472cab488594c",
+  "summary": "Added missing live coverage; no product or test defect reproduced and no source changes needed.",
+  "prior_results": "All five previously passed live scenarios preserved without re-running; see live-cli.txt.",
+  "new_live_results": [
+    "Real dirty worktree without a recorded PR: ordinary teardown refused and preserved record bytes; force completed cleanup and returned a clean pool slot.",
+    "Real committed unpushed branch without a recorded PR: ordinary teardown refused and preserved record bytes; force completed cleanup and returned a clean pool slot.",
+    "Present clean worktree fetched at the pushed head of live OPEN GitHub PR 16, with no commits absent from remote-tracking refs: normal and forced teardown both refused, preserving record bytes and worktree.",
+    "Real dirty worktree with live MERGED GitHub PR 15 recorded at its matching head: merge verification passed, dirty protection refused normally with unchanged record; force completed cleanup.",
+    "Real unpushed commit beyond live MERGED GitHub PR 15 head: merge verification passed, unlanded-work protection refused normally with unchanged record; force completed cleanup."
+  ],
+  "deliberately_out_of_scope": "Live UNKNOWN mergeability is a forge computation race, not reliably producible; deliberately not manufactured. Existing stubbed regression coverage remains distinct from these live results.",
+  "method": "Ten real fm-teardown.sh invocations, real Git/Treehouse/tmux tools and read-only GitHub queries, isolated FM_HOME and Treehouse pools under the current worktree. Existing documented FM_GATE_REFUSE_BYPASS test-harness setting used to permit sandbox lifecycle calls; no dependency stubs. No remote branches or PRs created or changed.",
+  "evidence": [
+    "live-cli.txt",
+    "live-gap.txt"
+  ],
+  "cleanup": "Temporary drivers, repositories, pooled worktrees, and homes removed after assertions; no tracked changes."
+}

@@ -1,0 +1,321 @@
+$ gh pr view https://github.com/huang-daniel/firstmate/pull/16 --json state,headRefOid,headRefName,url
+{"headRefName":"fm/fm-idempotent-instruction-delivery","headRefOid":"65c34080a3b46373cfe333f9541d1a8925d7d342","state":"OPEN","url":"https://github.com/huang-daniel/firstmate/pull/16"}
+
+exit=0
+$ git init -q -b main /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/dirty/project
+
+exit=0
+$ git add .
+
+exit=0
+$ git -c user.name=Live test -c user.email=test@example.invalid commit -qm baseline
+
+exit=0
+$ treehouse get --lease
+A new version of treehouse is available: v2.1.0 → v2.3.0
+Run "treehouse update" to update
+
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/dirty/.treehouse/project-93f2b8/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/dirty/.treehouse/project-93f2b8/1/project' to release it.
+/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/dirty/.treehouse/project-93f2b8/1/project
+
+exit=0
+$ git checkout -qb fm/phase-live
+
+exit=0
+$ bash -c . bin/fm-wake-lib.sh; fm_treehouse_slot_owner_claim "$1" phase-live "$2" bash /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/dirty/.treehouse/project-93f2b8/1/project /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/dirty/home
+
+exit=0
+$ bash bin/fm-teardown.sh phase-live
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: local-only worktree /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/dirty/.treehouse/project-93f2b8/1/project has work not yet merged into main and not on any remote.
+uncommitted changes present
+Merge the branch into local main first (bin/fm-merge-local.sh after the captain approves), or push to a fork/remote, or get the captain's explicit OK to discard, then --force.
+
+exit=1
+CASE dirty force=False: record_unchanged=True; worktree_present=True
+$ bash bin/fm-teardown.sh phase-live --force
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+A new version of treehouse is available: v2.1.0 → v2.3.0
+Run "treehouse update" to update
+
+🌳 Worktree returned to pool.
+teardown phase-live complete (window phase-test-nonexistent:fm-phase-live, worktree /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/dirty/.treehouse/project-93f2b8/1/project)
+Backlog: phase-live just finished (config/backlog-backend selects manual editing). Update /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/dirty/home/data/backlog.md - move phase-live to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+exit=0
+CASE dirty force=True: record_unchanged=False; worktree_present=True
+FORCE RESULT: PASS: cleanup completed
+$ git init -q -b main /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/unpushed/project
+
+exit=0
+$ git add .
+
+exit=0
+$ git -c user.name=Live test -c user.email=test@example.invalid commit -qm baseline
+
+exit=0
+$ treehouse get --lease
+A new version of treehouse is available: v2.1.0 → v2.3.0
+Run "treehouse update" to update
+
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/unpushed/.treehouse/project-b86620/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/unpushed/.treehouse/project-b86620/1/project' to release it.
+/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/unpushed/.treehouse/project-b86620/1/project
+
+exit=0
+$ git checkout -qb fm/phase-live
+
+exit=0
+$ git add feature
+
+exit=0
+$ git -c user.name=Live test -c user.email=test@example.invalid commit -qm unpushed
+
+exit=0
+$ bash -c . bin/fm-wake-lib.sh; fm_treehouse_slot_owner_claim "$1" phase-live "$2" bash /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/unpushed/.treehouse/project-b86620/1/project /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/unpushed/home
+
+exit=0
+$ bash bin/fm-teardown.sh phase-live
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: local-only worktree /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/unpushed/.treehouse/project-b86620/1/project has work not yet merged into main and not on any remote.
+commits not yet on main:
+87f6f33 unpushed
+Merge the branch into local main first (bin/fm-merge-local.sh after the captain approves), or push to a fork/remote, or get the captain's explicit OK to discard, then --force.
+
+exit=1
+CASE unpushed force=False: record_unchanged=True; worktree_present=True
+$ bash bin/fm-teardown.sh phase-live --force
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+A new version of treehouse is available: v2.1.0 → v2.3.0
+Run "treehouse update" to update
+
+🌳 Worktree returned to pool.
+teardown phase-live complete (window phase-test-nonexistent:fm-phase-live, worktree /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/unpushed/.treehouse/project-b86620/1/project)
+Backlog: phase-live just finished (config/backlog-backend selects manual editing). Update /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/unpushed/home/data/backlog.md - move phase-live to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+exit=0
+CASE unpushed force=True: record_unchanged=False; worktree_present=True
+FORCE RESULT: PASS: cleanup completed
+$ git init -q -b main /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/pushed-open/project
+
+exit=0
+$ git add .
+
+exit=0
+$ git -c user.name=Live test -c user.email=test@example.invalid commit -qm baseline
+
+exit=0
+$ treehouse get --lease
+A new version of treehouse is available: v2.1.0 → v2.3.0
+Run "treehouse update" to update
+
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/pushed-open/.treehouse/project-661561/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/pushed-open/.treehouse/project-661561/1/project' to release it.
+/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/pushed-open/.treehouse/project-661561/1/project
+
+exit=0
+$ git checkout -qb fm/phase-live
+
+exit=0
+$ git remote add origin https://github.com/huang-daniel/firstmate.git
+
+exit=0
+$ git fetch --depth=1 origin fm/fm-idempotent-instruction-delivery:refs/remotes/origin/fm/fm-idempotent-instruction-delivery
+From https://github.com/huang-daniel/firstmate
+ * [new branch]      fm/fm-idempotent-instruction-delivery -> origin/fm/fm-idempotent-instruction-delivery
+
+exit=0
+$ git reset --hard 65c34080a3b46373cfe333f9541d1a8925d7d342
+HEAD is now at 65c3408 no-mistakes(document): Clarify instruction delivery receipts and deduplication contracts
+
+exit=0
+$ git log --oneline HEAD --not --remotes
+
+exit=0
+$ bash -c . bin/fm-wake-lib.sh; fm_treehouse_slot_owner_claim "$1" phase-live "$2" bash /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/pushed-open/.treehouse/project-661561/1/project /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/pushed-open/home
+
+exit=0
+$ bash bin/fm-teardown.sh phase-live
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: task phase-live records https://github.com/huang-daniel/firstmate/pull/16, whose merge could not be verified at cleanup time.
+merge verification: GitHub reports https://github.com/huang-daniel/firstmate/pull/16 as state=OPEN, not merged
+Cleanup removes the record bin/fm-pr-merge.sh needs, so it would leave an unmerged pull request unmergeable through that path.
+Establish the expected head with bin/fm-pr-check.sh phase-live https://github.com/huang-daniel/firstmate/pull/16 when missing; investigate any head disagreement and verify the merge with bin/fm-pr-merge.sh before retrying.
+
+exit=1
+CASE pushed-open force=False: record_unchanged=True; worktree_present=True
+$ bash bin/fm-teardown.sh phase-live --force
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+REFUSED: task phase-live records https://github.com/huang-daniel/firstmate/pull/16, whose merge could not be verified at cleanup time.
+merge verification: GitHub reports https://github.com/huang-daniel/firstmate/pull/16 as state=OPEN, not merged
+Cleanup removes the record bin/fm-pr-merge.sh needs, so it would leave an unmerged pull request unmergeable through that path.
+Establish the expected head with bin/fm-pr-check.sh phase-live https://github.com/huang-daniel/firstmate/pull/16 when missing; investigate any head disagreement and verify the merge with bin/fm-pr-merge.sh before retrying.
+
+exit=1
+CASE pushed-open force=True: record_unchanged=True; worktree_present=True
+$ gh pr view https://github.com/huang-daniel/firstmate/pull/15 --json state,headRefOid,headRefName,url
+{"headRefName":"fm/fm-board-closed-issue-withdrawal","headRefOid":"1fc6af42d06d11d944a4ec137cbab3718d45aa7e","state":"MERGED","url":"https://github.com/huang-daniel/firstmate/pull/15"}
+
+exit=0
+$ git init -q -b main /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-dirty/project
+
+exit=0
+$ git add .
+
+exit=0
+$ git -c user.name=Live test -c user.email=test@example.invalid commit -qm baseline
+
+exit=0
+$ treehouse get --lease
+A new version of treehouse is available: v2.1.0 → v2.3.0
+Run "treehouse update" to update
+
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-dirty/.treehouse/project-010222/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-dirty/.treehouse/project-010222/1/project' to release it.
+/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-dirty/.treehouse/project-010222/1/project
+
+exit=0
+$ git checkout -qb fm/phase-live
+
+exit=0
+$ git remote add origin https://github.com/huang-daniel/firstmate.git
+
+exit=0
+$ git fetch --depth=1 origin refs/pull/15/head:refs/remotes/origin/merged
+From https://github.com/huang-daniel/firstmate
+ * [new ref]         refs/pull/15/head -> origin/merged
+
+exit=0
+$ git reset --hard 1fc6af42d06d11d944a4ec137cbab3718d45aa7e
+HEAD is now at 1fc6af4 no-mistakes(document): Correct board pagination and withdrawal documentation
+
+exit=0
+$ git log --oneline HEAD --not --remotes
+
+exit=0
+$ bash -c . bin/fm-wake-lib.sh; fm_treehouse_slot_owner_claim "$1" phase-live "$2" bash /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-dirty/.treehouse/project-010222/1/project /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-dirty/home
+
+exit=0
+$ bash bin/fm-teardown.sh phase-live
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: worktree /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-dirty/.treehouse/project-010222/1/project has uncommitted changes.
+uncommitted changes present
+Commit them (or get the captain's explicit OK to discard, then --force).
+
+exit=1
+CASE verified-dirty force=False: record_unchanged=True; worktree_present=True
+$ bash bin/fm-teardown.sh phase-live --force
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+A new version of treehouse is available: v2.1.0 → v2.3.0
+Run "treehouse update" to update
+
+🌳 Worktree returned to pool.
+/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-dirty/project: STUCK: on diverged main, 646 commits behind origin/main - needs attention
+teardown phase-live complete (window phase-test-nonexistent:fm-phase-live, worktree /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-dirty/.treehouse/project-010222/1/project)
+Backlog: phase-live just finished (config/backlog-backend selects manual editing). Update /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-dirty/home/data/backlog.md - move phase-live to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+exit=0
+CASE verified-dirty force=True: record_unchanged=False; worktree_present=True
+FORCE RESULT: PASS: cleanup completed
+$ git init -q -b main /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-unpushed/project
+
+exit=0
+$ git add .
+
+exit=0
+$ git -c user.name=Live test -c user.email=test@example.invalid commit -qm baseline
+
+exit=0
+$ treehouse get --lease
+A new version of treehouse is available: v2.1.0 → v2.3.0
+Run "treehouse update" to update
+
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-unpushed/.treehouse/project-69897d/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-unpushed/.treehouse/project-69897d/1/project' to release it.
+/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-unpushed/.treehouse/project-69897d/1/project
+
+exit=0
+$ git checkout -qb fm/phase-live
+
+exit=0
+$ git remote add origin https://github.com/huang-daniel/firstmate.git
+
+exit=0
+$ git fetch --depth=1 origin refs/pull/15/head:refs/remotes/origin/merged
+From https://github.com/huang-daniel/firstmate
+ * [new ref]         refs/pull/15/head -> origin/merged
+
+exit=0
+$ git reset --hard 1fc6af42d06d11d944a4ec137cbab3718d45aa7e
+HEAD is now at 1fc6af4 no-mistakes(document): Correct board pagination and withdrawal documentation
+
+exit=0
+$ git log --oneline HEAD --not --remotes
+
+exit=0
+$ git add feature
+
+exit=0
+$ git -c user.name=Live test -c user.email=test@example.invalid commit -qm unpushed
+
+exit=0
+$ bash -c . bin/fm-wake-lib.sh; fm_treehouse_slot_owner_claim "$1" phase-live "$2" bash /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-unpushed/.treehouse/project-69897d/1/project /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-unpushed/home
+
+exit=0
+$ bash bin/fm-teardown.sh phase-live
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: worktree /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-unpushed/.treehouse/project-69897d/1/project has work not on any remote and not landed.
+unpushed commits:
+5ec9b1a unpushed
+Push the branch, land its PR, or get the captain's explicit OK to discard, then --force.
+
+exit=1
+CASE verified-unpushed force=False: record_unchanged=True; worktree_present=True
+$ bash bin/fm-teardown.sh phase-live --force
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+A new version of treehouse is available: v2.1.0 → v2.3.0
+Run "treehouse update" to update
+
+🌳 Worktree returned to pool.
+/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-unpushed/project: STUCK: on diverged main, 646 commits behind origin/main - needs attention
+teardown phase-live complete (window phase-test-nonexistent:fm-phase-live, worktree /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-unpushed/.treehouse/project-69897d/1/project)
+Backlog: phase-live just finished (config/backlog-backend selects manual editing). Update /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDQ5YVXGQMDE3XP6VCERN5/.test-phase/verified-unpushed/home/data/backlog.md - move phase-live to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+exit=0
+CASE verified-unpushed force=True: record_unchanged=False; worktree_present=True
+FORCE RESULT: PASS: cleanup completed
+POSTCONDITION dirty: returned worktree clean; task record removed.
+POSTCONDITION unpushed: returned worktree clean; task record removed.
+POSTCONDITION verified-dirty: returned worktree clean; task record removed.
+POSTCONDITION verified-unpushed: returned worktree clean; task record removed.
