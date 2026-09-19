@@ -1,0 +1,13 @@
+Mock-backed CLI transcript; no live GitHub board was changed.
+External-only children, all open: poll is silent because card already matches Todo.
+harbourlight	https://github.com/harbour-collective/app/issues/800	done	todo	todo	-
+One external child closes:
+synced harbourlight https://github.com/harbour-collective/app/issues/800 - in-progress
+All external children close:
+synced harbourlight https://github.com/harbour-collective/app/issues/800 - done
+Open child attached after umbrella was settled Done:
+synced harbourlight https://github.com/harbour-collective/app/issues/800 - in-progress
+Persisted container record:
+harbourlight	https://github.com/harbour-collective/app/issues/800	done	in-progress	in-progress	-
+Board card:
+PVTI_p	Issue	https://github.com/harbour-collective/app/issues/800	Big Picture In Progress	firstmate	-	Programme	-
