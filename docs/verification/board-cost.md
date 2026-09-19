@@ -11,7 +11,7 @@ Every measurement below is read-only.
 
 ## Why the point cost is the whole design constraint
 
-The GraphQL budget is 5,000 points an hour, and a whole-board read spends about a fiftieth of it.
+The GraphQL budget is 5,000 points an hour, and the CLI whole-board read measured below spends about a fiftieth of it.
 Making one such read per card is what exhausted the budget and rate-limited the account at 45 cards, which is the defect the adapter is now shaped to make structurally impossible.
 
 ## Measuring method
@@ -62,11 +62,13 @@ $ gh api graphql -f query="$BOARD_ITEMS_QUERY" -f owner=overheadautomationsoluti
 {"cards":77,"rate":{"cost":3,"limit":5000,"remaining":4577}}
 ```
 
-So the one whole-board read a cycle makes went from 102 points to 3.
+The direct query measured 3 points for this 77-card board; the earlier CLI measurement was 102 points.
 The rule the adapter obeys is still the shape rather than the price: a read per card stays refused however cheap one read becomes.
 
-`items(first:)` is capped at 100 by GitHub, so a `--limit` above that is walked by `gh api graphql --paginate` inside the one invocation, exactly as `item-list --limit` paged internally.
-Both page sizes return the same cards, in the same set, with no duplicate across a page boundary:
+`board_items()` in [`bin/fm-board.sh`](../../bin/fm-board.sh) owns the bounded cursor walk used by the adapter.
+`test_pagination_stops_at_the_requested_limit` in [`tests/fm-board.test.sh`](../../tests/fm-board.test.sh) checks that limits of 200 and 101 each cost two requests, retain the `truncated` signal, and never treat an unseen card as withdrawn.
+The separate live query probe below uses `--paginate` to compare complete result sets at two page sizes; it does not measure the adapter's request bound.
+Both page sizes returned the same cards, with no duplicate across a page boundary:
 
 ```
 $ for p in 10 100; do gh api graphql --paginate -f query="$BOARD_ITEMS_QUERY" \

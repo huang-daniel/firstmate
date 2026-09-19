@@ -292,7 +292,7 @@ This is a real security property of the design and the captain accepted it knowi
   Treat it as a board that is temporarily unavailable, let the next cycle reconcile, and never read it as work being withdrawn.
   A cycle that reported an error reconciled nothing, so never tell the captain the board is in sync on the strength of it.
 - A `truncated` line means the board filled the read's card ceiling, so a card past it was never seen.
-  Everything that read did report still stands, but no withdrawal is reported from that board on this cycle, because absence cannot be told apart from the ceiling.
+  Everything that read did report still stands, including `closed` records for visible cards, but no `cancelled` record is emitted for an unseen card, because absence cannot be told apart from the ceiling.
   Re-run `poll` for that board with a higher `--limit`, and if it stays truncated tell the captain the board has outgrown the default read.
   The ceiling belongs to that read alone: `mark`, `import`, and `promote` find a card through the issue that holds it, so a card sitting past the ceiling is still moved normally.
 - A scope edit to a card's own text mid-flight follows the lifecycle rule AGENTS.md section 7 already owns: route it to follow-up work unless it completely invalidates the work being validated.

@@ -2890,22 +2890,9 @@ poll_board() {
       area=$LINK_AREA
       area_synced=$LINK_AREA_SYNCED
 
-      # WITHDRAWAL BY CLOSURE. A closed issue whose card is still on the board is
-      # the third way the captain withdraws work, and the only one that leaves the
-      # card where it was. It is reported as its own record rather than as
-      # `cancelled`, because what happened differs: the card is still there to
-      # look at, and the captain closed the issue behind it. Which one happened is
-      # what firstmate tells the captain, so the two must not collapse into one
-      # word.
-      #
-      # Only work still open is withdrawn. A closed issue whose task already
-      # landed is the ordinary end of that task, and saying anything about it
-      # would make every finished item shout - exactly the noise that would get
-      # this signal turned off.
-      #
-      # Like `cancelled`, this reports and touches nothing: no card write, no
-      # record change, and nothing about a branch or a worktree. It repeats every
-      # cycle until `ack` records that firstmate reconciled it.
+      # WITHDRAWAL above owns the reporting contract. Skip ordinary reconciliation
+      # for retired links too: ack leaves the card in its old column, which must
+      # not turn an acknowledged closure into a repeating divergence.
       if [ "$state" = closed ]; then
         case "$desired" in
           other) continue ;;
