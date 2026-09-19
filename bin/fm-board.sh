@@ -1225,29 +1225,35 @@ BOARD_ITEMS_QUERY='query($owner: String!, $number: Int!, $page: Int!, $fields: I
 # flat read per container card, which COST above bounds.
 board_items() {
   local owner=$1 number=$2 status_field=$3 classify_field=$4 limit=$5 out=$6
-  local page=$limit raw rc=0
+  local page raw rc=0 cursor='' next remaining=$limit filter
   local -a args
-  [ "$page" -le "$BOARD_ITEMS_PAGE" ] || page=$BOARD_ITEMS_PAGE
-  args=(api graphql
-    -f query="$BOARD_ITEMS_QUERY"
-    -f owner="$owner"
-    -F number="$number"
-    -F page="$page"
-    -F fields="$BOARD_FIELDS_LIMIT"
-    -F labels="$BOARD_CARD_LIST_LIMIT"
-    -F people="$BOARD_CARD_LIST_LIMIT"
-    --jq "$(items_jq "$status_field" "$classify_field")")
-  # A limit past one page is walked by the CLI itself, which is the same shape
-  # `item-list --limit` always had: one invocation, its pages hidden inside it.
-  [ "$limit" -le "$BOARD_ITEMS_PAGE" ] || args+=(--paginate)
+  filter='(.data.repositoryOwner.projectV2.items.pageInfo | if .hasNextPage then .endCursor else "-" end), ('"$(items_jq "$status_field" "$classify_field")"')'
   raw=$(mktemp) || return 1
-  "$GH" "${args[@]}" </dev/null > "$raw" || rc=$?
-  if [ "$rc" -eq 0 ]; then
-    # The ceiling is the reader's, not the page's: a walk that returned more than
-    # the limit is cut back to it, so `poll` still sees a full read as full and
-    # declines to read absence from it.
-    awk -v n="$limit" 'NR <= n' "$raw" > "$out"
-  fi
+  : > "$out"
+  while [ "$remaining" -gt 0 ]; do
+    page=$remaining
+    [ "$page" -le "$BOARD_ITEMS_PAGE" ] || page=$BOARD_ITEMS_PAGE
+    args=(api graphql
+      -f query="$BOARD_ITEMS_QUERY"
+      -f owner="$owner"
+      -F number="$number"
+      -F page="$page"
+      -F fields="$BOARD_FIELDS_LIMIT"
+      -F labels="$BOARD_CARD_LIST_LIMIT"
+      -F people="$BOARD_CARD_LIST_LIMIT"
+      --jq "$filter")
+    [ -z "$cursor" ] || args+=(-f endCursor="$cursor")
+    "$GH" "${args[@]}" </dev/null > "$raw" || { rc=$?; break; }
+    IFS= read -r next < "$raw"
+    sed '1d' "$raw" >> "$out"
+    remaining=$((remaining - page))
+    [ "$next" != - ] || break
+    if [ -z "$next" ] || [ "$next" = null ] || [ "$next" = "$cursor" ]; then
+      rc=1
+      break
+    fi
+    cursor=$next
+  done
   rm -f "$raw"
   return "$rc"
 }
@@ -2902,6 +2908,7 @@ poll_board() {
       # cycle until `ack` records that firstmate reconciled it.
       if [ "$state" = closed ]; then
         case "$desired" in
+          other) continue ;;
           todo | processed | queued | in-progress)
             printf 'closed %s %s %s %s\n' "$project" "$canonical" "$task" "$desired"
             continue

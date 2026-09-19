@@ -191,7 +191,13 @@ case "$kind" in
         }
       ' fieldsfile="$GH_FIELDS" "$GH_FIELDS" "$GH_ITEMS"
       printf ']}}}}}'
-    } | jq -r "$(gh_jq_filter "$@")"
+    } | jq --argjson page "$(printf '%s\n' "$@" | sed -n 's/^page=//p')"       --arg cursor "$(printf '%s\n' "$@" | sed -n 's/^endCursor=//p')" '
+      .data.repositoryOwner.projectV2.items |= (
+        ($cursor | if . == "" then 0 else tonumber end) as $start
+        | (.nodes | length) as $total
+        | .pageInfo = {hasNextPage: ($start + $page < $total), endCursor: (($start + $page) | tostring)}
+        | .nodes = .nodes[$start:($start + $page)]
+      )' | jq -r "$(gh_jq_filter "$@")"
     ;;
   "graphql ids")
     # The real response shape, reduced by the adapter's own filter. The stub
@@ -1202,8 +1208,7 @@ test_a_closed_issue_withdraws_the_work_its_card_still_shows() {
   board "$home" ack fm-queued >/dev/null
   board "$home" ack fm-running >/dev/null
   out=$(board "$home" poll)
-  assert_not_contains "$out" 'closed harbourlight' \
-    "an acknowledged closure kept being reported"
+  assert_equals "" "$out" "an acknowledged closure kept being reported"
   out=$(board "$home" lookup "$running") \
     || fail "the link was dropped when the issue was closed"
   pass "a closed issue withdraws work still open, and never costs unlanded work"
@@ -1338,6 +1343,28 @@ test_a_truncated_read_reconciles_nothing() {
   assert_contains "$out" 'truncated harbourlight 2' "a full page was not reported as possibly truncated"
   assert_not_contains "$out" 'cancelled' "a page boundary was mistaken for a withdrawn card"
   pass "a page boundary is never mistaken for absence"
+}
+
+test_pagination_stops_at_the_requested_limit() {
+  local home out i
+  home=$(new_home pagination_stops_at_the_requested_limit)
+  ordinary_board "$home"
+  for ((i=1; i<=301; i++)); do
+    item "$home" "PVTI_$i" Issue "https://github.com/harbour-collective/app/issues/$i"       Todo firstmate - "Card $i" -
+  done
+  board "$home" import harbourlight https://github.com/harbour-collective/app/issues/301 fm-offpage >/dev/null
+  : > "$home/calls"
+  out=$(board "$home" poll --limit 200)
+  assert_equals 2 "$(gh_calls_of "$home" 'graphql items')" "a 200-card limit fetched more than two pages"
+  assert_contains "$out" 'truncated harbourlight 200' "a full read lost its truncated signal"
+  assert_not_contains "$out" 'cancelled' "an unseen card was treated as withdrawn"
+  assert_not_contains "$out" '/issues/201 ' "the read exceeded its limit"
+  : > "$home/calls"
+  out=$(board "$home" poll --limit 101)
+  assert_equals 2 "$(gh_calls_of "$home" 'graphql items')" "a partial second page fetched extra pages"
+  assert_contains "$out" 'truncated harbourlight 101' "a partial page lost the requested ceiling"
+  assert_not_contains "$out" '/issues/102 ' "the partial page exceeded its limit"
+  pass "pagination bounds requests and preserves truncated withdrawal safety"
 }
 
 test_a_card_an_intake_filter_skips_is_not_a_withdrawal() {
@@ -2728,6 +2755,7 @@ test_a_failed_board_write_never_blocks_delivery
 test_a_failed_board_read_never_blocks_the_cycle
 test_an_empty_board_is_not_taken_as_mass_withdrawal
 test_a_truncated_read_reconciles_nothing
+test_pagination_stops_at_the_requested_limit
 test_a_card_an_intake_filter_skips_is_not_a_withdrawal
 test_an_issue_another_board_owns_is_skipped_not_re_homed
 test_an_outstanding_pr_attachment_is_retried_on_the_next_cycle
