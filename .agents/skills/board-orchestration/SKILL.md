@@ -277,6 +277,9 @@ Two consequences follow, and both are reports rather than actions:
 
 - A card moved backwards out of In Progress, or moved to Done while work is unfinished, is something to tell the captain plainly - what firstmate has running, and what has not landed - not a reason to stop a worker on its own. Stop work only on the captain's word, then through `bin/fm-control.sh <task-id> interrupt` and `exit` exactly as any other stop.
 - A `cancelled` line, a card that left the board entirely while firstmate was still executing it, is reported the same way; once the captain decides, update the backlog and run `bin/fm-board.sh ack <task-id>` so it is not reported again.
+- A `closed` line is the same withdrawal said the other way: the issue is closed and its card is still sitting on the board.
+  Handle it exactly as `cancelled`, including the `ack` that stops it repeating, and tell the captain which of the two happened rather than collapsing them - under `cancelled` the card is gone, under `closed` it is still there to look at.
+  It is reported only while the work is still open; a closed issue whose task already landed is the ordinary end of that task and is never reported.
 
 Neither ever authorizes discarding unlanded work: hard rule 3 stands unchanged, so preserve the branch, report what is on it, and get an explicit captain instruction before anything is discarded.
 

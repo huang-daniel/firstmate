@@ -38,7 +38,46 @@ batched project+field ids     : 1 points
 The first two are the shapes the adapter used to reach for on every single-card event, so one `mark`, `import`, or `promote` spent those 206 points before the write itself.
 The last two are what it uses now, so the same event spends 2 before the same write.
 The write's own cost is not measured here, because no write was made against the real board at all.
-`poll` still makes one `project item-list` per configured board per cycle, which is the one whole-board read the design keeps.
+`poll` still makes exactly one whole-board read per configured board per cycle, which is the one such read the design keeps.
+
+### The whole-board read is GraphQL, and cheaper than the CLI's own
+
+Verified 2026-09-19 against `gh version 2.96.0 (2026-07-02)`, reading a real organization-owned ProjectV2 carrying 77 items.
+
+The CLI's `project item-list` answers a card's `content` with body, number, repository, title, type, and url, and never whether the issue is open or closed:
+
+```
+$ gh project item-list 1 --owner overheadautomationsolutions --format json --limit 2 \
+    --jq '.items[0] | {keys: (keys), content_keys: (.content|keys)}'
+{"content_keys":["body","number","repository","title","type","url"],"keys":["content","id","repository","status","title"]}
+```
+
+Closure is a withdrawal signal, so `BOARD_ITEMS_QUERY` asks GitHub directly instead, which returns the state beside the card - and costs less than the read it replaces.
+The measurement below adds the free `rateLimit` field to that same document, which is how the cost is read back in one call rather than by differencing two probes:
+
+```
+$ gh api graphql -f query="$BOARD_ITEMS_QUERY" -f owner=overheadautomationsolutions \
+    -F number=1 -F page=100 -F fields=100 -F labels=50 -F people=50 \
+    --jq '{rate: .data.rateLimit, cards: (...items.nodes|length)}'
+{"cards":77,"rate":{"cost":3,"limit":5000,"remaining":4577}}
+```
+
+So the one whole-board read a cycle makes went from 102 points to 3.
+The rule the adapter obeys is still the shape rather than the price: a read per card stays refused however cheap one read becomes.
+
+`items(first:)` is capped at 100 by GitHub, so a `--limit` above that is walked by `gh api graphql --paginate` inside the one invocation, exactly as `item-list --limit` paged internally.
+Both page sizes return the same cards, in the same set, with no duplicate across a page boundary:
+
+```
+$ for p in 10 100; do gh api graphql --paginate -f query="$BOARD_ITEMS_QUERY" \
+    -f owner=overheadautomationsolutions -F number=1 -F page=$p -F fields=100 \
+    -F labels=50 -F people=50 --jq '...items.nodes[] | .id' | sort > /tmp/p$p.txt; done
+$ wc -l < /tmp/p10.txt; wc -l < /tmp/p100.txt; sort /tmp/p10.txt | uniq -d; diff /tmp/p10.txt /tmp/p100.txt
+77
+77
+```
+
+A live read-only `poll` of that same board, through a `FM_BOARD_GH` wrapper that refused every mutation, read it once and classified all 77 cards: intake triggers fired from the `labels` column, container cards were recognized from the `status` column, the `Area` classification came through on the cards carrying one, and the state column read 43 `open` against 34 `closed`.
 
 ## The one per-card read, and why it is outside this budget
 

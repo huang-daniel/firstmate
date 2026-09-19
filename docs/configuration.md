@@ -204,6 +204,10 @@ That splits into two halves worth knowing:
 So moving a card yourself is a fine way to tell firstmate something, but tell it in chat too: it will report the difference rather than act on it.
 Nothing here ever discards unlanded work.
 
+Withdrawing work is the same kind of statement, and firstmate notices it three ways: taking the card off the board, moving it to Done before the work is finished, or closing the issue and leaving the card where it is.
+Each is reported to you with what is running and what has not landed, and which of them you did is part of what firstmate tells you.
+Closing the issue on work that already merged is just the ordinary end of it and is never reported as a withdrawal.
+
 ### Classifying work
 
 A board can sort its work into groupings of its own alongside the columns - areas, components, workstreams, whatever that board calls them.

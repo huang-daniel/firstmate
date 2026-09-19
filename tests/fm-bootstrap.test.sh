@@ -956,10 +956,13 @@ EOF
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in
-  "project item-list")
-    printf 'PVTI_a	Issue	https://github.com/harbour-collective/app/issues/1	Todo	firstmate	-	New work	-
+  "api graphql")
+    # Only the whole-board read reaches this stub, already in the reduced shape
+    # the adapter's own filter produces; tests/fm-board.test.sh is where that
+    # filter runs against the response GitHub actually returns.
+    printf 'PVTI_a	Issue	https://github.com/harbour-collective/app/issues/1	Todo	firstmate	-	New work	-	-	open
 '
-    printf 'PVTI_b	Issue	https://github.com/harbour-collective/app/issues/2	Todo	firstmate	-	Settled work	-
+    printf 'PVTI_b	Issue	https://github.com/harbour-collective/app/issues/2	Todo	firstmate	-	Settled work	-	-	open
 '
     ;;
 esac
@@ -1011,7 +1014,7 @@ SH
     FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_BOOTSTRAP_NETWORK=only "$ROOT/bin/fm-bootstrap.sh")
   assert_not_contains "$out" 'BOARD_POLL' "a home with no board reported a board poll"
   assert_not_contains "$out" 'board' "a home with no board named the board sweep at all"
-  assert_no_grep 'project item-list' "$log" "a home with no board read a project board"
+  assert_no_grep 'projectV2' "$log" "a home with no board read a project board"
   pass "bootstrap: a home with no board configuration reads no board and never names the sweep"
 }
 

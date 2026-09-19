@@ -385,6 +385,11 @@ case "\${1:-} \${2:-}" in
       g_prev=\$g_arg
     done
     case " \$* " in
+      *'endCursor'*)
+        # The whole-board read, already in the reduced shape the adapter's own
+        # filter produces; fm-board.test.sh is where that filter runs for real.
+        printf 'PVTI_a\tIssue\t%s\tIn Progress\t-\t-\tcard\t-\t-\topen\n' '$issue'
+        ;;
       *repositoryOwner*)
         printf '%s' '{"data":{"repositoryOwner":{"projectV2":{"id":"PVT_fixture","fields":{"nodes":[
           {"id":"PVTSSF_status","name":"Status","options":[{"id":"opt_done","name":"Done"}]}]}}}}}' \
@@ -401,9 +406,6 @@ case "\${1:-} \${2:-}" in
         exec '$case_dir/fakebin/gh-merge-stub' "\$@"
         ;;
     esac
-    ;;
-  "project item-list")
-    printf 'PVTI_a\tIssue\t%s\tIn Progress\t-\t-\tcard\t-\n' '$issue'
     ;;
   *)
     exec '$case_dir/fakebin/gh-merge-stub' "\$@"
