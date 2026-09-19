@@ -32,6 +32,8 @@ make_home() {  # <name>
 EOF
   fakebin=$(fm_fakebin "$home")
   fm_fake_exit0 "$fakebin" tmux treehouse no-mistakes gh gh-axi
+  # A recorded pr= must read back as merged before cleanup may remove the record.
+  fm_fake_gh_pr_merged "$fakebin"
   printf '%s\n' "$home"
 }
 
@@ -108,6 +110,8 @@ case "${1:-} ${2:-}" in
       *statusCheckRollup*)
         printf '%s\n' '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"1111111111111111111111111111111111111111","statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}'
         ;;
+      *"state,headRefOid"*)
+        printf '%s\t%s\n' MERGED 1111111111111111111111111111111111111111 ;;
       *headRefOid*) printf '%s\n' 1111111111111111111111111111111111111111 ;;
     esac
     ;;
@@ -241,6 +245,8 @@ done_keep = 10
 EOF
   fb=$(fm_fakebin "$home")
   fm_fake_exit0 "$fb" tmux treehouse no-mistakes gh gh-axi
+  # A recorded pr= must read back as merged before cleanup may remove the record.
+  fm_fake_gh_pr_merged "$fb"
   printf '%s\n' "$home|$graph/.beads"
 }
 
@@ -1290,6 +1296,8 @@ test_secondmate_hold_stays_in_authoritative_home() {
 EOF
   fakebin=$(fm_fakebin "$mate")
   fm_fake_exit0 "$fakebin" tmux treehouse no-mistakes gh gh-axi
+  # A recorded pr= must read back as merged before cleanup may remove the record.
+  fm_fake_gh_pr_merged "$fakebin"
   origin=sample-mate-review
   mkdir -p "$mate/data/$origin"
   tasks_in "$mate" add "$origin" "Investigate secondmate sample" --kind scout --repo sample --start >/dev/null
@@ -1347,6 +1355,8 @@ test_secondmate_home_publishes_holds_and_answers() {
 EOF
   fakebin=$(fm_fakebin "$mate")
   fm_fake_exit0 "$fakebin" tmux treehouse no-mistakes gh gh-axi
+  # A recorded pr= must read back as merged before cleanup may remove the record.
+  fm_fake_gh_pr_merged "$fakebin"
   channel="$parent/state/channel-mate.status"
   decision="$mate/decision.txt"
 

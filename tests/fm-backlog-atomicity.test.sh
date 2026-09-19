@@ -2882,6 +2882,8 @@ test_dispatch_and_completion_are_structural() {
 
   meta="$home/state/$id.meta"
   printf 'pr=%s\n' "$pr" >> "$meta"
+  # A recorded PR must read back as merged before cleanup may remove the record.
+  fm_fake_gh_pr_merged "$(fm_fakebin "$case_dir")"
   out=$(run_teardown "$case_dir" "$id") \
     || fail "structural teardown failed: $out"
   [ "$(row_state "$case_dir" "$id")" = "done" ] \
