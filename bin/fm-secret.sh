@@ -140,7 +140,7 @@ secret_unquote() {
       i=$((i + 1))
       [ "$i" -lt "${#v}" ] || return 1
       next=${v:i:1}
-      if [ "$quote" = '"' ] && [[ $next != [\\\"\$\`] ]]; then out+='\'; fi
+      if [ "$quote" = '"' ] && [[ $next != [\\\"\$\`] ]]; then out+="\\"; fi
       out+=$next
     elif [ "$ch" = "$quote" ]; then
       quote=''
