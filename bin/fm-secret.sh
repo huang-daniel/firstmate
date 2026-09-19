@@ -7,6 +7,16 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 SECRETS="${FM_SECRETS_OVERRIDE:-$CONFIG/secrets}"
 
+while [[ $SECRETS = *//* ]]; do SECRETS=${SECRETS//\/\//\/}; done
+while [[ $SECRETS = */ && $SECRETS != / ]]; do SECRETS=${SECRETS%/}; done
+[[ $SECRETS = /* ]] || SECRETS="$PWD/$SECRETS"
+if [ -d "$SECRETS" ]; then
+  SECRETS=$(cd -- "$SECRETS" && pwd -P) || exit 1
+fi
+if [ "$SECRETS" = / ] || [ "${SECRETS##*/}" = secret-values ]; then
+  printf 'error: credential store must have a distinct sibling value store\n' >&2
+  exit 2
+fi
 VALUES="${SECRETS%/*}/secret-values"
 MARKER='# fm-secret v2'
 KEY_LINE_RE='^[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*='
@@ -283,6 +293,18 @@ secret_squote() {
   printf "'%s'" "${1//\'/\'\\\'\'}"
 }
 
+secret_published_matches() (
+  local expected=$1 published=$2 file
+  [ -d "$published" ] && [ ! -L "$published" ] || return 1
+  shopt -s nullglob dotglob
+  local -a expected_files=("$expected"/*) published_files=("$published"/*)
+  [ "${#expected_files[@]}" -eq "${#published_files[@]}" ] || return 1
+  for file in "${published_files[@]}"; do
+    [ -f "$file" ] && [ ! -L "$file" ] || return 1
+    cmp -s -- "$expected/${file##*/}" "$file" || return 1
+  done
+)
+
 secret_apply() (
   local path=$1 name=$2 action=$3 ref=$4 tmp stage key value parent part
   umask 077
@@ -297,10 +319,9 @@ secret_apply() (
     [ ! -L "$parent" ] || return 1
     mkdir -p -- "$parent" && chmod 0700 "$parent" || return 1
   done
-  [ ! -e "$VALUES/$name" ] && [ ! -L "$VALUES/$name" ] || return 1
   stage=$(mktemp -d "$VALUES/.fm-secret.XXXXXX") || return 1
   tmp=$(mktemp "${path%/*}/.fm-secret.XXXXXX") || { rm -rf -- "$stage"; return 1; }
-  trap 'rm -rf -- "$stage"; rm -f -- "$tmp"' EXIT
+  trap '[ -z "$stage" ] || rm -rf -- "$stage"; rm -f -- "$tmp"' EXIT
   printf '%s\n' "$MARKER" > "$tmp" || return 1
   local -a keys=()
   if [ "$action" = keyed ]; then
@@ -323,11 +344,18 @@ secret_apply() (
     printf '%s\n' "$key" >> "$tmp" || return 1
   done
   chmod 0600 "$tmp" || return 1
-  mv -- "$stage" "$VALUES/$name" || return 1
-  if ! mv -f -- "$tmp" "$path"; then
-    rm -rf -- "$VALUES/$name"
-    return 1
+  if [ -e "$VALUES/$name" ] || [ -L "$VALUES/$name" ]; then
+    if ! secret_published_matches "$stage" "$VALUES/$name"; then
+      printf 'error: published values conflict for credential %s\n' "$name" >&2
+      return 1
+    fi
+    chmod 0700 "$VALUES/$name" || return 1
+    for key in "${keys[@]}"; do chmod 0600 "$VALUES/$name/$key" || return 1; done
+  else
+    mv -- "$stage" "$VALUES/$name" || return 1
+    stage=''
   fi
+  mv -f -- "$tmp" "$path" || return 1
 )
 
 cmd_export() {

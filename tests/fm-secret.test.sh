@@ -277,6 +277,76 @@ FIXTURE
   pass "quoted comments and export preserve independently extracted values"
 }
 
+test_store_path_spellings() {
+  local store spelling value file status
+  for spelling in trailing repeated relative; do
+    store=$(make_store "path-$spelling")
+    case $spelling in
+      trailing) spelling="$store/" ;;
+      repeated) spelling="${store//\//\/\/}///" ;;
+      relative) spelling=secrets ;;
+    esac
+    (
+      cd "${store%/*}" || exit 1
+      run_secret "$spelling" migrate --apply >/dev/null 2>&1 || true
+      run_secret "$spelling" migrate --keyed single-kv >/dev/null || exit 1
+      run_secret "$spelling" migrate --bare padded-key >/dev/null || exit 1
+      run_secret "$spelling" migrate --apply >/dev/null || exit 1
+    ) || fail "store path migration failed"
+    for value in "$BARE_PLAIN" "$BARE_PADDED" "$BARE_URL" "$KV_VALUE" ACfake0000000000 +15550000000 hobby 'postgres://u:p%40x@h/db' fakeTeam fakeId fakecron22223333; do
+      while IFS= read -r file; do
+        if grep -Fq -- "$value" "$file"; then fail "manifest tree contains value after path normalization"; fi
+      done < <(find "$store" -type f)
+    done
+    [ "$(run_secret "$store" reveal padded-key PADDED_KEY)" = "$BARE_PADDED" ] || fail "normalized store value changed"
+    [ -f "${store%/*}/secret-values/padded-key/PADDED_KEY" ] || fail "value store is not a sibling"
+  done
+  for spelling in / ////; do
+    status=0
+    run_secret "$spelling" migrate --apply >/dev/null 2>&1 || status=$?
+    expect_code 2 "$status" "root store must be refused"
+  done
+  pass "store path spellings preserve the manifest boundary"
+}
+
+test_partial_publication() {
+  local store destination mode out status
+  for mode in matching mismatch extra symlink; do
+    store=$(make_store "partial-$mode")
+    destination="${store%/*}/secret-values/vercel-token"
+    mkdir -p "$destination"
+    printf '%s' "$BARE_PLAIN" > "$destination/VERCEL_TOKEN"
+    case $mode in
+      mismatch) printf '%s' "$KV_VALUE" > "$destination/VERCEL_TOKEN" ;;
+      extra) touch "$destination/.extra" ;;
+      symlink)
+        rm "$destination/VERCEL_TOKEN"
+        ln -s "$store/vercel-token" "$destination/VERCEL_TOKEN"
+        ;;
+    esac
+    cp "$store/vercel-token" "$TMP_ROOT/legacy-before"
+    cp -RP "$destination" "$TMP_ROOT/published-$mode"
+    status=0
+    out=$(run_secret "$store" migrate --bare vercel-token 2>&1) || status=$?
+    if [ "$mode" = matching ]; then
+      expect_code 0 "$status" "matching partial publication must resume"
+      [ "$(run_secret "$store" reveal vercel-token VERCEL_TOKEN)" = "$BARE_PLAIN" ] || fail "resumed value changed"
+      cmp -s "$destination/VERCEL_TOKEN" "$TMP_ROOT/published-$mode/VERCEL_TOKEN" || fail "published bytes changed"
+      if grep -Fq "$BARE_PLAIN" "$store/vercel-token"; then fail "legacy value remains after resume"; fi
+      run_secret "$store" migrate --bare vercel-token >/dev/null || fail "resumed migration is not idempotent"
+    else
+      expect_code 1 "$status" "conflicting publication must refuse"
+      assert_contains "$out" "published values conflict for credential vercel-token" "conflict must identify credential"
+      cmp -s "$store/vercel-token" "$TMP_ROOT/legacy-before" || fail "conflict changed legacy file"
+      diff -rq "$destination" "$TMP_ROOT/published-$mode" >/dev/null || fail "conflict changed published files"
+    fi
+  done
+  pass "partial publication resumes only for identical values"
+}
+
+test_store_path_spellings
+test_partial_publication
+
 test_quoted_comments
 test_incident_pattern_still_leaks_a_raw_bare_file
 test_list_emits_names_only
