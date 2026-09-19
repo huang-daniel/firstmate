@@ -504,35 +504,32 @@ The [Claude adapter reference](../.agents/skills/harness-adapters/references/har
 
 ## Credential store (config/secrets)
 
-The optional local, gitignored `config/secrets` directory holds this home's credentials, one file per credential, and may nest one level for per-client credentials.
-[`bin/fm-secret.sh`](../bin/fm-secret.sh) is the only supported way to read it, and its header owns the file format, the exact commands, and the shape rules.
+The optional local, gitignored `config/secrets/` directory holds reference-only manifests, one per credential.
+Each v2 manifest starts with `# fm-secret v2`, followed by one bare KEY name per line, with no assignments, paths, or values.
+Values live separately in `config/secret-values/<credential>/<KEY>`, exactly one value per file, with 0600 files and 0700 directories.
+Generic inspection of migrated manifests cannot disclose credential values.
+Both stores are local and are not inherited.
 
-Never inspect a file in this directory with a generic text command.
-The store grew two file shapes: `KEY=value` lines, and a single unlabelled value with no key at all.
-A key-listing command shaped like `grep -o '^[A-Za-z_][A-Za-z0-9_]*' <file>` prints key names against the first shape and prints the secret itself against the second, so the careful-looking inspection is the one that leaks.
-Two agents ran exactly that command against an unlabelled-value file on 2026-09-19 and each printed a live API token, hours apart, each believing it was listing key names.
-
-Three commands replace every ad hoc read:
+Use [`bin/fm-secret.sh`](../bin/fm-secret.sh) for credential access:
 
 | Command | What it emits |
 | --- | --- |
-| `fm-secret.sh list` | credential names in the store; it never opens a credential |
-| `fm-secret.sh names <credential>` | key names, or the reference name derived from the filename; it cannot emit a value |
-| `fm-secret.sh reveal <credential> <key>` | exactly one value, on stdout |
+| `fm-secret.sh list` | credential names without opening files |
+| `fm-secret.sh names <credential>` | manifest key names |
+| `fm-secret.sh reveal <credential> <KEY>` | one explicitly selected value, followed by a newline |
+| `fm-secret.sh export <credential>` | shell-quoted assignments for an explicit credential read |
 
-Obtaining a value is a separate, explicitly named act, so a call site that reads a secret is distinguishable at a glance from one that only inspects what exists.
-`names` and `reveal` both work whatever shape a credential uses, so a caller never needs to know which one it is; that knowledge requirement was itself part of the trap.
+Use `eval "$(bin/fm-secret.sh export twilio)"` instead of sourcing a credential file.
+Export writes values only to stdout; keep its output out of logs.
 
-`fm-secret.sh migrate` reports what the store needs, and `migrate --apply` performs it.
-Migration writes a `# fm-secret v1` marker as each file's first content line and puts every value on a `KEY=value` line, so a migrated file still `source`s correctly and an already-keyed file is otherwise unchanged.
-A file holding one unlabelled value gains the key derived from its filename: uppercased, with every character outside `[A-Z0-9_]` replaced by `_`, so `vercel-token` becomes `VERCEL_TOKEN`.
-Values survive the rewrite byte for byte; each rewrite is proved to read back identically before it replaces anything, and a credential that fails that proof is left untouched.
-
-Migration refuses to guess one case.
-A file holding exactly one content line that is itself key-shaped could be a real `KEY=value` pair or an unlabelled value that reads like one, because a base64 secret ending in `=` padding satisfies the same pattern.
-Guessing wrong would either corrupt the value or mark an unlabelled secret as keyed, which would make the marker lie and carry the leak past migration.
-Those are reported as `AMBIGUOUS` and changed only after the operator declares the shape with `fm-secret.sh migrate --keyed <credential>` or `--bare <credential>`.
-`names` refuses the same case for the same reason, and says which declaration resolves it.
+`migrate` reports pending work and `migrate --apply` replaces legacy files with manifests after writing and byte-comparing the separate value files.
+The manifest is atomically replaced only after values are ready; repeated migration leaves v2 credentials unchanged.
+A failed publication leaves the legacy credential unchanged.
+Legacy KEY=value files and bare single-line values remain readable through the accessor until migrated.
+Never inspect unmigrated files with generic text commands: a key-listing pattern can emit a bare secret.
+A single key-shaped legacy line remains ambiguous and requires `migrate --keyed <credential>` or `migrate --bare <credential>`; `names` refuses it.
+Bare values receive a key derived from the filename, uppercased with punctuation replaced by underscores and an underscore prepended to a leading digit.
+Quoted legacy values support trailing comments without evaluating shell code.
 
 Regression coverage for both file shapes, including the `grep` above run against an unlabelled-value fixture, is in [`tests/fm-secret.test.sh`](../tests/fm-secret.test.sh); its fixtures are synthetic values that resemble credentials without being any.
 

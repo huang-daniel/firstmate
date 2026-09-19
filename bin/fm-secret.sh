@@ -1,72 +1,4 @@
 #!/usr/bin/env bash
-# Named accessor for this home's private credential store, config/secrets.
-#
-# Usage:
-#   fm-secret.sh list                         credential names held in the store
-#   fm-secret.sh names <credential>           key names, or the reference name, inside one credential
-#   fm-secret.sh reveal <credential> <key>    exactly one value, on stdout
-#   fm-secret.sh migrate [--apply]            report, or perform, the store migration
-#   fm-secret.sh migrate --keyed <credential> declare one ambiguous credential a KEY=value file
-#   fm-secret.sh migrate --bare <credential>  declare one ambiguous credential a single unlabelled value
-#
-# WHY THIS EXISTS. The store held two file shapes: `KEY=value` lines, and a bare
-# value with no key at all. A key-listing command shaped like
-# `grep -o '^[A-Za-z_][A-Za-z0-9_]*' <file>` prints key names against the first
-# shape and prints THE SECRET ITSELF against the second. Two agents independently
-# ran that exact inspection against a bare-token file and printed a live token,
-# each believing it was performing a safe listing. The defect is the
-# representation, so the fix is a listing path that cannot emit a value whatever
-# the file holds, plus a separate, explicitly named read for the value.
-#
-# NEVER inspect a file in this store with a generic text command. `names` is the
-# only supported way to see what a credential holds and `reveal` the only
-# supported way to obtain a value.
-#
-# WHAT MAKES `list` AND `names` SAFE. `list` emits directory entry names and
-# never opens a credential. `names` decides what to print from a file's SHAPE,
-# never from a value, and has four paths:
-#   * a migrated file, whose first content line is the marker below, is
-#     enumerated by a capture anchored at line start that requires a literal `=`
-#     after the captured `[A-Za-z_][A-Za-z0-9_]*` run and keeps only that run,
-#     so no byte at or after the `=` can reach stdout;
-#   * an unmigrated file whose content is SEVERAL key-shaped lines is enumerated
-#     the same way. One unlabelled value cannot take that shape, so this is not
-#     the leaking case;
-#   * an unmigrated file holding ONE line that is not key-shaped is unlabelled.
-#     Its bytes never reach stdout at all: `names` prints the reference name
-#     derived from the FILENAME;
-#   * an unmigrated file holding ONE line that IS key-shaped could be either,
-#     and `names` refuses rather than print anything from it.
-# That last path is what closes the incident shape. A bare value ending in `=`
-# padding, such as base64, satisfies a key-shaped pattern, so an unmigrated
-# single line is never asked to prove its own shape.
-#
-# FILE FORMAT AFTER MIGRATION. The first content line is the marker. Every value
-# sits on a `KEY=value` line, so `source`-ing a migrated file still works and
-# marking an already-keyed file changes nothing else about it. A bare-value file
-# gains the key `migrate` derives from its filename: uppercased, with every
-# character outside `[A-Z0-9_]` replaced by `_`.
-#
-# WHAT MIGRATION REFUSES TO GUESS. A file holding exactly one content line that
-# is itself key-shaped could be a real `KEY=value` pair or an unlabelled value
-# that reads like one, because a base64 secret ending in `=` padding satisfies
-# the same pattern. Guessing wrong either corrupts the value or marks a bare
-# secret as keyed, which would make the marker lie and keep the leak alive past
-# migration. `migrate` reports those as AMBIGUOUS and changes nothing until the
-# operator declares the shape with `--keyed` or `--bare`.
-#
-# COMPATIBILITY. `reveal` reads both shapes and both marker states, so a caller
-# never needs to know which shape a credential uses and never needs migration to
-# have run. Values are unquoted the way `source` would: single- and double-quoted
-# values are stripped and unescaped, and an unquoted value ends at its first
-# whitespace, which is also what discards a trailing `# comment`. The single line
-# of a bare, unmigrated file is returned verbatim, because nothing sources it.
-# `reveal` writes the value followed by one newline.
-#
-# Overrides for tests and specialized setups: FM_HOME, FM_CONFIG_OVERRIDE,
-# FM_SECRETS_OVERRIDE (the store directory itself).
-#
-# Exit status: 0 success, 1 error, 2 usage, 3 the store is absent.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -75,7 +7,8 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 SECRETS="${FM_SECRETS_OVERRIDE:-$CONFIG/secrets}"
 
-MARKER='# fm-secret v1'
+VALUES="${SECRETS%/*}/secret-values"
+MARKER='# fm-secret v2'
 KEY_LINE_RE='^[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*='
 
 SECRET_LINES=()
@@ -87,6 +20,7 @@ Usage:
   fm-secret.sh list                         credential names held in the store
   fm-secret.sh names <credential>           key names, or the reference name, inside one credential
   fm-secret.sh reveal <credential> <key>    exactly one value, on stdout
+  fm-secret.sh export <credential>          shell-quoted assignments, on stdout
   fm-secret.sh migrate [--apply]            report, or perform, the store migration
   fm-secret.sh migrate --keyed <credential> declare one ambiguous credential a KEY=value file
   fm-secret.sh migrate --bare <credential>  declare one ambiguous credential a single unlabelled value
@@ -173,40 +107,56 @@ secret_content_lines() {
   done
 }
 
-# Unquote one `KEY=` right-hand side the way `source` would.
 secret_unquote() {
-  local v=$1 out='' i ch next
-  case $v in
-    "'"*)
-      v=${v#\'}
-      case $v in *"'") v=${v%\'} ;; esac
-      printf '%s' "${v//\'\\\'\'/\'}"
-      return 0
-      ;;
-    '"'*)
-      v=${v#\"}
-      case $v in *'"') v=${v%\"} ;; esac
-      for (( i = 0; i < ${#v}; i++ )); do
-        ch=${v:i:1}
-        if [ "$ch" = "\\" ] && [ $((i + 1)) -lt ${#v} ]; then
-          next=${v:i+1:1}
-          if [ "$next" = '"' ] || [ "$next" = "\\" ] || [ "$next" = '$' ] || [ "$next" = '`' ]; then
-            out+=$next; i=$((i + 1)); continue
-          fi
-        fi
-        out+=$ch
-      done
-      printf '%s' "$out"
-      return 0
-      ;;
-  esac
-  # Unquoted: `source` ends the assignment at the first whitespace, which is also
-  # what discards a trailing `# comment`.
-  printf '%s' "${v%%[[:space:]]*}"
+  local v=$1 out='' quote='' i ch next tail
+  for (( i=0; i<${#v}; i++ )); do
+    ch=${v:i:1}
+    if [ "$quote" = "'" ]; then
+      if [ "$ch" = "'" ]; then quote=''; else out+=$ch; fi
+    elif [ "$ch" = "\\" ]; then
+      i=$((i + 1))
+      [ "$i" -lt "${#v}" ] || return 1
+      next=${v:i:1}
+      if [ "$quote" = '"' ] && [[ $next != [\\\"\$\`] ]]; then out+='\'; fi
+      out+=$next
+    elif [ "$ch" = "$quote" ]; then
+      quote=''
+    elif [ -z "$quote" ] && { [ "$ch" = "'" ] || [ "$ch" = '"' ]; }; then
+      quote=$ch
+    elif [ -z "$quote" ] && [[ $ch = [[:space:]] ]]; then
+      tail=$(secret_trim_left "${v:i}")
+      [[ -z $tail || $tail = '#'* ]] || return 1
+      break
+    else
+      out+=$ch
+    fi
+  done
+  [ -z "$quote" ] || return 1
+  printf '%s' "$out"
 }
 
-# Key names of a MIGRATED file. The capture requires a literal `=` and keeps only
-# the run before it, so no value byte can reach stdout.
+secret_manifest_keys() {
+  local line
+  [ "${SECRET_LINES[0]:-}" = "$MARKER" ] || return 1
+  for line in "${SECRET_LINES[@]:1}"; do
+    [[ $line =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
+  done
+  printf '%s\n' "${SECRET_LINES[@]:1}"
+}
+
+secret_value_file() {
+  local name=$1 key=$2 part path=$VALUES
+  [ ! -L "$path" ] || return 1
+  local -a parts=()
+  IFS=/ read -r -a parts <<< "$name/$key"
+  for part in "${parts[@]}"; do
+    path+=/$part
+    [ ! -L "$path" ] || return 1
+  done
+  [ -f "$path" ] || return 1
+  cat -- "$path"
+}
+
 secret_keys_at() {
   local path=$1
   sed -nE 's/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=.*/\2/p' "$path"
@@ -217,13 +167,20 @@ secret_keys_at() {
 secret_value_at() {
   local path=$1 key=$2 name=$3 line rest ref
   secret_read_lines "$path"
+  if secret_is_marked; then
+    secret_manifest_keys >/dev/null || return 1
+    for line in "${SECRET_LINES[@]:1}"; do
+      [ "$line" != "$key" ] || { secret_value_file "$name" "$key"; return $?; }
+    done
+    return 1
+  fi
   for line in ${SECRET_LINES[@]+"${SECRET_LINES[@]}"}; do
     [[ $line =~ $KEY_LINE_RE ]] || continue
     rest=$(secret_trim_left "$line")
     case $rest in export[[:space:]]*) rest=$(secret_trim_left "${rest#export}") ;; esac
     [ "${rest%%=*}" = "$key" ] || continue
     secret_unquote "${rest#*=}"
-    return 0
+    return $?
   done
   secret_content_lines
   ref=$(secret_ref_name "$name")
@@ -249,7 +206,7 @@ cmd_names() {
   path=$(secret_resolve "$name") || exit $?
   secret_read_lines "$path"
   if secret_is_marked; then
-    secret_keys_at "$path"
+    secret_manifest_keys || die "invalid credential manifest"
     return 0
   fi
   shape=$(secret_shape "$path")
@@ -326,47 +283,65 @@ secret_squote() {
   printf "'%s'" "${1//\'/\'\\\'\'}"
 }
 
-# Rewrite one credential, but only after proving every value still reads back
-# identically from the replacement. The comparison happens in this process; no
-# value is ever printed. `keyed` only prepends the marker; `bare` relabels the
-# single unlabelled line under the key derived from the filename.
-secret_apply() {
-  local path=$1 name=$2 action=$3 ref=$4 tmp dir key before after rc=0
-  dir=${path%/*}
-  tmp=$(mktemp "$dir/.fm-secret.XXXXXX") || return 1
-  chmod 0600 "$tmp" || { rm -f -- "$tmp"; return 1; }
+secret_apply() (
+  local path=$1 name=$2 action=$3 ref=$4 tmp stage key value parent part
+  umask 077
+  [ ! -L "$VALUES" ] || return 1
+  mkdir -p -- "$VALUES" || return 1
+  chmod 0700 "$VALUES" || return 1
+  parent=$VALUES
+  local -a parts=()
+  IFS=/ read -r -a parts <<< "$name"
+  for part in "${parts[@]:0:${#parts[@]}-1}"; do
+    parent+=/$part
+    [ ! -L "$parent" ] || return 1
+    mkdir -p -- "$parent" && chmod 0700 "$parent" || return 1
+  done
+  [ ! -e "$VALUES/$name" ] && [ ! -L "$VALUES/$name" ] || return 1
+  stage=$(mktemp -d "$VALUES/.fm-secret.XXXXXX") || return 1
+  tmp=$(mktemp "${path%/*}/.fm-secret.XXXXXX") || { rm -rf -- "$stage"; return 1; }
+  trap 'rm -rf -- "$stage"; rm -f -- "$tmp"' EXIT
+  printf '%s\n' "$MARKER" > "$tmp" || return 1
+  local -a keys=()
   if [ "$action" = keyed ]; then
-    { printf '%s\n' "$MARKER"; cat -- "$path"; } > "$tmp" || rc=1
+    while IFS= read -r key; do keys+=("$key"); done < <(secret_keys_at "$path")
   else
-    secret_read_lines "$path"
-    secret_content_lines
-    { printf '%s\n' "$MARKER"
-      printf '%s=%s\n' "$ref" "$(secret_squote "${SECRET_CONTENT[0]}")"
-    } > "$tmp" || rc=1
+    keys=("$ref")
   fi
-  if [ "$rc" -eq 0 ] && [ "$action" = keyed ]; then
-    # Every key the replacement exposes must reveal what the original revealed.
-    while IFS= read -r key; do
-      [ -n "$key" ] || continue
-      before=$(secret_value_at "$path" "$key" "$name") || { rc=1; break; }
-      after=$(secret_value_at "$tmp" "$key" "$name") || { rc=1; break; }
-      [ "$before" = "$after" ] || { rc=1; break; }
-    done < <(secret_keys_at "$tmp")
+  for key in "${keys[@]}"; do
+    [ ! -e "$stage/$key" ] || return 1
+    if [ "$action" = keyed ]; then
+      value=$(secret_value_at "$path" "$key" "$name") || return 1
+    else
+      secret_read_lines "$path"
+      secret_content_lines
+      value=${SECRET_CONTENT[0]}
+    fi
+    printf '%s' "$value" > "$stage/$key" || return 1
+    chmod 0600 "$stage/$key" || return 1
+    cmp -s "$stage/$key" <(printf '%s' "$value") || return 1
+    printf '%s\n' "$key" >> "$tmp" || return 1
+  done
+  chmod 0600 "$tmp" || return 1
+  mv -- "$stage" "$VALUES/$name" || return 1
+  if ! mv -f -- "$tmp" "$path"; then
+    rm -rf -- "$VALUES/$name"
+    return 1
   fi
-  if [ "$rc" -eq 0 ] && [ "$action" = bare ]; then
-    # The original line is the value by definition here, so it is compared
-    # directly: looking it up in the original would fail for exactly the
-    # key-shaped values `--bare` exists to relabel. The replacement must also
-    # expose that one derived key and nothing else.
-    before=${SECRET_CONTENT[0]}
-    after=$(secret_value_at "$tmp" "$ref" "$name") || rc=1
-    [ "$rc" -ne 0 ] || [ "$before" = "$after" ] || rc=1
-    [ "$rc" -ne 0 ] || [ "$(secret_keys_at "$tmp")" = "$ref" ] || rc=1
-  fi
-  if [ "$rc" -ne 0 ]; then rm -f -- "$tmp"; return 1; fi
-  mv -f -- "$tmp" "$path" || { rm -f -- "$tmp"; return 1; }
-  chmod 0600 "$path" || return 1
-  return 0
+)
+
+cmd_export() {
+  local name=$1 path key value output=''
+  path=$(secret_resolve "$name") || exit $?
+  secret_read_lines "$path"
+  secret_is_marked || die "migrate credential before export: $name"
+  secret_manifest_keys >/dev/null || die "invalid credential manifest"
+  for key in "${SECRET_LINES[@]:1}"; do
+    value=$(secret_value_file "$name" "$key"; rc=$?; printf '.'; exit "$rc") || die "cannot read credential value"
+    value=${value%.}
+    output+="$key=$(secret_squote "$value")"$'\n'
+  done
+  printf '%s' "$output"
 }
 
 secret_migrate_one() {
@@ -466,6 +441,7 @@ cmd_migrate() {
 case "${1:-}" in
   list) [ "$#" -eq 1 ] || { usage >&2; exit 2; }; cmd_list ;;
   names) [ "$#" -eq 2 ] || { usage >&2; exit 2; }; cmd_names "$2" ;;
+  export) [ "$#" -eq 2 ] || { usage >&2; exit 2; }; cmd_export "$2" ;;
   reveal) [ "$#" -eq 3 ] || { usage >&2; exit 2; }; cmd_reveal "$2" "$3" ;;
   migrate) [ "$#" -le 3 ] || { usage >&2; exit 2; }; cmd_migrate "${2:-}" "${3:-}" ;;
   -h|--help|help) usage ;;

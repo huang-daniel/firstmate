@@ -189,11 +189,23 @@ test_migration_closes_the_incident_for_both_shapes() {
   assert_equals 'postgres://u:p%40x@h/db' "$(run_secret "$store" reveal mixed URL)" \
     "migration changed a quoted value"
 
-  # A migrated file still sources, and the relabelled bare file now does too.
-  out=$(bash -c ". '$store/twilio'; printf '%s' \"\$AUTH_TOKEN\"")
-  assert_equals "$KV_VALUE" "$out" "a marked KEY=value file stopped sourcing correctly"
-  out=$(bash -c ". '$store/padded-key'; printf '%s' \"\$PADDED_KEY\"")
-  assert_equals "$BARE_PADDED" "$out" "a relabelled bare file does not source correctly"
+  out=$(FM_SECRETS_OVERRIDE="$store" bash -c 'eval "$("$1" export twilio)"; printf "%s" "$AUTH_TOKEN"' _ "$SECRET")
+  [ "$out" = "$KV_VALUE" ] || fail "export round trip failed"
+  out=$(FM_SECRETS_OVERRIDE="$store" bash -c 'eval "$("$1" export padded-key)"; printf "%s" "$PADDED_KEY"' _ "$SECRET")
+  [ "$out" = "$BARE_PADDED" ] || fail "bare export round trip failed"
+
+  local value file
+  for value in "$BARE_PLAIN" "$BARE_PADDED" "$BARE_URL" "$KV_VALUE" ACfake0000000000 +15550000000 hobby 'postgres://u:p%40x@h/db' fakeTeam fakeId fakecron22223333; do
+    while IFS= read -r file; do
+      if grep -Fq -- "$value" "$file"; then fail "manifest tree contains credential material"; fi
+    done < <(find "$store" -type f)
+  done
+  while IFS= read -r file; do
+    [ "$(stat -c %a "$file")" = 600 ] || fail "value file permissions incorrect"
+  done < <(find "${store%/*}/secret-values" -type f)
+  while IFS= read -r file; do
+    [ "$(stat -c %a "$file")" = 700 ] || fail "value directory permissions incorrect"
+  done < <(find "${store%/*}/secret-values" -type d)
 
   # names is now exact for what used to be the bare shape.
   assert_equals "PADDED_KEY" "$(run_secret "$store" names padded-key 2>/dev/null)" \
@@ -242,6 +254,30 @@ test_migration_refuses_to_guess_an_ambiguous_file() {
   pass "migration refuses to guess a shape it cannot tell apart without printing it"
 }
 
+test_quoted_comments() {
+  local store key expected actual
+  store=$(make_store quoted)
+  cat > "$store/quoted" <<'FIXTURE'
+SINGLE='synthetic-single' # production
+DOUBLE="synthetic-double" # production
+APOSTROPHE='synthetic'\''quote' # note
+FIXTURE
+  for key in SINGLE DOUBLE APOSTROPHE; do
+    expected=$(bash -c '. "$1"; printf "%s" "${!2}"' _ "$store/quoted" "$key")
+    actual=$(run_secret "$store" reveal quoted "$key")
+    [ "$actual" = "$expected" ] || fail "quoted legacy value differs from shell interpretation"
+    printf '%s' "$expected" > "$TMP_ROOT/expected-$key"
+  done
+  run_secret "$store" migrate --keyed quoted >/dev/null || fail "quoted migration failed"
+  for key in SINGLE DOUBLE APOSTROPHE; do
+    cmp -s "$TMP_ROOT/expected-$key" "${store%/*}/secret-values/quoted/$key" || fail "migration changed independently extracted bytes"
+  done
+  actual=$(FM_SECRETS_OVERRIDE="$store" bash -c 'eval "$("$1" export quoted)"; printf "%s" "$APOSTROPHE"' _ "$SECRET")
+  [ "$actual" = "$(cat "$TMP_ROOT/expected-APOSTROPHE")" ] || fail "quoted export failed"
+  pass "quoted comments and export preserve independently extracted values"
+}
+
+test_quoted_comments
 test_incident_pattern_still_leaks_a_raw_bare_file
 test_list_emits_names_only
 test_names_emits_no_secret_material_for_either_shape
