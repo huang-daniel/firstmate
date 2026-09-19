@@ -218,7 +218,8 @@ Which area a piece of work belongs to is a judgement, so firstmate makes it and 
 When an issue's scope moves into another area, firstmate updates the field.
 
 Blank is reserved for work whose area is genuinely open, and it is never quiet: firstmate reports an unclassified card every cycle until an area is recorded, so a blank field is a question waiting for you rather than something that stays blank by default.
-The one card that starts out blank on its own is work firstmate dispatched that nobody had placed on the board, which the bridge files so the roadmap is complete and then keeps reporting until it is classified.
+Automatic placement during dispatch uses the classification firstmate supplies to `fm-spawn.sh` (see its header for the flags).
+If none is supplied on a classifying board, dispatch still succeeds but reports that placement was skipped, so firstmate can place the card deliberately with its area stated.
 
 Configuring this adds no board reads and no extra writes.
 Firstmate already reads the whole board once a cycle and that read carries every field each card holds, and setting a card's column and its area is one request rather than two.

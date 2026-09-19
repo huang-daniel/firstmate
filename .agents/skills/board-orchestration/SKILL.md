@@ -161,7 +161,8 @@ A blank card is reported by every cycle as an `unclassified` line, so it is a qu
 It is `mark` for this field in every respect, including that it degrades to a stale board the next cycle retries.
 
 A programme is not classified; its children are the work and each carries its own area.
-A card firstmate dispatched without placing it first arrives unclassified, because the dispatch has no view of the area; classify it when the cycle reports it.
+For automatic card placement during dispatch, pass the classification to `fm-spawn.sh` using its caller-supplied classification flags (see its header).
+Without that choice on a classifying board, dispatch succeeds but reports skipped placement; place the card deliberately with its area stated in the same call.
 
 ## Programmes and their children
 

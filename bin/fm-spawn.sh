@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--area <name> | --unclassified]
 #        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
+#   --area <name> or --unclassified states the classification for automatic
+#   ship card placement. On a classifying board, omission skips placement with
+#   a warning while dispatch succeeds. --unclassified is for genuine ambiguity.
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
 #   per task at intake (AGENTS.md section 7); data/projects.md holds the captain's
@@ -219,7 +222,7 @@
 # Batch dispatch: pass one or more `id=repo` pairs instead of a single <id> <project>, e.g.
 #     fm-spawn.sh fix-a-k3=projects/foo add-b-q7=projects/bar [--scout]
 #   Each pair re-execs this script in single-task mode, so the single path stays the only
-#   source of truth; shared --scout/--harness/--model/--effort/--backend/--mode/--yolo
+#   source of truth; shared --scout/--harness/--model/--effort/--backend/--mode/--yolo/--area/--unclassified
 #   applies to every pair. A ship batch therefore carries one delivery contract, and each
 #   pair still checks it against its own brief; a batch spanning modes is two invocations.
 #   If config/crew-dispatch.json exists, shared --harness is required for crewmate
@@ -492,6 +495,7 @@ KIND_SET=0
 HARNESS_ARG=
 MODEL=
 EFFORT=
+BOARD_CLASSIFICATION_ARGS=()
 BACKEND_ARG=
 MODE=
 YOLO=
@@ -515,6 +519,7 @@ for a in "$@"; do
       harness) HARNESS_ARG=$a; HARNESS_SET=1 ;;
       model) MODEL=$a; MODEL_SET=1 ;;
       effort) EFFORT=$a; EFFORT_SET=1 ;;
+      area) BOARD_CLASSIFICATION_ARGS+=(--area "$a") ;;
       backend) BACKEND_ARG=$a; BACKEND_SET=1 ;;
       mode) MODE=$a; MODE_SET=1 ;;
       yolo) YOLO=$a; YOLO_SET=1 ;;
@@ -532,6 +537,9 @@ for a in "$@"; do
     --harness=*) HARNESS_ARG=${a#--harness=}; HARNESS_SET=1 ;;
     --model) want_value=model ;;
     --model=*) MODEL=${a#--model=}; MODEL_SET=1 ;;
+    --area) want_value=area ;;
+    --area=*) BOARD_CLASSIFICATION_ARGS+=(--area "${a#--area=}") ;;
+    --unclassified) BOARD_CLASSIFICATION_ARGS+=(--unclassified) ;;
     --effort) want_value=effort ;;
     --effort=*) EFFORT=${a#--effort=}; EFFORT_SET=1 ;;
     --backend) want_value=backend ;;
@@ -1165,6 +1173,7 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   [ -z "$HARNESS_ARG" ] || shared_args+=(--harness "$HARNESS_ARG")
   [ -z "$MODEL" ] || shared_args+=(--model "$MODEL")
   [ -z "$EFFORT" ] || shared_args+=(--effort "$EFFORT")
+  shared_args+=("${BOARD_CLASSIFICATION_ARGS[@]}")
   [ -z "$BACKEND_ARG" ] || shared_args+=(--backend "$BACKEND_ARG")
   # One delivery contract applies to every pair in a batch, exactly like the shared
   # harness. Each pair still re-validates it against its own brief, so a batch
@@ -4152,21 +4161,19 @@ SPAWN_META_LOCK_HELD=0
 # dispatch - a card that does not land is left stale for the next poll to
 # reconcile.
 spawn_reflect_on_board() {
-  local project board_sh="$FM_ROOT/bin/fm-board.sh"
+  local project board board_sh="$FM_ROOT/bin/fm-board.sh"
   [ "$KIND" = ship ] || return 0
   [ -x "$board_sh" ] || return 0
   project=$(basename "$PROJ_ABS")
-  [ -n "$(FM_HOME="$FM_HOME" "$board_sh" boards "$project" 2>/dev/null)" ] || return 0
+  board=$(FM_HOME="$FM_HOME" "$board_sh" boards "$project" 2>/dev/null)
+  [ -n "$board" ] || return 0
   if ! FM_HOME="$FM_HOME" "$board_sh" lookup "$ID" >/dev/null 2>&1; then
-    # This is the safety net for a task nobody placed deliberately, so there is
-    # no classification to state: a dispatch has no view of which area the work
-    # belongs to, and a guess here would be a judgement made by the wrong thing.
-    # `--unclassified` says exactly that, and the board adapter then names the
-    # card every cycle until firstmate classifies it - which is what keeps a
-    # blank card a signal rather than something that quietly stays blank. A
-    # board with no classification field ignores the flag's absence entirely.
+    if [ "${#BOARD_CLASSIFICATION_ARGS[@]}" -eq 0 ] && [ "${board##* classify=}" != - ]; then
+      echo "warning: board placement skipped for $ID: $project requires a caller-stated --area <name> or deliberate --unclassified; dispatch continues" >&2
+      return 0
+    fi
     FM_HOME="$FM_HOME" "$board_sh" place "$project" "$ID" "$ID" \
-      "Dispatched by firstmate as task $ID." --unclassified >&2 || true
+      "Dispatched by firstmate as task $ID." "${BOARD_CLASSIFICATION_ARGS[@]}" >&2 || true
   fi
   FM_HOME="$FM_HOME" "$board_sh" mark "$ID" in-progress >&2 || true
   return 0

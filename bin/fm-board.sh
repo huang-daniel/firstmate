@@ -117,11 +117,9 @@
 # The two flags are not symmetric on a board that configures no such field.
 # `--area` names a field that board does not have, so it is refused.
 # `--unclassified` states that no classification is being given, which is simply
-# true there, so it is accepted and does nothing - which is what lets a caller
-# that cannot know whether a board classifies anything state it unconditionally.
-# The dispatch reflection in bin/fm-spawn.sh is that caller: it files a card for
-# work nobody placed deliberately and has no view of which area that work
-# belongs to, so it says so and leaves the `unclassified` record to carry it.
+# true there, so it is accepted and does nothing.
+# Dispatch passes the caller's classification through; if none is stated for a
+# classifying board, it reports skipped placement and still launches the task.
 #
 # `classify` changes the value afterwards, which is what an issue whose scope has
 # moved into another area needs, and is also how a divergence on this field is
@@ -815,14 +813,12 @@ links_find() {
 }
 
 # links_put <project> <issue> <task> <desired> <synced> <pr> <pr_synced>
-#           [<area> <area_synced>]
+#           <area> <area_synced>
 # Atomically rewrites the record file, replacing any row for the same issue.
-# The classification pair defaults to the placeholder, so the one caller that
-# writes a row for work it has no classification for says nothing rather than
-# passing two placeholders every time.
 links_put() {
+  [ "$#" -eq 9 ] || die "links_put requires both classification arguments"
   local project=$1 issue=$2 task=$3 desired=$4 synced=$5 pr=$6 pr_synced=$7
-  local area=${8:--} area_synced=${9:--}
+  local area=$8 area_synced=$9
   local tmp r_project r_issue r_task r_desired r_synced r_pr r_pr_synced
   local r_area r_area_synced
   mkdir -p "$DATA" || die "cannot create $DATA" 1
@@ -1751,9 +1747,7 @@ bp_column_state() {
 # A board with no classification field configured has nothing to classify into,
 # so `--area` there is a caller believing in a field the board does not have and
 # is refused. `--unclassified` is not: it states the absence of a classification,
-# which is simply true on such a board, so a caller that cannot know whether this
-# board classifies anything - the dispatch reflection in bin/fm-spawn.sh - can
-# state it unconditionally and stay correct either way.
+# which is simply true on such a board.
 #
 # The answer is left in BOARD_AREA rather than printed. A refusal here has to
 # stop the command, and `die` inside a command substitution exits only that
@@ -2873,7 +2867,8 @@ poll_board() {
       # move, because `pr` promised the next cycle would reconcile it.
       if [ "$pr" != - ] && [ "$pr_synced" != 1 ]; then
         if board_comment "$canonical" "Working PR: $pr"; then
-          links_put "$project" "$canonical" "$task" "$desired" "$synced" "$pr" 1
+          links_put "$project" "$canonical" "$task" "$desired" "$synced" "$pr" 1 \
+            "$area" "$area_synced"
           printf 'synced %s %s %s %s\n' "$project" "$canonical" "$task" "$pr"
         else
           printf 'stale %s %s %s %s\n' "$project" "$canonical" "$task" "$pr"
