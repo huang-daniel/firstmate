@@ -85,6 +85,7 @@ config/boards   optional project board coordinates, one stanza per project; LOCA
 config/wedge-alarm  optional away-mode wedge-alarm active-alert directives; LOCAL, gitignored; absent means auto (macOS Notification Center when available); see docs/wedge-alarm.md
 config/watched-tools.json  optional list of the tools this home depends on, read by the update check armed with bin/fm-tool-update-check.sh; LOCAL, gitignored, firstmate-maintained but human-editable, and NOT inherited by secondmate homes; see docs/configuration.md "Watched tool updates"
 config/x-mode.env    generated Relay watcher cadence; LOCAL, gitignored; source before arming watcher when present
+config/secrets/  this home's credentials, one file per credential; LOCAL, gitignored, and not inherited. NEVER read one with a generic text command: the store holds both `KEY=value` files and files holding a single unlabelled value, and a key-listing pattern such as `grep -o '^[A-Za-z_][A-Za-z0-9_]*'` prints the secret itself against the second shape. bin/fm-secret.sh is the only supported read - `list` and `names` to inspect, `reveal` to obtain one value; see docs/configuration.md "Credential store"
 data/                personal fleet records; LOCAL, gitignored as a whole
   backlog.md         task queue, dependencies, history
   captain.md         this home's domain-local captain preferences and working style; LOCAL, gitignored, canonical even if harness memory mirrors it, and updated with inspect-then-update
