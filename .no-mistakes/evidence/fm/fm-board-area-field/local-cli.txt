@@ -1,0 +1,30 @@
+$ fm-board.sh poll
+exit=0
+
+$ fm-board.sh boards isolated
+board isolated isolated-test/1 repo=isolated-test/app label=firstmate mention=- assignee=- field=Status columns=Todo|In Progress|Done processed=- queued=- big-picture=off classify=Area
+exit=0
+
+$ fm-board.sh place isolated test-task Test
+error: board "isolated" classifies its cards in the "Area" field, so state the area with --area <name>, or --unclassified when the classification is genuinely ambiguous
+exit=2
+
+$ fm-board.sh import isolated https://github.com/isolated-test/app/issues/1 test-task
+error: board "isolated" classifies its cards in the "Area" field, so state the area with --area <name>, or --unclassified when the classification is genuinely ambiguous
+exit=2
+
+$ fm-board.sh place isolated test-task Test --area Platform --unclassified
+error: --area and --unclassified contradict each other; state one
+exit=2
+
+$ fm-board.sh boards isolated
+board isolated isolated-test/1 repo=isolated-test/app label=firstmate mention=- assignee=- field=Status columns=Todo|In Progress|Done processed=- queued=- big-picture=off classify=Workstream
+exit=0
+
+$ fm-board.sh boards isolated
+board isolated isolated-test/1 repo=isolated-test/app label=firstmate mention=- assignee=- field=Status columns=Todo|In Progress|Done processed=- queued=- big-picture=off classify=-
+exit=0
+
+$ fm-board.sh place isolated test-task Test --area Platform
+error: board "isolated" configures no classification field, so --area has nothing to set
+exit=2
