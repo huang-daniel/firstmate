@@ -1,0 +1,17 @@
+$ fm-board.sh boards
+exit=0
+
+$ fm-board.sh lane isolated https://github.com/example/isolated/issues/1
+error: no board configured for project "isolated" in config/boards
+exit=2
+
+$ fm-board.sh lane isolated https://github.com/example/isolated/issues/1
+error: board "isolated" configures no lane column, so it has nowhere to show a persistent lane
+exit=2
+
+$ fm-board.sh lanes
+exit=0
+
+$ fm-board.sh boards
+board isolated example/1 repo=example/isolated label=firstmate mention=- assignee=- field=Status columns=Todo|In Progress|Done processed=- queued=- big-picture=off lane=Standing lanes classify=Work area
+exit=0
