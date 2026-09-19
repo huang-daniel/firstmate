@@ -1,0 +1,24 @@
+nd, in numeric order, read and act on each, then mv each handled file to '/home/
+dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDG20HJ2MPYYCKJP7WQ4C3/.test-live-de
+livery/home/state/t1.inbox'/handled/.
+: Firstmate instruction waiting: list '/home/dev/.no-mistakes/worktrees/222d8f00
+53d8/01M2XDG20HJ2MPYYCKJP7WQ4C3/.test-live-delivery/home/state/t1.inbox'/*.msg a
+nd, in numeric order, read and act on each, then mv each handled file to '/home/
+dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDG20HJ2MPYYCKJP7WQ4C3/.test-live-de
+livery/home/state/t1.inbox'/handled/.
+: Firstmate instruction waiting: list '/home/dev/.no-mistakes/worktrees/222d8f00
+53d8/01M2XDG20HJ2MPYYCKJP7WQ4C3/.test-live-delivery/home/state/t1.inbox'/*.msg a
+nd, in numeric order, read and act on each, then mv each handled file to '/home/
+dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDG20HJ2MPYYCKJP7WQ4C3/.test-live-de
+livery/home/state/t1.inbox'/handled/.
+: Firstmate instruction waiting: list '/home/dev/.no-mistakes/worktrees/222d8f00
+53d8/01M2XDG20HJ2MPYYCKJP7WQ4C3/.test-live-delivery/home/state/t2.inbox'/*.msg a
+nd, in numeric order, read and act on each, then mv each handled file to '/home/
+dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDG20HJ2MPYYCKJP7WQ4C3/.test-live-de
+livery/home/state/t2.inbox'/handled/.
+: Firstmate instruction waiting: list '/home/dev/.no-mistakes/worktrees/222d8f00
+53d8/01M2XDG20HJ2MPYYCKJP7WQ4C3/.test-live-delivery/home/state/t1.inbox'/*.msg a
+nd, in numeric order, read and act on each, then mv each handled file to '/home/
+dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDG20HJ2MPYYCKJP7WQ4C3/.test-live-de
+livery/home/state/t1.inbox'/handled/.
+

@@ -1,0 +1,121 @@
+[
+  {
+    "args": [
+      "t1",
+      "validate once"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": "WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.\nfm-send: this exact instruction is already queued and unhandled for t1, so it collapsed onto /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDG20HJ2MPYYCKJP7WQ4C3/.test-live-delivery/home/state/t1.inbox/001.msg rather than queueing a second copy; the worker will act on it once. Pass --again to queue a deliberate repeat.\n"
+  },
+  {
+    "args": [
+      "t1",
+      "validate once"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": "WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.\nfm-send: this exact instruction is already queued and unhandled for t1, so it collapsed onto /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDG20HJ2MPYYCKJP7WQ4C3/.test-live-delivery/home/state/t1.inbox/001.msg rather than queueing a second copy; the worker will act on it once. Pass --again to queue a deliberate repeat.\n"
+  },
+  {
+    "args": [
+      "t1",
+      "--again",
+      "validate once"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": "WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.\nfm-send: steer queued for t1 at /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDG20HJ2MPYYCKJP7WQ4C3/.test-live-delivery/home/state/t1.inbox/002.msg (deliberate repeat; --again)\n"
+  },
+  {
+    "args": [
+      "t1",
+      "distinct instruction"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": "WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.\nfm-send: steer queued for t1 at /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDG20HJ2MPYYCKJP7WQ4C3/.test-live-delivery/home/state/t1.inbox/003.msg\n"
+  },
+  {
+    "args": [
+      "t1",
+      "first line\n\n  indented line\n"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": "WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.\nfm-send: steer queued for t1 at /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDG20HJ2MPYYCKJP7WQ4C3/.test-live-delivery/home/state/t1.inbox/004.msg\n"
+  },
+  {
+    "args": [
+      "t1",
+      "first line\n\n  indented line\n"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": "WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.\nfm-send: this exact instruction is already queued and unhandled for t1, so it collapsed onto /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDG20HJ2MPYYCKJP7WQ4C3/.test-live-delivery/home/state/t1.inbox/004.msg rather than queueing a second copy; the worker will act on it once. Pass --again to queue a deliberate repeat.\n"
+  },
+  {
+    "args": [
+      "t2",
+      "validate once"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": "WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.\nfm-send: steer queued for t2 at /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDG20HJ2MPYYCKJP7WQ4C3/.test-live-delivery/home/state/t2.inbox/001.msg\n"
+  },
+  {
+    "args": [
+      "t1",
+      "validate once"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": "WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.\nfm-send: steer queued for t1 at /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2XDG20HJ2MPYYCKJP7WQ4C3/.test-live-delivery/home/state/t1.inbox/005.msg\n"
+  },
+  {
+    "args": [
+      "t1",
+      "--again",
+      "/help"
+    ],
+    "exit": 1,
+    "stdout": "",
+    "stderr": "WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.\nerror: --again applies only to a steer that rides the durable inbox; this message is typed straight into the terminal, where nothing is queued and so nothing can collapse. Resend without --again.\n"
+  },
+  {
+    "args": [
+      "t1",
+      "--again",
+      "--key",
+      "Enter"
+    ],
+    "exit": 1,
+    "stdout": "",
+    "stderr": "WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.\nerror: --again cannot accompany --key; a keystroke is lifecycle control, not a queued instruction\n"
+  },
+  {
+    "args": [
+      "t1",
+      "--again",
+      "--fire-and-forget",
+      "1234567890abcdef",
+      "hello"
+    ],
+    "exit": 1,
+    "stdout": "",
+    "stderr": "WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.\nerror: --fire-and-forget requires a recorded secondmate task selector\n"
+  },
+  {
+    "persisted_records": {
+      "t1.inbox/005.msg": "schema=fm-task-inbox.v1\nat=2026-09-19T18:12:36Z\n--\nvalidate once",
+      "t1.inbox/handled/001.msg": "schema=fm-task-inbox.v1\nat=2026-09-19T18:11:36Z\n--\nvalidate once",
+      "t1.inbox/handled/004.msg": "schema=fm-task-inbox.v1\nat=2026-09-19T18:12:28Z\n--\nfirst line\n\n  indented line\n",
+      "t1.inbox/handled/002.msg": "schema=fm-task-inbox.v1\nat=2026-09-19T18:12:22Z\n--\nvalidate once",
+      "t1.inbox/handled/003.msg": "schema=fm-task-inbox.v1\nat=2026-09-19T18:12:25Z\n--\ndistinct instruction",
+      "t2.inbox/001.msg": "schema=fm-task-inbox.v1\nat=2026-09-19T18:12:33Z\n--\nvalidate once"
+    }
+  },
+  {
+    "result": "All live assertions passed; endpoint was a real tmux pane running sleep, with no transport stubs."
+  }
+]
