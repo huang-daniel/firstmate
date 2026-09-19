@@ -65,8 +65,17 @@
 # loses no commits, but the record this cleanup removes is the one
 # bin/fm-pr-merge.sh requires, so removing it after a refused merge leaves a
 # healthy pull request unmergeable through the protected path. An unreadable
-# forge, a missing forge CLI, and a head disagreeing with the recorded pr_head
-# are all unknown, and unknown refuses even under --force.
+# forge, a missing forge CLI, a missing or invalid pr_head, and a head disagreeing
+# with the recorded pr_head all refuse even under --force. This gate excludes
+# kind=scout and kind=secondmate, and applies even when the worktree is absent.
+# GitHub requires a live MERGED state and headRefOid matching pr_head; use
+# bin/fm-pr-check.sh to establish a missing GitHub head, and investigate a
+# disagreement before rebinding it. GitLab currently cannot satisfy this gate:
+# fm-pr-check.sh records no GitLab head, and teardown cannot verify one even if
+# present. Its task record is retained; content-in-default is not a substitute.
+# A PR closed without merging also retains its record, including under --force;
+# recovery for that decided outcome remains a question for the captain, not an
+# escape hatch in this gate. tests/fm-teardown.test.sh pins merge-record safety.
 # local-only projects additionally accept work merged into the local default
 # branch (firstmate performs that merge after configured approval) as a fallback
 # for the common case where there is no remote at all.
@@ -934,8 +943,7 @@ fi
 HOME_PATH=$(grep '^home=' "$META" | cut -d= -f2- || true)
 PR_URL=$(grep '^pr=' "$META" | tail -1 | cut -d= -f2- || true)
 # The head bin/fm-pr-check.sh bound to that pr= when the forge could supply one.
-# Empty is normal (a GitLab task records none), and the merge-record gate below
-# treats a recorded head as the head the merge must be verified against.
+# The merge-record gate's required-head contract is documented in the header.
 PR_HEAD_RECORDED=$(grep '^pr_head=' "$META" | tail -1 | cut -d= -f2- || true)
 # tasktmp is recorded by fm-spawn for tasks that set up a per-task temp root
 # (/tmp/fm-<id>/); absent for tasks spawned before that change, so tolerate empty.
