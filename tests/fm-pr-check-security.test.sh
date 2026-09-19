@@ -581,6 +581,7 @@ exit 0
 SH
   chmod 0700 "$dir/fakebin/tmux"
   touch "$dir/home/state/.last-watcher-beat"
+  fm_fake_gh_pr_merged "$dir/fakebin" "$expected"
   FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$BASE_PATH" \
     "$TEARDOWN" Task_A.1 --force > "$dir/teardown.out" 2> "$dir/teardown.err" \
     || fail "safe lifecycle-compatible task ID could not be torn down"
@@ -618,11 +619,14 @@ SH
       --carry-count 0 --carry-ts 1700000000 --carry-platform x --carry-max 280 \
       > "$dir/x-link.out" 2> "$dir/x-link.err" \
       || fail "path-safe legacy task ID could not link an X request"
+    mkdir "$dir/missing-worktree"
     run_merge_entry "$dir" "$id" https://github.com/o/r/pull/4 \
       > "$dir/merge.out" 2> "$dir/merge.err" \
       || fail "path-safe legacy task ID could not use the PR merge flow"
     fm_pr_poll_artifacts_valid "$dir/home/state" "$id" "$POLL" \
       || fail "path-safe legacy task ID did not publish an authenticated poll"
+    rmdir "$dir/missing-worktree"
+    fm_fake_gh_pr_merged "$dir/fakebin" "$expected"
     FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$BASE_PATH" \
       "$TEARDOWN" "$id" --force > "$dir/teardown.out" 2> "$dir/teardown.err" \
       || fail "legacy path-safe task ID could not be torn down"
@@ -1234,7 +1238,8 @@ SH
     "project=$dir/project" \
     'kind=ship' \
     'mode=local-only' \
-    'pr=https://github.com/o/r/pull/18'
+    'pr=https://github.com/o/r/pull/18' \
+    'pr_head=0123456789abcdef0123456789abcdef01234567'
   seed_canonical_poll "$dir" task-a https://github.com/o/r/pull/18
   fm_pr_poll_snapshot_capture "$dir/home/state" task-a "$POLL" \
     || fail "could not snapshot teardown receipt fixture"
@@ -1247,6 +1252,7 @@ exit 0
 SH
   chmod +x "$fakebin/tmux"
   touch "$dir/home/state/.last-watcher-beat"
+  fm_fake_gh_pr_merged "$fakebin" 0123456789abcdef0123456789abcdef01234567
   FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$BASE_PATH" \
     "$TEARDOWN" task-a --force > "$dir/teardown.out" 2> "$dir/teardown.err" \
     || fail "teardown could not finish a valid crash-left retirement receipt"

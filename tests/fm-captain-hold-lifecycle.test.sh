@@ -32,6 +32,8 @@ make_home() {  # <name>
 EOF
   fakebin=$(fm_fakebin "$home")
   fm_fake_exit0 "$fakebin" tmux treehouse no-mistakes gh gh-axi
+  # A recorded pr= must read back as merged before cleanup may remove the record.
+  fm_fake_gh_pr_merged "$fakebin"
   printf '%s\n' "$home"
 }
 
@@ -108,6 +110,8 @@ case "${1:-} ${2:-}" in
       *statusCheckRollup*)
         printf '%s\n' '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"1111111111111111111111111111111111111111","statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}'
         ;;
+      *"state,headRefOid"*)
+        printf '%s\t%s\n' MERGED 1111111111111111111111111111111111111111 ;;
       *headRefOid*) printf '%s\n' 1111111111111111111111111111111111111111 ;;
     esac
     ;;
@@ -241,6 +245,8 @@ done_keep = 10
 EOF
   fb=$(fm_fakebin "$home")
   fm_fake_exit0 "$fb" tmux treehouse no-mistakes gh gh-axi
+  # A recorded pr= must read back as merged before cleanup may remove the record.
+  fm_fake_gh_pr_merged "$fb"
   printf '%s\n' "$home|$graph/.beads"
 }
 
@@ -1290,6 +1296,8 @@ test_secondmate_hold_stays_in_authoritative_home() {
 EOF
   fakebin=$(fm_fakebin "$mate")
   fm_fake_exit0 "$fakebin" tmux treehouse no-mistakes gh gh-axi
+  # A recorded pr= must read back as merged before cleanup may remove the record.
+  fm_fake_gh_pr_merged "$fakebin"
   origin=sample-mate-review
   mkdir -p "$mate/data/$origin"
   tasks_in "$mate" add "$origin" "Investigate secondmate sample" --kind scout --repo sample --start >/dev/null
@@ -1347,6 +1355,8 @@ test_secondmate_home_publishes_holds_and_answers() {
 EOF
   fakebin=$(fm_fakebin "$mate")
   fm_fake_exit0 "$fakebin" tmux treehouse no-mistakes gh gh-axi
+  # A recorded pr= must read back as merged before cleanup may remove the record.
+  fm_fake_gh_pr_merged "$fakebin"
   channel="$parent/state/channel-mate.status"
   decision="$mate/decision.txt"
 
@@ -2704,7 +2714,7 @@ test_retained_row_artifacts_survive_captain_answers() {
   fm_write_meta "$home/state/$approved_id.meta" \
     "window=firstmate:fm-$approved_id" "endpoint_task_id=$approved_id" "worktree=$wt" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
-    "pr=$approved_pr" "spawn_gen=fixture-$approved_id"
+    "pr=$approved_pr" "pr_head=1111111111111111111111111111111111111111" "spawn_gen=fixture-$approved_id"
   printf 'done: PR %s merged\n' "$approved_pr" > "$home/state/$approved_id.status"
   run_captain "$home" hold "$approved_id" --reason "captain merge approval pending" \
     >/dev/null || fail "could not hold the approved merge"
@@ -3158,7 +3168,7 @@ test_merge_approval_releases_before_zero_done_retention() {
   fm_write_meta "$home/state/$id.meta" \
     "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$wt" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
-    "pr=$pr" "spawn_gen=fixture-$id"
+    "pr=$pr" "pr_head=1111111111111111111111111111111111111111" "spawn_gen=fixture-$id"
   printf 'done: merge ready\n' > "$home/state/$id.status"
   run_captain "$home" hold "$id" --reason "captain merge approval pending" >/dev/null \
     || fail "could not hold the zero-retention merge"
@@ -3200,7 +3210,7 @@ test_pr_merge_entrypoint_refuses_a_captain_held_task() {
   fm_write_meta "$home/state/$pr_id.meta" \
     "window=firstmate:fm-$pr_id" "endpoint_task_id=$pr_id" "worktree=$wt" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
-    "pr=$pr" "spawn_gen=fixture-$pr_id"
+    "pr=$pr" "pr_head=1111111111111111111111111111111111111111" "spawn_gen=fixture-$pr_id"
   run_captain "$home" hold "$pr_id" --reason "captain merge approval pending" >/dev/null \
     || fail "could not hold the PR entrypoint fixture"
 
@@ -3780,7 +3790,7 @@ test_released_merge_passes_the_entrypoint_and_lands() {
   fm_write_meta "$home/state/$id.meta" \
     "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$wt" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
-    "pr=$pr" "spawn_gen=fixture-$id"
+    "pr=$pr" "pr_head=1111111111111111111111111111111111111111" "spawn_gen=fixture-$id"
   printf 'done: merge ready\n' > "$home/state/$id.status"
   run_captain "$home" hold "$id" --reason "captain merge approval pending" >/dev/null \
     || fail "could not hold the released merge fixture"

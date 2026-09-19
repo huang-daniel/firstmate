@@ -360,6 +360,30 @@ SH
   done
 }
 
+# fm_fake_gh_pr_merged <fakebin> [head]
+# A gh stub in which every pull request reads back as merged at <head>.
+# bin/fm-teardown.sh refuses to clear a task whose recorded pr= it cannot read
+# back from the forge as merged, so any fixture that records a pr= and then
+# tears the task down needs a gh that answers, not one that exits silently.
+fm_fake_gh_pr_merged() {
+  local fakebin=$1 head=${2:-1111111111111111111111111111111111111111}
+  cat > "$fakebin/gh" <<SH
+#!/usr/bin/env bash
+case "\${1:-} \${2:-}" in
+  "pr view")
+    case " \$* " in
+      *"state,headRefOid,url"*) printf '%s\t%s\t%s\n' MERGED '$head' "\${3:-}" ;;
+      *"state,headRefOid"*) printf '%s\t%s\n' MERGED '$head' ;;
+      *headRefOid*) printf '%s\n' '$head' ;;
+      *state*) printf '%s\n' MERGED ;;
+    esac
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/gh"
+}
+
 # fm_fake_crash_injector <fakebin>
 # Drops an `fm-crash-inject <pid>` shim that a PATH fake calls to simulate a
 # hard crash of the process under test. It SIGKILLs <pid> and then returns only

@@ -59,6 +59,23 @@
 # A gh lookup error falls back to the content check; if that is also inconclusive,
 # teardown refuses rather than risk discarding unlanded work.
 # Uncommitted changes are never landed.
+# REFUSES SEPARATELY when the task recorded a pr= whose merge is not read back
+# from the forge, at cleanup time, as merged at the head the record expects.
+# That is a different question from the landed-work gate above: a pushed branch
+# loses no commits, but the record this cleanup removes is the one
+# bin/fm-pr-merge.sh requires, so removing it after a refused merge leaves a
+# healthy pull request unmergeable through the protected path. An unreadable
+# forge, a missing forge CLI, a missing or invalid pr_head, and a head disagreeing
+# with the recorded pr_head all refuse even under --force. This gate excludes
+# kind=scout and kind=secondmate, and applies even when the worktree is absent.
+# GitHub requires a live MERGED state and headRefOid matching pr_head; use
+# bin/fm-pr-check.sh to establish a missing GitHub head, and investigate a
+# disagreement before rebinding it. GitLab currently cannot satisfy this gate:
+# fm-pr-check.sh records no GitLab head, and teardown cannot verify one even if
+# present. Its task record is retained; content-in-default is not a substitute.
+# A PR closed without merging also retains its record, including under --force;
+# recovery for that decided outcome remains a question for the captain, not an
+# escape hatch in this gate. tests/fm-teardown.test.sh pins merge-record safety.
 # local-only projects additionally accept work merged into the local default
 # branch (firstmate performs that merge after configured approval) as a fallback
 # for the common case where there is no remote at all.
@@ -151,9 +168,10 @@
 # never left leased forever. If the treehouse return fails, teardown leaves the
 # leased home and state in place instead of hiding a still-held lease.
 # Usage: fm-teardown.sh <task-id> [--force] [--legacy-record]
-#   --force skips ordinary-task dirty and landed-work checks, skips scout report
-#   checks, and discards secondmate child work for kind=secondmate. Only use it
-#   when the captain has explicitly said to discard the work.
+#   --force skips ordinary-task dirty and landed-work checks,
+#   skips scout report checks, and discards secondmate child work for
+#   kind=secondmate. Only use it when the captain has explicitly said to discard
+#   the work.
 #   --legacy-record accepts a task record that predates the spawn_gen field:
 #   teardown then proceeds only when the recorded endpoint is confirmed dead or
 #   agent-less (bin/fm-backend.sh's recovery-grade classifier), and without
@@ -924,6 +942,9 @@ if [ "${FM_TEARDOWN_GUARD_DONE:-0}" != 1 ]; then
 fi
 HOME_PATH=$(grep '^home=' "$META" | cut -d= -f2- || true)
 PR_URL=$(grep '^pr=' "$META" | tail -1 | cut -d= -f2- || true)
+# The head bin/fm-pr-check.sh bound to that pr= when the forge could supply one.
+# The merge-record gate's required-head contract is documented in the header.
+PR_HEAD_RECORDED=$(grep '^pr_head=' "$META" | tail -1 | cut -d= -f2- || true)
 # tasktmp is recorded by fm-spawn for tasks that set up a per-task temp root
 # (/tmp/fm-<id>/); absent for tasks spawned before that change, so tolerate empty.
 TASK_TMP=$(grep '^tasktmp=' "$META" | cut -d= -f2- || true)
@@ -1390,6 +1411,84 @@ work_is_landed() {
   local branch=$1
   pr_is_merged "$branch" && return 0
   content_in_default
+}
+
+# Is the pr= this task recorded independently readable, right now, as merged at
+# the head the task expects? This asks a different question from work_is_landed:
+# not "would discarding this worktree lose commits" but "is the merge this record
+# exists to enable already done". A pushed branch answers the first question and
+# says nothing about the second, so a merge the forge REFUSED - including one it
+# refused only because it reported the mergeable state as UNKNOWN while still
+# computing - used to leave nothing standing between a healthy unmerged pull
+# request and the removal of the record bin/fm-pr-merge.sh requires.
+# Independent means read from the forge here: a local record, a status line, the
+# branch being pushed, and a prior command's output are all inadmissible.
+# Unknown is not permission. Every unreadable forge, missing forge CLI,
+# unparseable URL, and unreadable field returns non-zero exactly like an open
+# pull request does, because none of them establishes that the merge happened.
+# Sets PR_MERGE_VERIFY_READ to what was actually read, for the refusal to quote.
+PR_MERGE_VERIFY_READ=
+recorded_pr_merge_verified() {  # <pr-url> <recorded-head>
+  local url=$1 recorded_head=$2 view state head raw
+  PR_MERGE_VERIFY_READ=
+  if [ -z "$recorded_head" ]; then
+    PR_MERGE_VERIFY_READ="no expected head is recorded for this task; bind its head with bin/fm-pr-check.sh"
+    return 1
+  fi
+  if ! fm_pr_head_valid "$recorded_head"; then
+    PR_MERGE_VERIFY_READ="the expected head recorded for this task is invalid"
+    return 1
+  fi
+  if ! fm_pr_url_parse "$url"; then
+    PR_MERGE_VERIFY_READ="$url is not a canonical GitHub pull request or GitLab merge request URL, so its merge state cannot be read"
+    return 1
+  fi
+  case "$FM_PR_PROVIDER" in
+    github)
+      if ! command -v gh >/dev/null 2>&1; then
+        PR_MERGE_VERIFY_READ="gh is not on PATH, so GitHub could not be asked about $FM_PR_URL"
+        return 1
+      fi
+      if ! raw=$(gh pr view "$FM_PR_URL" --json state,headRefOid \
+          -q '.state + "\t" + .headRefOid' 2>&1); then
+        PR_MERGE_VERIFY_READ="GitHub could not be read for $FM_PR_URL: $(printf '%s\n' "$raw" | head -1)"
+        return 1
+      fi
+      # The answer is the last line: gh writes the query result there, and any
+      # notice it puts on the merged stderr stream precedes it rather than
+      # becoming the value this gate reads.
+      view=$(printf '%s\n' "$raw" | tail -1)
+      state=${view%%$'\t'*}
+      head=${view#*$'\t'}
+      if [ "$head" = "$view" ]; then
+        PR_MERGE_VERIFY_READ="GitHub returned an unreadable state/head pair for $FM_PR_URL"
+        return 1
+      fi
+      case "$state" in
+        MERGED|merged) ;;
+        *)
+          PR_MERGE_VERIFY_READ="GitHub reports $FM_PR_URL as state=${state:-unreadable}, not merged"
+          return 1 ;;
+      esac
+      if ! fm_pr_head_valid "$head"; then
+        PR_MERGE_VERIFY_READ="GitHub reports $FM_PR_URL merged but its head commit read back as \"${head:-empty}\""
+        return 1
+      fi
+      # A rebase or a later push moves the head, so a merge at some other head
+      # is not the merge this record expects. bin/fm-pr-check.sh re-reads and
+      # re-records the head, which is the ordinary way to settle a disagreement.
+      if [ "$recorded_head" != "$head" ]; then
+        PR_MERGE_VERIFY_READ="GitHub reports $FM_PR_URL merged at head $head, not at the expected head $recorded_head"
+        return 1
+      fi
+      PR_MERGE_VERIFY_READ="GitHub reports $FM_PR_URL merged at head $head"
+      return 0 ;;
+    gitlab)
+      PR_MERGE_VERIFY_READ="the GitLab forge read cannot verify the expected head $recorded_head"
+      return 1 ;;
+  esac
+  PR_MERGE_VERIFY_READ="$url names no forge this teardown can read a merge from"
+  return 1
 }
 
 # The completion links this teardown already holds locally. A scout's
@@ -3168,6 +3267,24 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ] &&
   fi
   require_orca_worktree_path_match "$ORCA_WORKTREE_ID" "$WT" || exit 1
   ORCA_PATH_MATCH_VERIFIED=1
+fi
+
+# The protected merge path (bin/fm-pr-merge.sh) reads state/<id>.meta, and this
+# cleanup removes it. So a recorded pr= whose merge is not independently readable
+# as done right now is refused here, before anything destructive runs and
+# independently of whether the worktree looks safe to discard: a pushed branch
+# proves nothing about the merge. The carve-out matches the landed-work gate's -
+# a secondmate is no backlog item and a scout's deliverable is its report, and
+# neither records a pr=.
+if [ -n "$PR_URL" ] \
+    && [ "$KIND" != secondmate ] && [ "$KIND" != scout ]; then
+  if ! recorded_pr_merge_verified "$PR_URL" "$PR_HEAD_RECORDED"; then
+    echo "REFUSED: task $ID records $PR_URL, whose merge could not be verified at cleanup time." >&2
+    printf 'merge verification: %s\n' "$PR_MERGE_VERIFY_READ" >&2
+    echo "Cleanup removes the record bin/fm-pr-merge.sh needs, so it would leave an unmerged pull request unmergeable through that path." >&2
+    echo "Establish the expected head with bin/fm-pr-check.sh $ID $PR_URL when missing; investigate any head disagreement and verify the merge with bin/fm-pr-merge.sh before retrying." >&2
+    exit 1
+  fi
 fi
 
 if teardown_owns_worktree && [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then

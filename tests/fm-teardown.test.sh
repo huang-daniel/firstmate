@@ -43,6 +43,16 @@
 #   (q4) no-mistakes + squash-merged rebased local plus extra commit -> REFUSE
 #   (q5) gh down + squash-merged stale local, content not in default -> REFUSE
 #
+# Also covers the recorded-PR merge gate, which asks a different question from
+# the landed-work matrix above: not "would this discard commits" but "is the
+# merge the record exists to enable already done". A pushed branch answers the
+# first and says nothing about the second, which is how a refused merge was
+# followed by a cleanup that removed the record bin/fm-pr-merge.sh requires.
+#   (z1) pushed branch + recorded PR still OPEN (mergeable UNKNOWN) -> REFUSE, record kept
+#   (z2) pushed branch + recorded PR, forge unreadable              -> REFUSE, record kept
+#   (z3) pushed branch + recorded PR merged at another head         -> REFUSE, record kept
+#   (z4) the (z1) shape with --force                                -> REFUSE, record kept
+#
 # Also covers backlog teardown-lock-race: a git index.lock left in the worktree by a
 # killed crew process (bin/fm-teardown.sh's teardown_treehouse_return).
 #   (r) provably-stale index.lock (old mtime, no live holder) -> lock removed, ALLOW
@@ -265,6 +275,7 @@ case "\${1:-} \${2:-}" in
   "pr view")
     case " \$* " in
       *"state,headRefOid,url"*) printf '%s\t%s\t%s\n' 'MERGED' '$head' 'https://github.com/example/repo/pull/7' ; exit 0 ;;
+      *"state,headRefOid"*) printf '%s\t%s\n' 'MERGED' '$head' ; exit 0 ;;
       *"headRefOid"*) printf '%s\n' '$head' ; exit 0 ;;
     esac
     ;;
@@ -393,6 +404,40 @@ land_equivalent_patch_on_origin_branch() {
   git -C "$case_dir/project" fetch -q origin "$branch"
   rm -rf "$tmp"
   git -C "$case_dir/project" rev-parse "refs/remotes/origin/$branch"
+}
+
+# The forge state today's incident left behind: pull request 7 is still OPEN,
+# because GitHub reported its mergeable state as UNKNOWN while still computing
+# it and bin/fm-pr-merge.sh refused the merge on that reading. Nothing here is a
+# broken pull request - it is simply one that has not merged yet.
+add_gh_pr_open_mergeable_unknown() {
+  local case_dir=$1 head=$2
+  cat > "$case_dir/fakebin/gh-axi" <<'SH'
+#!/usr/bin/env bash
+case "${1:-} ${2:-}" in
+  "pr list")
+    printf '%s\n' "count: 1 (showing first 1)" "pull_requests[1]{number,state}:" "  7,open" ; exit 0 ;;
+  "pr view")
+    printf '%s\n' "pull_request:" "  number: 7" "  state: open" "  mergeable: UNKNOWN" ; exit 0 ;;
+esac
+exit 0
+SH
+  cat > "$case_dir/fakebin/gh" <<SH
+#!/usr/bin/env bash
+case "\${1:-} \${2:-}" in
+  "pr view")
+    case " \$* " in
+      *"state,headRefOid,url"*) printf '%s\t%s\t%s\n' 'OPEN' '$head' 'https://github.com/example/repo/pull/7' ; exit 0 ;;
+      *"state,headRefOid"*) printf '%s\t%s\n' 'OPEN' '$head' ; exit 0 ;;
+      *"headRefOid"*) printf '%s\n' '$head' ; exit 0 ;;
+      *mergeable*) printf '%s\n' 'UNKNOWN' ; exit 0 ;;
+    esac
+    ;;
+esac
+echo "error: pull request not found" >&2
+exit 1
+SH
+  chmod +x "$case_dir/fakebin/gh-axi" "$case_dir/fakebin/gh"
 }
 
 # Override gh-axi so every call fails, simulating an API/network error.
@@ -708,7 +753,9 @@ test_teardown_closes_the_backlog_item_itself() {
   local case_dir out
   case_dir=$(make_case tasks-axi-close)
   write_meta "$case_dir" no-mistakes ship
-  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  append_pr_meta_for_current_head "$case_dir"
+  # A recorded PR must read back as merged before cleanup may remove the record.
+  add_gh_pr_merged_for_head "$case_dir" "$(git -C "$case_dir/wt" rev-parse HEAD)"
   seed_backlog_in_flight "$case_dir"
 
   out=$(run_teardown "$case_dir") || fail "teardown failed with a real backlog"
@@ -731,7 +778,8 @@ test_teardown_manual_backend_leaves_the_backlog_to_the_operator() {
   local case_dir out backlog_path
   case_dir=$(make_case tasks-axi-manual-optout)
   write_meta "$case_dir" no-mistakes ship
-  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  append_pr_meta_for_current_head "$case_dir"
+  add_gh_pr_merged_for_head "$case_dir" "$(git -C "$case_dir/wt" rev-parse HEAD)"
   printf '%s\n' manual > "$case_dir/config/backlog-backend"
   seed_backlog_in_flight "$case_dir"
 
@@ -853,6 +901,7 @@ test_squash_merged_pr_allows_when_head_ancestor_of_pr_head() {
   append_pr_meta_url "$case_dir"
   local_head=$(git -C "$case_dir/wt" rev-parse HEAD)
   pr_head=$(commit_tree_from_wt_head "$case_dir" "$local_head" "no-mistakes follow-up")
+  printf 'pr_head=%s\n' "$pr_head" >> "$case_dir/state/task-x1.meta"
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
 
   set +e
@@ -911,6 +960,7 @@ test_squash_merged_pr_allows_replayed_unpushed_patch() {
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   append_pr_meta_url "$case_dir"
   pr_head=$(land_equivalent_patch_on_origin_branch "$case_dir" pr-head feature.txt hello "add feature")
+  printf 'pr_head=%s\n' "$pr_head" >> "$case_dir/state/task-x1.meta"
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
 
   set +e
@@ -1153,6 +1203,7 @@ test_dirty_worktree_refuses() {
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   land_on_origin_main "$case_dir" feature.txt hello
   pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  printf 'pr_head=%s\n' "$pr_head" >> "$case_dir/state/task-x1.meta"
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
   printf '%s\n' "uncommitted edit" > "$case_dir/wt/feature.txt"
 
@@ -1175,6 +1226,7 @@ test_gh_error_and_content_absent_refuses() {
   # Real content not pushed, the PR lookup errors, and origin/main never gained the
   # content. The fail-safe must refuse rather than allow on a transient gh failure.
   wt_commit_file "$case_dir" feature.txt hello "add feature"
+  printf 'pr_head=%s\n' "$(git -C "$case_dir/wt" rev-parse HEAD)" >> "$case_dir/state/task-x1.meta"
   add_gh_axi_error "$case_dir"
 
   set +e
@@ -1185,6 +1237,157 @@ test_gh_error_and_content_absent_refuses() {
   expect_code 1 "$rc" "gh-error: teardown should refuse when the PR lookup errors and content is not landed"
   grep -q REFUSED "$case_dir/stderr" || fail "gh-error: no REFUSED line in stderr"
   pass "gh lookup error with content not in default refuses (fail-safe)"
+}
+
+# Put the worktree in the exact shape today's incident had: real committed work
+# whose branch IS pushed, so every landed-work signal is satisfied and nothing
+# looks like it would be lost, plus the pr= and pr_head= the task recorded.
+# Echoes the pushed head. Args: case_dir
+setup_recorded_pr_on_pushed_branch() {
+  local case_dir=$1
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  git -C "$case_dir/wt" push -q origin fm/task-x1
+  git -C "$case_dir/project" fetch -q origin
+  append_pr_meta_for_current_head "$case_dir"
+  git -C "$case_dir/wt" rev-parse HEAD
+}
+
+# Today's incident, reproduced end to end. A merge and a cleanup were issued
+# together; the merge was REFUSED because the forge reported the pull request's
+# mergeable state as UNKNOWN while it was still computing, and the cleanup then
+# ran anyway because the branch was pushed so nothing looked unlanded. It
+# removed the durable record bin/fm-pr-merge.sh requires, leaving a perfectly
+# healthy pull request unmergeable through the protected path. The cleanup must
+# refuse, and the record must survive.
+test_refused_merge_on_pushed_branch_keeps_the_task_record() {
+  local case_dir rc head
+  case_dir=$(make_case refused-merge-pushed)
+  write_meta "$case_dir" no-mistakes ship
+  head=$(setup_recorded_pr_on_pushed_branch "$case_dir")
+  add_gh_pr_open_mergeable_unknown "$case_dir" "$head"
+  seed_backlog_in_flight "$case_dir"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" \
+    "refused-merge-pushed: cleanup must refuse while the recorded PR has not merged"$'\n'"$(cat "$case_dir/stderr")"
+  grep -q REFUSED "$case_dir/stderr" || fail "refused-merge-pushed: no REFUSED line in stderr"
+  grep -qF 'https://github.com/example/repo/pull/7' "$case_dir/stderr" \
+    || fail "refused-merge-pushed: the refusal did not name the pull request that blocked it"
+  grep -qF 'state=OPEN' "$case_dir/stderr" \
+    || fail "refused-merge-pushed: the refusal did not report what was read from the forge"
+  assert_refusal_retained_task_state "$case_dir" refused-merge-pushed "$head"
+  [ "$(backlog_row_state "$case_dir")" = in_flight ] \
+    || fail "refused-merge-pushed: the refusal closed the backlog item anyway"
+  pass "a refused merge on a pushed branch refuses cleanup and keeps the task record"
+}
+
+# The same shape with the forge unreadable instead of answering. Unknown is not
+# permission: it is precisely the reading that caused today's incident.
+test_unreadable_forge_on_pushed_branch_keeps_the_task_record() {
+  local case_dir rc head
+  case_dir=$(make_case unknown-merge-pushed)
+  write_meta "$case_dir" no-mistakes ship
+  head=$(setup_recorded_pr_on_pushed_branch "$case_dir")
+  add_gh_axi_error "$case_dir"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" \
+    "unknown-merge-pushed: an unreadable forge must refuse cleanup"$'\n'"$(cat "$case_dir/stderr")"
+  grep -q REFUSED "$case_dir/stderr" || fail "unknown-merge-pushed: no REFUSED line in stderr"
+  grep -qF 'could not be read' "$case_dir/stderr" \
+    || fail "unknown-merge-pushed: the refusal did not report the unreadable forge"
+  assert_refusal_retained_task_state "$case_dir" unknown-merge-pushed "$head"
+  pass "an unreadable forge on a pushed branch refuses cleanup and keeps the task record"
+}
+
+# Merged "at some point" is not the merge this record expects: a rebase or a
+# later push moves the head, and the work bound to the recorded head is not what
+# landed.
+test_merge_at_an_unexpected_head_keeps_the_task_record() {
+  local case_dir rc head other_head
+  case_dir=$(make_case merged-other-head)
+  write_meta "$case_dir" no-mistakes ship
+  head=$(setup_recorded_pr_on_pushed_branch "$case_dir")
+  other_head=$(commit_tree_from_wt_head "$case_dir" "$head" "a head nobody recorded")
+  add_gh_pr_merged_for_head "$case_dir" "$other_head"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" \
+    "merged-other-head: cleanup must refuse a merge at a head the record does not expect"$'\n'"$(cat "$case_dir/stderr")"
+  grep -q REFUSED "$case_dir/stderr" || fail "merged-other-head: no REFUSED line in stderr"
+  grep -qF "not at the expected head $head" "$case_dir/stderr" \
+    || fail "merged-other-head: the refusal did not name the expected head"
+  assert_refusal_retained_task_state "$case_dir" merged-other-head "$head"
+  pass "a merge at an unexpected head refuses cleanup and keeps the task record"
+}
+
+test_forced_teardown_keeps_a_refused_merge_record() {
+  local case_dir rc head
+  case_dir=$(make_case refused-merge-forced)
+  write_meta "$case_dir" no-mistakes ship
+  head=$(setup_recorded_pr_on_pushed_branch "$case_dir")
+  add_gh_pr_open_mergeable_unknown "$case_dir" "$head"
+
+  set +e
+  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" \
+    "refused-merge-forced: --force must retain an unmerged recorded PR"$'\n'"$(cat "$case_dir/stderr")"
+  grep -q REFUSED "$case_dir/stderr" || fail "refused-merge-forced: missing refusal"
+  assert_refusal_retained_task_state "$case_dir" refused-merge-forced "$head"
+  pass "forced teardown retains a task whose recorded merge never happened"
+}
+
+test_missing_expected_head_keeps_the_task_record() {
+  local provider case_dir head rc
+  for provider in github gitlab; do
+    case_dir=$(make_case "missing-head-$provider")
+    write_meta "$case_dir" no-mistakes ship
+    head=$(setup_recorded_pr_on_pushed_branch "$case_dir")
+    sed -i.bak '/^pr_head=/d' "$case_dir/state/task-x1.meta"
+    add_gh_pr_merged_for_head "$case_dir" "$head"
+    if [ "$provider" = gitlab ]; then
+      sed -i.bak 's|https://github.com/example/repo/pull/7|https://gitlab.com/example/repo/-/merge_requests/7|' "$case_dir/state/task-x1.meta"
+      printf '#!/usr/bin/env bash
+printf "state: merged\n"
+' > "$case_dir/fakebin/glab"
+      chmod +x "$case_dir/fakebin/glab"
+    fi
+    rc=0
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+    expect_code 1 "$rc" "missing-head-$provider: cleanup must refuse"
+    grep -qF 'no expected head is recorded for this task' "$case_dir/stderr"       || fail "missing-head-$provider: missing diagnostic"
+    assert_refusal_retained_task_state "$case_dir" "missing-head-$provider" "$head"
+  done
+  pass "merged requests without expected heads retain their task records on both forges"
+}
+
+test_forced_teardown_allows_verified_merge() {
+  local case_dir head rc=0
+  case_dir=$(make_case verified-merge-forced)
+  write_meta "$case_dir" no-mistakes ship
+  head=$(setup_recorded_pr_on_pushed_branch "$case_dir")
+  add_gh_pr_merged_for_head "$case_dir" "$head"
+  printf 'dirty
+' >> "$case_dir/wt/feature.txt"
+  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "verified-merge-forced: verified merge permits forced cleanup"
+  assert_absent "$case_dir/state/task-x1.meta" "verified forced cleanup retained metadata"
+  pass "forced teardown still discards dirty work after verifying the recorded merge"
 }
 
 # Write a meta that predates the spawn_gen field entirely. Args: case_dir mode kind
@@ -1325,10 +1528,12 @@ test_legacy_record_rolls_the_stamp_back_when_the_marker_write_fails() {
   local case_dir rc before
   case_dir=$(make_case legacy-stamp-rollback)
   write_legacy_meta "$case_dir" no-mistakes ship
-  printf '%s\n' 'pr=not-a-valid-url' >> "$case_dir/state/task-x1.meta"
   seed_backlog_in_flight "$case_dir"
   wt_commit "$case_dir" "landed legacy work"
   add_fork_with_pushed_branch "$case_dir"
+  # Make the pending-close record unpublishable: its destination is not a
+  # regular file, so the close marker write fails after the legacy stamp landed.
+  mkdir -p "$case_dir/state/task-x1.backlog-close"
   before=$(cksum "$case_dir/state/task-x1.meta" | awk '{print $1, $2}')
 
   set +e
@@ -1378,10 +1583,10 @@ test_retained_legacy_stamp_still_faces_the_endpoint_gate() {
   local case_dir rc stamped
   case_dir=$(make_case legacy-stamp-retained)
   write_legacy_meta "$case_dir" no-mistakes ship
-  printf '%s\n' 'pr=not-a-valid-url' >> "$case_dir/state/task-x1.meta"
   seed_backlog_in_flight "$case_dir"
   wt_commit "$case_dir" "landed legacy work"
   add_fork_with_pushed_branch "$case_dir"
+  mkdir -p "$case_dir/state/task-x1.backlog-close"
   add_failing_truncate_perl "$case_dir"
 
   set +e
@@ -3703,6 +3908,12 @@ test_content_in_default_fallback_allows
 test_content_fallback_refreshes_stale_origin_ref
 test_dirty_worktree_refuses
 test_gh_error_and_content_absent_refuses
+test_refused_merge_on_pushed_branch_keeps_the_task_record
+test_unreadable_forge_on_pushed_branch_keeps_the_task_record
+test_merge_at_an_unexpected_head_keeps_the_task_record
+test_forced_teardown_keeps_a_refused_merge_record
+test_missing_expected_head_keeps_the_task_record
+test_forced_teardown_allows_verified_merge
 test_legacy_record_without_the_flag_refuses
 test_legacy_record_teardown_completes_when_landed_and_endpoint_dead
 test_legacy_record_teardown_refuses_unlanded_work
