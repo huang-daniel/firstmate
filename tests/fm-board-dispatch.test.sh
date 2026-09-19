@@ -52,6 +52,9 @@ kind="$1 $2"
 if [ "$kind" = "api graphql" ]; then
   case "$*" in
     *projectItems*) kind="graphql card" ;;
+    # The whole-board read names the owner exactly as the id read does, so it is
+    # matched first, on the pagination cursor only it carries.
+    *'endCursor'*) kind="graphql items" ;;
     *repositoryOwner*) kind="graphql ids" ;;
   esac
 fi
@@ -94,7 +97,14 @@ case "$kind" in
       printf '}}}'
     } | jq -r "$(gh_jq_filter "$@")"
     ;;
-  "project item-list") cat "$GH_ITEMS" ;;
+  # Already in the reduced shape the adapter's own filter produces, which this
+  # suite is allowed because fm-board.test.sh runs that filter for real. The
+  # tenth column, a card's issue state, is left off: nothing here is withdrawn,
+  # and an absent state reads as one that is not closed.
+  "graphql items")
+    printf '%s\n' '-'
+    cat "$GH_ITEMS"
+    ;;
   "issue list")
     prev=''
     repo=''
@@ -129,7 +139,7 @@ case "$kind" in
       esac
     done
     id="PVTI_card$(wc -l < "$GH_ITEMS")"
-    printf '%s\tIssue\t%s\t-\t-\t-\tcard\t-\n' "$id" "$url" >> "$GH_ITEMS"
+    printf '%s\tIssue\t%s\t-\t-\t-\tcard\t-\t-\topen\n' "$id" "$url" >> "$GH_ITEMS"
     printf '%s\n' "$id"
     ;;
   "project item-edit")

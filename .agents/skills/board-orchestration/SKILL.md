@@ -277,6 +277,9 @@ Two consequences follow, and both are reports rather than actions:
 
 - A card moved backwards out of In Progress, or moved to Done while work is unfinished, is something to tell the captain plainly - what firstmate has running, and what has not landed - not a reason to stop a worker on its own. Stop work only on the captain's word, then through `bin/fm-control.sh <task-id> interrupt` and `exit` exactly as any other stop.
 - A `cancelled` line, a card that left the board entirely while firstmate was still executing it, is reported the same way; once the captain decides, update the backlog and run `bin/fm-board.sh ack <task-id>` so it is not reported again.
+- A `closed` line is the same withdrawal said the other way: the issue is closed and its card is still sitting on the board.
+  Handle it exactly as `cancelled`, including the `ack` that stops it repeating, and tell the captain which of the two happened rather than collapsing them - under `cancelled` the card is gone, under `closed` it is still there to look at.
+  It is reported only while the work is still open; a closed issue whose task already landed is the ordinary end of that task and is never reported.
 
 Neither ever authorizes discarding unlanded work: hard rule 3 stands unchanged, so preserve the branch, report what is on it, and get an explicit captain instruction before anything is discarded.
 
@@ -289,7 +292,7 @@ This is a real security property of the design and the captain accepted it knowi
   Treat it as a board that is temporarily unavailable, let the next cycle reconcile, and never read it as work being withdrawn.
   A cycle that reported an error reconciled nothing, so never tell the captain the board is in sync on the strength of it.
 - A `truncated` line means the board filled the read's card ceiling, so a card past it was never seen.
-  Everything that read did report still stands, but no withdrawal is reported from that board on this cycle, because absence cannot be told apart from the ceiling.
+  Everything that read did report still stands, including `closed` records for visible cards, but no `cancelled` record is emitted for an unseen card, because absence cannot be told apart from the ceiling.
   Re-run `poll` for that board with a higher `--limit`, and if it stays truncated tell the captain the board has outgrown the default read.
   The ceiling belongs to that read alone: `mark`, `import`, and `promote` find a card through the issue that holds it, so a card sitting past the ceiling is still moved normally.
 - A scope edit to a card's own text mid-flight follows the lifecycle rule AGENTS.md section 7 already owns: route it to follow-up work unless it completely invalidates the work being validated.

@@ -421,17 +421,32 @@
 # board. `import` stays fleet-wide: an issue linked under any project can never
 # be imported a second time under another one.
 #
-# A card that left the board while firstmate was still executing it is reported
-# as `cancelled` until `ack` records that it was reconciled. Repeating survives a
-# missed cycle; a card that left after reaching Done is ordinary archiving and is
-# never reported. Like a divergence it is something to raise, not something this
-# adapter acts on, and neither reporting nor acknowledging one ever authorizes
+# WITHDRAWAL. A card that left the board while firstmate was still executing it
+# is reported as `cancelled` until `ack` records that it was reconciled.
+# Repeating survives a missed cycle; a card that left after reaching Done is
+# ordinary archiving and is never reported.
+#
+# Closing the issue while its card stays on the board is the other way the same
+# thing is said, and it is reported as `closed` on the same terms: only while the
+# work is still open, repeating until `ack`, and never for a task that already
+# landed, whose closed issue is just the ordinary end of it. It is a separate
+# record rather than a second cause of `cancelled` because the captain's two
+# actions are different and firstmate has to be able to say which one happened:
+# under `cancelled` the card is gone, under `closed` it is still sitting there.
+#
+# Withdrawal is about work firstmate holds, so intake is untouched by it: a card
+# nothing has been imported from binds no task, and there is nothing to withdraw
+# from. Whether such a card is offered is the same captain-gated question it
+# always was.
+#
+# Both are something to raise, not something this adapter acts on, exactly like a
+# divergence, and neither reporting nor acknowledging one ever authorizes
 # discarding unlanded work: hard rule 3 stands, and this adapter touches no
 # branch, worktree, or repository.
 #
 # RECORDS. Every line `poll` prints is something firstmate has to act on, which
 # is the whole of the rule about what it says. The kinds are `new`, `decompose`,
-# `divergence`, `foreign`, `cancelled`, `synced`, `stale`, `truncated`,
+# `divergence`, `foreign`, `cancelled`, `closed`, `synced`, `stale`, `truncated`,
 # `error`, and - on a board that configures a classification field -
 # `unclassified`, `classified`, `classification-stale`, and
 # `classification-divergence`; each is owned by the section above that describes
@@ -446,9 +461,13 @@
 # incidental to it, kept as an explicit opt-in for debugging.
 #
 # COST. Board and Projects work is GraphQL with its own hourly budget, and a
-# full board read inside a per-item loop is what exhausts it: one such read is
-# around a hundred points of an hourly five thousand, so a loop that made one
-# per card rate-limited the account at forty-five cards.
+# full board read inside a per-item loop is what exhausts it: the CLI's own
+# whole-board read is around a hundred points of an hourly five thousand, so a
+# loop that made one per card rate-limited the account at forty-five cards. The
+# read this file makes is the direct GraphQL one instead, measured at three
+# points for the same board (docs/verification/board-cost.md), but the rule it
+# obeys is the shape rather than the price: a read per card is refused however
+# cheap one read gets.
 #
 # Nothing here reads the board to resolve a single card. One reconciliation
 # cycle reads it exactly once, and every write that cycle then makes reuses a
@@ -518,11 +537,11 @@
 # needed here, but it renders project reads as truncated agent-readable output
 # with no machine-stable shape, while the status write needs the exact project,
 # field, and option node IDs that only the JSON surface returns - the same
-# `gh ... --format json` surface gh-axi itself calls. The two card and id reads
-# go through `gh api graphql` for the same reason, as does a write that sets two
-# fields on one card: no CLI verb asks GitHub for one issue's card, for a
-# project's id and its fields' options together, or for two field values in one
-# request.
+# `gh ... --format json` surface gh-axi itself calls. Every read here goes through
+# `gh api graphql`, as does a write that sets two fields on one card: no CLI verb
+# asks GitHub for one issue's card, for a project's id and its fields' options
+# together, for two field values in one request, or for a board's cards with each
+# card's issue state beside it.
 # `gh` also carries an embedded jq, so shaping that JSON needs no external jq
 # either. Firstmate's own conversational GitHub work stays on gh-axi. Board
 # commands need gh's `project` OAuth scope (`gh auth refresh -s project`).
@@ -1011,6 +1030,7 @@ json_string() {
 
 # The board read's columns, in order:
 #   item_id  type  issue_url  status  labels  assignees  title  body  class
+#   state
 # Every column falls back to `-` so the reader never sees an empty field.
 #
 # `class` is the configured classification field's value on that card, read from
@@ -1019,6 +1039,14 @@ json_string() {
 # column here and never another request. A board with no classification field
 # configured passes an empty key, which matches no field on any card, so the
 # column is `-` for every card and no path below ever reads it.
+#
+# `state` is the card's own issue state, `open` or `closed`, and `-` for a draft
+# card that has no issue behind it. It is the same kind of column as `class`:
+# one more value out of the one board read, never a lookup per card.
+#
+# A card whose field values did not fit one page is refused rather than read
+# short, because a status this read could not see would look exactly like a card
+# firstmate never wrote to.
 items_jq() {
   local status_key class_key class_name=${2:--}
   [ "$class_name" != - ] || class_name=''
@@ -1027,30 +1055,30 @@ items_jq() {
   cat <<JQ
 def dash: if (. == null or . == "") then "-" else . end;
 def clean: (. // "") | tostring | gsub("[\\\\t\\\\n\\\\r]+"; " ") | dash;
+def norm: (. // "") | tostring | ascii_downcase | gsub(" "; "");
 def names:
   (. // [])
   | if type == "array" then map(if type == "object" then (.name // .login // "") else tostring end) else [] end
-  | join(",") | dash;
-.items[]
+  | map(select(. != "")) | join(",") | dash;
+def value(\$key):
+  map(select((.field.name | norm) == \$key)) | (.[0].name // "") | dash;
+(.data.repositoryOwner.projectV2.items.nodes // [])[]
 | . as \$i
+| (if ((\$i.fieldValues.pageInfo.hasNextPage // false) == true)
+   then error("card field values truncated") else . end)
 | ((\$i.content // {}) | if type == "object" then . else {} end) as \$c
+| ([ (\$i.fieldValues.nodes // [])[]
+     | select(type == "object" and (((.field // {}).name // "") != "")) ]) as \$v
 | [ (\$i.id // "" | tostring | dash),
-    (\$c.type // \$i.type // "" | tostring | dash),
-    (\$c.url // \$i.url // "" | tostring | dash),
-    ( \$i | to_entries
-         | map(select((.key | ascii_downcase | gsub(" "; "")) == $status_key))
-         | (.[0].value // "")
-         | (if type == "object" then (.name // "") else tostring end)
-         | dash ),
-    ((\$c.labels // \$i.labels) | names),
-    ((\$c.assignees // \$i.assignees) | names),
-    ((\$c.title // \$i.title) | clean),
-    ((\$c.body // \$i.body) | clean),
-    ( \$i | to_entries
-         | map(select((.key | ascii_downcase | gsub(" "; "")) == $class_key))
-         | (.[0].value // "")
-         | (if type == "object" then (.name // "") else tostring end)
-         | dash )
+    (\$c.__typename // "" | tostring | dash),
+    (\$c.url // "" | tostring | dash),
+    (\$v | value($status_key)),
+    ((\$c.labels).nodes | names),
+    ((\$c.assignees).nodes | names),
+    (\$c.title | clean),
+    (\$c.body | clean),
+    (\$v | value($class_key)),
+    (\$c.state | norm | dash)
   ] | @tsv
 JQ
 }
@@ -1119,17 +1147,76 @@ card_jq() {
 JQ
 }
 
+# How many cards one page of the board read carries. GitHub caps a connection's
+# `first:` at 100, so this is that ceiling rather than a tuning choice: a limit
+# above it is walked page by page, and one at or below it is a single request.
+BOARD_ITEMS_PAGE=100
+# How many labels and assignees one card carries into the read. Both feed intake
+# triggers alone, and a card wearing more of either than this has outgrown what a
+# trigger can tell apart anyway.
+BOARD_CARD_LIST_LIMIT=50
+# GraphQL names its own variables with `$`, so this document is deliberately
+# unexpanded; the values travel beside it as `-f`/`-F` arguments.
+# shellcheck disable=SC2016
+BOARD_ITEMS_QUERY='query($owner: String!, $number: Int!, $page: Int!, $fields: Int!, $labels: Int!, $people: Int!, $endCursor: String) {
+  repositoryOwner(login: $owner) {
+    ... on ProjectV2Owner {
+      projectV2(number: $number) {
+        items(first: $page, after: $endCursor) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            id
+            content {
+              __typename
+              ... on Issue {
+                url
+                title
+                body
+                state
+                labels(first: $labels) { nodes { name } }
+                assignees(first: $people) { nodes { login } }
+              }
+              ... on PullRequest {
+                url
+                title
+                body
+                state
+                labels(first: $labels) { nodes { name } }
+                assignees(first: $people) { nodes { login } }
+              }
+              ... on DraftIssue { title body }
+            }
+            fieldValues(first: $fields) {
+              pageInfo { hasNextPage }
+              nodes {
+                ... on ProjectV2ItemFieldSingleSelectValue {
+                  name
+                  field { ... on ProjectV2SingleSelectField { name } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}'
+
 # board_items <owner> <number> <status_field> <classify_field|-> <limit> <outfile>
 # The whole-board read, and the only call in this file whose cost grows with how
 # many cards the board carries. One reconciliation cycle makes it exactly once;
 # nothing below ever reaches for it to resolve a single card.
 #
-# What this read does not carry is an issue's open or closed state: `gh project
-# item-list` answers `content` with body, number, repository, title, type, and
-# url alone. Anything needing that state for the board's own cards belongs in
-# this one read - widened here or asked for in GraphQL, which returns it beside
-# the card - and never in a per-card lookup, which is the shape the cost guard
-# exists to refuse.
+# It is GraphQL rather than `gh project item-list` for one reason: the CLI's
+# `content` carries body, number, repository, title, type, and url alone, and
+# never whether the issue is open or closed. Closure is a withdrawal signal
+# WITHDRAWAL above owns, so the state has to arrive beside the card it belongs
+# to, out of the one snapshot every other value on that card comes from. A second
+# read would answer a different instant, and a per-card lookup is the shape the
+# cost guard exists to refuse. The document asks for one page of cards with their
+# content, their labels and assignees, and every single-select field value, which
+# is everything the reader below needs and measurably cheaper than the CLI's own
+# read (docs/verification/board-cost.md).
 #
 # A container's children are the one thing this read cannot be widened to carry,
 # because they are not cards: a sub-issue anyone attached to a container need
@@ -1138,8 +1225,37 @@ JQ
 # flat read per container card, which COST above bounds.
 board_items() {
   local owner=$1 number=$2 status_field=$3 classify_field=$4 limit=$5 out=$6
-  "$GH" project item-list "$number" --owner "$owner" --limit "$limit" \
-    --format json --jq "$(items_jq "$status_field" "$classify_field")" > "$out"
+  local page raw rc=0 cursor='' next remaining=$limit filter
+  local -a args
+  filter='(.data.repositoryOwner.projectV2.items.pageInfo | if .hasNextPage then .endCursor else "-" end), ('"$(items_jq "$status_field" "$classify_field")"')'
+  raw=$(mktemp) || return 1
+  : > "$out"
+  while [ "$remaining" -gt 0 ]; do
+    page=$remaining
+    [ "$page" -le "$BOARD_ITEMS_PAGE" ] || page=$BOARD_ITEMS_PAGE
+    args=(api graphql
+      -f query="$BOARD_ITEMS_QUERY"
+      -f owner="$owner"
+      -F number="$number"
+      -F page="$page"
+      -F fields="$BOARD_FIELDS_LIMIT"
+      -F labels="$BOARD_CARD_LIST_LIMIT"
+      -F people="$BOARD_CARD_LIST_LIMIT"
+      --jq "$filter")
+    [ -z "$cursor" ] || args+=(-f endCursor="$cursor")
+    "$GH" "${args[@]}" </dev/null > "$raw" || { rc=$?; break; }
+    IFS= read -r next < "$raw"
+    sed '1d' "$raw" >> "$out"
+    remaining=$((remaining - page))
+    [ "$next" != - ] || break
+    if [ -z "$next" ] || [ "$next" = null ] || [ "$next" = "$cursor" ]; then
+      rc=1
+      break
+    fi
+    cursor=$next
+  done
+  rm -f "$raw"
+  return "$rc"
 }
 
 # --- board writes -----------------------------------------------------------
@@ -2722,7 +2838,7 @@ poll_board() {
   local board=$1 limit=$2 items=$3 all=$4
   local project owner number repo label mention assignee status_field todo in_progress done_col
   local bp_todo bp_in_progress bp_done queued processed classify_field
-  local id type url status labels assignees title body class
+  local id type url status labels assignees title body class state
   local canonical task desired synced pr pr_synced board_state count=0
   local seen_file trigger column container
   local area area_synced board_area area_owed
@@ -2747,7 +2863,7 @@ poll_board() {
   classify_field=$(printf '%s' "$board" | cut -f17)
 
   seen_file=$(mktemp) || return 1
-  while IFS=$TAB read -r id type url status labels assignees title body class; do
+  while IFS=$TAB read -r id type url status labels assignees title body class state; do
     [ -n "$id" ] || continue
     count=$((count + 1))
     canonical=$(issue_canonical "$url") || continue
@@ -2773,6 +2889,19 @@ poll_board() {
       pr_synced=$LINK_PR_SYNCED
       area=$LINK_AREA
       area_synced=$LINK_AREA_SYNCED
+
+      # WITHDRAWAL above owns the reporting contract. Skip ordinary reconciliation
+      # for retired links too: ack leaves the card in its old column, which must
+      # not turn an acknowledged closure into a repeating divergence.
+      if [ "$state" = closed ]; then
+        case "$desired" in
+          other) continue ;;
+          todo | processed | queued | in-progress)
+            printf 'closed %s %s %s %s\n' "$project" "$canonical" "$task" "$desired"
+            continue
+            ;;
+        esac
+      fi
 
       # THE CLASSIFICATION, RECONCILED EXACTLY AS THE COLUMN IS. It is read from
       # this same card, compared against what firstmate recorded, and either

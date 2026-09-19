@@ -6,9 +6,9 @@
 # the task it names. A card the captain moved is an instruction, so a sync that
 # "corrects" it back is the defect this suite is written to catch. A board write
 # that fails must degrade to a stale board instead of blocking delivery. And a
-# withdrawn card must stop the work without touching it, so the cancellation case
-# runs against a real repository with real unlanded changes and proves they
-# survive.
+# withdrawn card must stop the work without touching it, so both withdrawal cases
+# - the card pulled off the board and the issue closed under a card that stayed -
+# run against a real repository with real unlanded changes and prove they survive.
 #
 # Every board here is invented for the case at hand - different owners, project
 # numbers, labels, status fields, and column names - because the adapter is a
@@ -26,10 +26,11 @@ TMP_ROOT=$(fm_test_tmproot fm-board)
 
 # THE JQ HARNESS.
 #
-# The adapter asks GitHub for whole GraphQL documents and reduces them with two
+# The adapter asks GitHub for whole GraphQL documents and reduces them with three
 # filters it generates itself: fields_jq, which finds the project and the wanted
-# status field among every field on the board, and card_jq, which picks this
-# board's card out of every board the issue sits on. A stub that printed the
+# status field among every field on the board, card_jq, which picks this board's
+# card out of every board the issue sits on, and items_jq, which turns one page of
+# the board into one line per card. A stub that printed the
 # already-reduced answer would stand in for those filters rather than run them,
 # and both could rot to nothing while the suite stayed green - every write path
 # would then report `stale` against real GitHub forever.
@@ -65,8 +66,12 @@ TMP_ROOT=$(fm_test_tmproot fm-board)
 #     option, having named the decoy field rather than the board's own
 #   fields_jq's `.name // ""` reduced to `.name`, dropping the empty-node guard
 #     fm-board: dispatch did not move the card (missing `synced tidewheel ...`)
+#   the closed-issue withdrawal check disabled entirely
+#     fm-board: a closed issue holding queued work was not reported as withdrawn
+#   that check's desired-state gate removed, so it fires on every closed issue
+#     fm-board: closing a finished task's issue was reported as a withdrawal
 #
-# The last three fail in this suite alone, because its fixtures are the only
+# The middle three fail in this suite alone, because its fixtures are the only
 # ones configuring a board whose own field and card a decoy can be mistaken for.
 
 # new_home <name>: create an isolated firstmate home with a stub GitHub CLI.
@@ -117,6 +122,9 @@ if [ "$kind" = "api graphql" ]; then
   case "$*" in
     *updateProjectV2ItemFieldValue*) kind="graphql write" ;;
     *projectItems*) kind="graphql card" ;;
+    # The board read names the owner exactly as the id read does, so it is
+    # matched first, on the pagination cursor only it carries.
+    *'endCursor'*) kind="graphql items" ;;
     *repositoryOwner*) kind="graphql ids" ;;
   esac
 fi
@@ -132,27 +140,34 @@ if [ -n "${GH_FAIL:-}" ]; then
   esac
 fi
 case "$kind" in
-  "project item-list")
+  "graphql items")
     # The real response shape, reduced by the adapter's own filter. A board read
-    # carries every field the board sets on a card as a key named after that
-    # field, so this is where the adapter's own translation of a card's column
-    # and its classification is put under test rather than stood in for. The
-    # payload carries a decoy field key alongside them, so a selector matching
-    # everything comes away with the decoy exactly as it does above.
+    # carries every single-select field the board sets on a card as one of that
+    # card's own field values, so this is where the adapter's own translation of
+    # a card's column, its classification, and its issue state is put under test
+    # rather than stood in for. The payload carries a decoy field value beside
+    # them, so a selector matching everything comes away with the decoy exactly
+    # as it does above.
+    #
+    # A card's state is the issue's own, `open` unless the fixture closed it, and
+    # absent altogether on a card with no issue behind it - which is how GitHub
+    # answers a draft card and is the case the state column must read as `-`.
     {
-      printf '{"items":['
+      printf '{"data":{"repositoryOwner":{"projectV2":{"items":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":['
       awk -F'\t' '
         function esc(v) { gsub(/\\/, "\\\\", v); gsub(/"/, "\\\"", v); return v }
-        function names(v,   parts, n, i, out) {
-          if (v == "-" || v == "") return "[]"
+        function names(v, key,   parts, n, i, out) {
+          if (v == "-" || v == "") return "{\"nodes\":[]}"
           n = split(v, parts, ",")
-          out = "["
-          for (i = 1; i <= n; i++) out = out (i > 1 ? "," : "") "\"" esc(parts[i]) "\""
-          return out "]"
+          out = "{\"nodes\":["
+          for (i = 1; i <= n; i++) {
+            out = out (i > 1 ? "," : "") "{\"" key "\":\"" esc(parts[i]) "\"}"
+          }
+          return out "]}"
         }
-        function field(name, v) {
+        function value(name, v) {
           if (name == "" || v == "-") return ""
-          return ",\"" esc(name) "\":{\"name\":\"" esc(v) "\"}"
+          return ",{\"name\":\"" esc(v) "\",\"field\":{\"name\":\"" esc(name) "\"}}"
         }
         # The field names come from the fixture itself, read ahead of the cards.
         FILENAME == fieldsfile {
@@ -165,14 +180,24 @@ case "$kind" in
         NF == 0 { next }
         {
           if (nr++) printf ","
-          printf "{\"id\":\"%s\",\"decoyField\":{\"name\":\"decoy\"}%s%s", \
-            esc($1), field(statusname, $4), field(classname, $9)
-          printf ",\"content\":{\"type\":\"%s\",\"url\":\"%s\",\"title\":\"%s\",\"body\":\"%s\",\"labels\":%s,\"assignees\":%s}}", \
-            esc($2), esc($3), esc($7), esc($8), names($5), names($6)
+          printf "{\"id\":\"%s\",\"fieldValues\":{\"pageInfo\":{\"hasNextPage\":false},\"nodes\":[{},{\"name\":\"decoy\",\"field\":{\"name\":\"Decoy Field\"}}%s%s]}", \
+            esc($1), value(statusname, $4), value(classname, $9)
+          printf ",\"content\":{\"__typename\":\"%s\",\"url\":\"%s\",\"title\":\"%s\",\"body\":\"%s\",\"labels\":%s,\"assignees\":%s", \
+            esc($2), esc($3), esc($7), esc($8), names($5, "name"), names($6, "login")
+          # GitHub answers this enum in upper case, which is why the adapter
+          # normalizes it rather than comparing it as it arrives.
+          if ($3 != "-" && $3 != "") printf ",\"state\":\"%s\"", ($10 == "" || $10 == "-" ? "OPEN" : toupper(esc($10)))
+          printf "}}"
         }
       ' fieldsfile="$GH_FIELDS" "$GH_FIELDS" "$GH_ITEMS"
-      printf ']}'
-    } | jq -r "$(gh_jq_filter "$@")"
+      printf ']}}}}}'
+    } | jq --argjson page "$(printf '%s\n' "$@" | sed -n 's/^page=//p')"       --arg cursor "$(printf '%s\n' "$@" | sed -n 's/^endCursor=//p')" '
+      .data.repositoryOwner.projectV2.items |= (
+        ($cursor | if . == "" then 0 else tonumber end) as $start
+        | (.nodes | length) as $total
+        | .pageInfo = {hasNextPage: ($start + $page < $total), endCursor: (($start + $page) | tostring)}
+        | .nodes = .nodes[$start:($start + $page)]
+      )' | jq -r "$(gh_jq_filter "$@")"
     ;;
   "graphql ids")
     # The real response shape, reduced by the adapter's own filter. The stub
@@ -334,8 +359,10 @@ case "$kind" in
     # A real board keeps a card with no status until one is set.
     a_title=$(awk -F'\t' -v u="$a_url" '$2 == u { print $3 }' "$GH_ISSUES")
     a_labels=$(awk -F'\t' -v u="$a_url" '$2 == u { print $5 }' "$GH_ISSUES")
-    printf '%s\tIssue\t%s\t-\t%s\t-\t%s\t-\t-\n' \
-      "$a_id" "$a_url" "${a_labels:--}" "${a_title:--}" >> "$GH_ITEMS"
+    a_state=$(awk -F'\t' -v u="$a_url" '$2 == u { print $7 }' "$GH_ISSUES")
+    printf '%s\tIssue\t%s\t-\t%s\t-\t%s\t-\t-\t%s\n' \
+      "$a_id" "$a_url" "${a_labels:--}" "${a_title:--}" "${a_state:-open}" \
+      >> "$GH_ITEMS"
     printf '%s\n' "$a_id"
     ;;
   "api repos/"*)
@@ -418,15 +445,29 @@ board() {
 }
 
 # item <home> <id> <type> <url> <status> <labels> <assignees> <title> <body>
-#      [<classification>]
+#      [<classification>] [open|closed]
 # The classification defaults to blank, which is what a real board shows for a
-# card nobody has classified.
+# card nobody has classified, and the issue behind the card is open unless the
+# fixture says otherwise.
 item() {
-  local home=$1 class
+  local home=$1 class state
   shift
   class=${9:--}
+  state=${10:-open}
   set -- "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$@" "$class" >> "$home/items"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$@" "$class" "$state" \
+    >> "$home/items"
+}
+
+# close_card_issue <home> <url>: close the issue behind that card on GitHub,
+# leaving the card exactly where it is. This is the withdrawal the board itself
+# shows nothing of.
+close_card_issue() {
+  local home=$1 url=$2 tmp
+  tmp=$(mktemp)
+  awk -F'\t' -v OFS='\t' -v u="$url" '$3 == u { $10 = "closed" } { print }' \
+    "$home/items" > "$tmp"
+  mv "$tmp" "$home/items"
 }
 
 # sub_issue <home> <url> <parent> [open|closed]: an issue GitHub records as a
@@ -784,7 +825,7 @@ EOF
   log=$(gh_log "$home")
   assert_contains "$log" 'owner=harbour-collective' "the event did not resolve its own project's board"
   assert_not_contains "$log" 'personal-account' "the event reached another project's board"
-  assert_not_contains "$log" 'project item-list' "an ordinary event read a whole board"
+  assert_not_contains "$log" 'endCursor' "an ordinary event read a whole board"
   pass "only a project with a configured board is mapped, and boards never cross"
 }
 
@@ -1118,6 +1159,111 @@ test_a_completed_card_leaving_the_board_is_not_a_withdrawal() {
   pass "archiving a finished card is ordinary housekeeping, not a withdrawal"
 }
 
+# The third way the captain withdraws work, and the one the board shows nothing
+# of: the issue is closed and its card stays exactly where it was. Before this
+# was read, closing an issue reached firstmate as nothing at all.
+test_a_closed_issue_withdraws_the_work_its_card_still_shows() {
+  local home queued running out repo before after
+  home=$(new_home a_closed_issue_withdraws_the_work_its_card_still_shows)
+  ordinary_board "$home"
+  queued=https://github.com/harbour-collective/app/issues/90
+  running=https://github.com/harbour-collective/app/issues/91
+  item "$home" PVTI_q Issue "$queued" Todo firstmate - 'Queued work' -
+  item "$home" PVTI_r Issue "$running" Todo firstmate - 'Running work' -
+  board "$home" import harbourlight "$queued" fm-queued >/dev/null
+  board "$home" import harbourlight "$running" fm-running >/dev/null
+  board "$home" mark fm-running in-progress >/dev/null
+
+  # A real worktree with real unlanded work, exactly what a withdrawal must never
+  # cost however it was said.
+  repo="$home/work"
+  fm_git_init_commit "$repo"
+  git -C "$repo" checkout -q -b fm/running-work
+  printf 'half-finished\n' > "$repo/feature.txt"
+  before=$(git -C "$repo" status --porcelain)
+
+  close_card_issue "$home" "$queued"
+  close_card_issue "$home" "$running"
+  : > "$home/gh.log"
+  out=$(board "$home" poll)
+  assert_contains "$out" "closed harbourlight $queued fm-queued todo" \
+    "a closed issue holding queued work was not reported as withdrawn"
+  assert_contains "$out" "closed harbourlight $running fm-running in-progress" \
+    "a closed issue holding work in flight was not reported as withdrawn"
+  assert_not_contains "$(gh_log "$home")" 'item-edit' \
+    "withdrawal by closure triggered a board write"
+
+  after=$(git -C "$repo" status --porcelain)
+  [ "$before" = "$after" ] || fail "unlanded work changed while reporting a closed issue"
+  assert_present "$repo/feature.txt" "unlanded work was removed while reporting a closed issue"
+  git -C "$repo" rev-parse --verify -q fm/running-work >/dev/null \
+    || fail "the branch was removed while reporting a closed issue"
+
+  # It repeats until firstmate reconciles it, exactly as a card that left does,
+  # so a missed cycle cannot lose the withdrawal.
+  out=$(board "$home" poll)
+  assert_contains "$out" "closed harbourlight $running fm-running in-progress" \
+    "a closed issue stopped being reported before it was reconciled"
+
+  board "$home" ack fm-queued >/dev/null
+  board "$home" ack fm-running >/dev/null
+  out=$(board "$home" poll)
+  assert_equals "" "$out" "an acknowledged closure kept being reported"
+  out=$(board "$home" lookup "$running") \
+    || fail "the link was dropped when the issue was closed"
+  pass "a closed issue withdraws work still open, and never costs unlanded work"
+}
+
+test_a_closed_issue_whose_work_landed_is_not_a_withdrawal() {
+  local home landed out
+  home=$(new_home a_closed_issue_whose_work_landed_is_not_a_withdrawal)
+  ordinary_board "$home"
+  landed=https://github.com/harbour-collective/app/issues/95
+  item "$home" PVTI_a Issue "$landed" Todo firstmate - 'Finished work' -
+  board "$home" import harbourlight "$landed" fm-landed >/dev/null
+  board "$home" mark fm-landed 'done' >/dev/null
+
+  # The ordinary end of a task: the work merged, firstmate moved the card to
+  # Done, and closing the issue is what finishing it means. This is the case that
+  # would otherwise shout on every completed item.
+  close_card_issue "$home" "$landed"
+  out=$(board "$home" poll)
+  assert_not_contains "$out" 'closed' \
+    "closing a finished task's issue was reported as a withdrawal"
+  assert_equals "" "$out" "a settled board stopped polling quiet once an issue closed"
+  pass "a closed issue whose work already landed is the end of it, not a withdrawal"
+}
+
+test_closure_and_card_removal_are_told_apart() {
+  local home gone closed out
+  home=$(new_home closure_and_card_removal_are_told_apart)
+  ordinary_board "$home"
+  gone=https://github.com/harbour-collective/app/issues/96
+  closed=https://github.com/harbour-collective/app/issues/97
+  item "$home" PVTI_g Issue "$gone" Todo firstmate - 'Card pulled off the board' -
+  item "$home" PVTI_c Issue "$closed" Todo firstmate - 'Issue closed in place' -
+  board "$home" import harbourlight "$gone" fm-gone >/dev/null
+  board "$home" import harbourlight "$closed" fm-closed >/dev/null
+  board "$home" mark fm-gone in-progress >/dev/null
+  board "$home" mark fm-closed in-progress >/dev/null
+
+  # One card leaves the board; the other stays put with its issue closed. What
+  # firstmate tells the captain differs, so the two records must differ too.
+  : > "$home/items"
+  item "$home" PVTI_c Issue "$closed" 'In Progress' firstmate - 'Issue closed in place' \
+    - - closed
+  out=$(board "$home" poll)
+  assert_contains "$out" "cancelled harbourlight $gone fm-gone in-progress" \
+    "a card that left the board was not reported as withdrawn"
+  assert_contains "$out" "closed harbourlight $closed fm-closed in-progress" \
+    "an issue closed in place was not reported as withdrawn"
+  assert_not_contains "$out" "cancelled harbourlight $closed" \
+    "an issue closed in place was reported as a card that left the board"
+  assert_not_contains "$out" "closed harbourlight $gone" \
+    "a card that left the board was reported as a closed issue"
+  pass "which way the captain withdrew the work is what the record says"
+}
+
 # --- fail soft --------------------------------------------------------------
 
 test_a_failed_board_write_never_blocks_delivery() {
@@ -1157,7 +1303,7 @@ test_a_failed_board_read_never_blocks_the_cycle() {
   ordinary_board "$home"
   item "$home" PVTI_a Issue https://github.com/harbour-collective/app/issues/100 \
     Todo firstmate - 'Unreadable today' -
-  out=$(GH_FAIL='project item-list' board "$home" poll 2>/dev/null) && rc=0 || rc=$?
+  out=$(GH_FAIL='graphql items' board "$home" poll 2>/dev/null) && rc=0 || rc=$?
   expect_code 0 "$rc" "a board read failure stopped the cycle"
   assert_contains "$out" 'error harbourlight could not read project harbour-collective/4' \
     "the board read failure was not reported"
@@ -1197,6 +1343,28 @@ test_a_truncated_read_reconciles_nothing() {
   assert_contains "$out" 'truncated harbourlight 2' "a full page was not reported as possibly truncated"
   assert_not_contains "$out" 'cancelled' "a page boundary was mistaken for a withdrawn card"
   pass "a page boundary is never mistaken for absence"
+}
+
+test_pagination_stops_at_the_requested_limit() {
+  local home out i
+  home=$(new_home pagination_stops_at_the_requested_limit)
+  ordinary_board "$home"
+  for ((i=1; i<=301; i++)); do
+    item "$home" "PVTI_$i" Issue "https://github.com/harbour-collective/app/issues/$i"       Todo firstmate - "Card $i" -
+  done
+  board "$home" import harbourlight https://github.com/harbour-collective/app/issues/301 fm-offpage >/dev/null
+  : > "$home/calls"
+  out=$(board "$home" poll --limit 200)
+  assert_equals 2 "$(gh_calls_of "$home" 'graphql items')" "a 200-card limit fetched more than two pages"
+  assert_contains "$out" 'truncated harbourlight 200' "a full read lost its truncated signal"
+  assert_not_contains "$out" 'cancelled' "an unseen card was treated as withdrawn"
+  assert_not_contains "$out" '/issues/201 ' "the read exceeded its limit"
+  : > "$home/calls"
+  out=$(board "$home" poll --limit 101)
+  assert_equals 2 "$(gh_calls_of "$home" 'graphql items')" "a partial second page fetched extra pages"
+  assert_contains "$out" 'truncated harbourlight 101' "a partial page lost the requested ceiling"
+  assert_not_contains "$out" '/issues/102 ' "the partial page exceeded its limit"
+  pass "pagination bounds requests and preserves truncated withdrawal safety"
 }
 
 test_a_card_an_intake_filter_skips_is_not_a_withdrawal() {
@@ -1315,14 +1483,14 @@ test_a_single_card_event_never_reads_the_board() {
   : > "$home/gh.log"
   board "$home" import harbourlight "$issue" fm-crowded >/dev/null
   log=$(gh_log "$home")
-  assert_not_contains "$log" 'project item-list' "import read the whole board"
+  assert_not_contains "$log" 'endCursor' "import read the whole board"
   assert_contains "$log" '--single-select-option-id opt_processed' \
     "import did not move the card, so it had no board read to avoid"
 
   : > "$home/gh.log"
   board "$home" mark fm-crowded in-progress >/dev/null
   log=$(gh_log "$home")
-  assert_not_contains "$log" 'project item-list' "mark read the whole board"
+  assert_not_contains "$log" 'endCursor' "mark read the whole board"
   assert_contains "$log" 'number=180' "mark did not resolve the card from its own issue"
   assert_contains "$log" '--single-select-option-id opt_prog' "mark did not move the card"
 
@@ -1427,9 +1595,9 @@ test_poll_confirms_a_write_the_board_already_shows() {
 # board: a read per card seen took the large board from 5 calls to 65 while the
 # small one went to 11. That comparison alone is not enough, because a read per
 # CHANGED card costs the same on both boards, so the exact call count catches
-# that one: it went from 5 to 8 at three changed cards. And counting `project
-# item-list` alone catches a single-card verb resolving its card by paging the
-# board, which neither of the other two would see. Each of the three was
+# that one: it went from 5 to 8 at three changed cards. And counting the
+# whole-board read alone catches a single-card verb resolving its card by paging
+# the board, which neither of the other two would see. Each of the three was
 # reintroduced on purpose and confirmed to fail exactly the assertion named here.
 
 # settled_board <home> <cards>: a board of that many cards, each imported,
@@ -1476,7 +1644,7 @@ test_api_calls_do_not_grow_with_the_board() {
   # One board read, one id read for the run, one write per card that owes one.
   [ "$large_calls" = "$((k + 2))" ] || fail \
     "a cycle with $k changed cards cost $large_calls calls, not $((k + 2)): $(cat "$large/calls")"
-  [ "$(gh_calls_of "$large" 'project item-list')" = 1 ] || fail \
+  [ "$(gh_calls_of "$large" 'graphql items')" = 1 ] || fail \
     "the cycle read the board more than once"
   [ "$(gh_calls_of "$large" 'graphql ids')" = 1 ] || fail \
     "the project and field ids were resolved more than once in one cycle"
@@ -1505,7 +1673,7 @@ test_api_calls_do_not_grow_with_the_board() {
   # The card lookup, the ids, and the write itself.
   [ "$large_calls" = 3 ] || fail \
     "moving one card cost $large_calls calls, not 3: $(cat "$large/calls")"
-  [ "$(gh_calls_of "$large" 'project item-list')" = 0 ] || fail \
+  [ "$(gh_calls_of "$large" 'graphql items')" = 0 ] || fail \
     "moving one card read the whole board"
   pass "what an invocation costs is set by the work it does, never by the board's size"
 }
@@ -1663,7 +1831,7 @@ test_a_child_is_created_linked_and_never_re_imported() {
   assert_contains "$log" "--parent $parent" "the child was not created as a native sub-issue of the parent"
   assert_contains "$log" '--label firstmate' "the child did not carry the trigger label"
   assert_contains "$log" '--single-select-option-id opt_todo' "the child was not set to the ordinary Todo column"
-  assert_not_contains "$log" 'project item-list' "creating a child read the whole board"
+  assert_not_contains "$log" 'endCursor' "creating a child read the whole board"
   assert_contains "$(board "$home" lookup fm-moorings)" "$child" "the child did not record its issue-to-task link"
 
   # The next cycle sees an ordinary linked card, never new work.
@@ -1893,7 +2061,7 @@ test_a_container_costs_one_flat_read_and_never_a_board_read() {
     "a cycle over one container and forty ordinary cards read sub-issues $containers times"
   [ "$(gh_calls "$home")" = 2 ] || fail \
     "a settled cycle with one container cost more than its board read and that container's children: $(cat "$home/calls")"
-  [ "$(gh_calls_of "$home" 'project item-list')" = 1 ] || fail \
+  [ "$(gh_calls_of "$home" 'graphql items')" = 1 ] || fail \
     "reading a container's children read the board"
 
   # A second container costs one more flat read, and the ordinary cards cost none.
@@ -1942,7 +2110,7 @@ test_place_is_the_inverse_of_import() {
   log=$(gh_log "$home")
   assert_contains "$log" '--label firstmate' "the placed card did not carry the trigger label"
   assert_contains "$log" '--single-select-option-id opt_todo' "the placed card was not set to Todo"
-  assert_not_contains "$log" 'project item-list' "placing a card read the whole board"
+  assert_not_contains "$log" 'endCursor' "placing a card read the whole board"
   assert_contains "$(board "$home" lookup fm-already-mine)" "$issue" "placing did not record the link"
 
   # From here it is an ordinary board task: dispatch, PR and merge all work.
@@ -2382,7 +2550,7 @@ test_placing_work_under_a_programme_attaches_it_there() {
   log=$(gh_log "$home")
   assert_contains "$log" "--parent $parent" \
     "the follow-on work was not attached as a native sub-issue of the programme"
-  assert_not_contains "$log" 'project item-list' "placing under a programme read the whole board"
+  assert_not_contains "$log" 'endCursor' "placing under a programme read the whole board"
   assert_contains "$(board "$home" decompositions)" "fm-followon=$child" \
     "the programme's own record did not gain the child"
 
@@ -2580,10 +2748,14 @@ test_a_queued_card_firstmate_did_not_place_never_starts_work
 test_the_queued_column_does_not_exist_until_it_is_configured
 test_a_withdrawn_card_stops_the_work_without_touching_it
 test_a_completed_card_leaving_the_board_is_not_a_withdrawal
+test_a_closed_issue_withdraws_the_work_its_card_still_shows
+test_a_closed_issue_whose_work_landed_is_not_a_withdrawal
+test_closure_and_card_removal_are_told_apart
 test_a_failed_board_write_never_blocks_delivery
 test_a_failed_board_read_never_blocks_the_cycle
 test_an_empty_board_is_not_taken_as_mass_withdrawal
 test_a_truncated_read_reconciles_nothing
+test_pagination_stops_at_the_requested_limit
 test_a_card_an_intake_filter_skips_is_not_a_withdrawal
 test_an_issue_another_board_owns_is_skipped_not_re_homed
 test_an_outstanding_pr_attachment_is_retried_on_the_next_cycle
@@ -3000,7 +3172,7 @@ test_a_second_synchronized_field_costs_no_second_request() {
   # unchanged by the second field.
   [ "$classified_calls" = "$((k + 2))" ] || fail \
     "a two-field cycle with $k changed cards cost $classified_calls calls, not $((k + 2)): $(cat "$classified/calls")"
-  [ "$(gh_calls_of "$classified" 'project item-list')" = 1 ] || fail \
+  [ "$(gh_calls_of "$classified" 'graphql items')" = 1 ] || fail \
     "the classified cycle read the board more than once"
   [ "$(gh_calls_of "$classified" 'graphql ids')" = 1 ] || fail \
     "a second synchronized field resolved its ids in a second request"
@@ -3025,7 +3197,7 @@ test_a_second_synchronized_field_costs_no_second_request() {
   board "$classified" classify fm-card-1 Platform >/dev/null
   [ "$(gh_calls "$classified")" = "$(gh_calls "$plain")" ] || fail \
     "a single classification cost $(gh_calls "$classified") calls where a single move cost $(gh_calls "$plain")"
-  [ "$(gh_calls_of "$classified" 'project item-list')" = 0 ] || fail \
+  [ "$(gh_calls_of "$classified" 'graphql items')" = 0 ] || fail \
     "classifying one card read the whole board"
 
   # And a settled two-field cycle still costs its one board read and nothing
