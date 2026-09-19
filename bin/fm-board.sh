@@ -204,27 +204,23 @@
 #
 # CARDING AN ISSUE THAT IS ALREADY LINKED. The link and the card are two
 # different facts, and an issue can hold the first without the second: it was
-# linked before the board carried it, or its card was deleted by hand. Every
-# route that creates a card also creates the link, so before `card` existed such
-# an issue could not be carded at all - `import` answers an already-linked issue
-# without touching the board, by design, and `mark` refuses an issue that is not
-# a card - and the roadmap silently omitted work firstmate was running.
+# linked before the board carried it, or its card was deleted by hand.
 #
 # `card` is that route, and it is a separate verb rather than a widening of
 # `import` deliberately. `import`'s answer for an already-linked issue is
 # `already-linked` and no board call at all, which is what makes re-running it
 # safe; carding as a side effect of that no-op would be a board write the caller
-# did not ask for. `card` takes no task id and states no classification either,
+# did not ask for. `card` takes no new binding or classification,
 # so it cannot bind, rebind, or re-home anything: it reads firstmate's own record
 # and shows on the card exactly the status and area that record already holds,
 # never a default. It takes an issue URL or a task id, because the record answers
 # to both.
 #
-# What it refuses, it refuses on the terms the records already set: an issue
-# holding a container or a lane record holds no task, and exits 3 exactly as it
-# does everywhere else. A record whose state is no column this board drives is
-# refused too, naming what is missing, because a card for it could show nothing
-# the record supports.
+# An issue with no task link, including a container or lane, exits 2.
+# A conflicting container or lane record alongside a task link exits 3.
+# A record whose state is no column this board drives exits 2 before any board
+# call, naming what is missing, because a card for it could show nothing the
+# record supports.
 #
 # Repeating it is a no-op that says so. An issue already carded answers
 # `already-carded`, its card is not touched, and the ordinary cycle reconciles
@@ -356,10 +352,12 @@
 #
 # An issue holds at most one of the three records. Except for the undecomposed
 # container conversion below, writing one refuses an issue holding another:
-# `import`, `card`, and `card_ensure` refuse a lane exactly as they refuse a
+# `import` and `card_ensure` refuse a lane exactly as they refuse a
 # container, `promote`, `child-add`, `decomposed`, and `place --parent` refuse a
 # lane parent exactly as they refuse a bound one, and `lane` refuses an issue
 # that already holds a task. Every such refusal exits 3.
+# `card`'s link prerequisite and conflict refusals are owned by CARDING AN ISSUE
+# THAT IS ALREADY LINKED above.
 #
 # `lane` does accept a container record the board has merely sighted or firstmate
 # promoted and has not broken down, retiring it in the same call: nothing has
