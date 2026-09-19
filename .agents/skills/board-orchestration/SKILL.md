@@ -2,7 +2,7 @@
 name: board-orchestration
 description: >-
   Agent-only policy for bridging a configured project board and firstmate's existing backlog.
-  Load on a session-start or heartbeat cycle when a project board is configured, before judging whether a filed card is one task or a programme, before importing, promoting, or decomposing a board item, before placing existing work on a board, before reflecting a dispatch, PR, blocker, or merge onto a board, and whenever a card's status or classification disagrees with firstmate's own records or a cycle reports a card unclassified.
+  Load on a session-start or heartbeat cycle when a project board is configured, before judging whether a filed card is one task, a programme, or a persistent lane, before importing, promoting, decomposing, declaring or reversing a lane, or placing a board item, before reflecting a dispatch, PR, blocker, or merge onto a board, and whenever a card's status or classification disagrees with firstmate's own records or a cycle reports a card unclassified.
 user-invocable: false
 metadata:
   internal: true
@@ -30,7 +30,7 @@ Never place, comment on, or move work for a project the captain did not configur
 
 ## Scope
 
-The bridge may read the board's issues and cards, import new actionable items into the existing backlog, promote a filed card firstmate judges to be a programme into the container lane, break a container into linked child cards, place work firstmate already holds onto the board, move a card as firstmate's own execution events happen, attach the working PR to the originating issue, record blockers on that issue, and report a card whose status firstmate did not write.
+The bridge may read the board's issues and cards, import new actionable items into the existing backlog, promote a filed card firstmate judges to be a programme into the container lane, break a container into linked child cards, declare a filed card firstmate judges to be a standing charter a persistent lane and reverse that declaration, place work firstmate already holds onto the board, move a card as firstmate's own execution events happen, attach the working PR to the originating issue, record blockers on that issue, and report a card whose status firstmate did not write.
 
 It may not become a second execution system.
 Do not build or ask for webhook infrastructure, another daemon, another database, a second queue, continuous real-time synchronization, a separate board service, or a new orchestration layer.
@@ -63,15 +63,16 @@ Everything else on the board is deliberately invisible to intake, including draf
 
 ### Judge the card before anything binds
 
-A filed card is one of two things, and which one it is has to be settled before the card binds to anything.
-It is either one shippable task, or a programme: work too large to ship as a single task, whose children are the real work.
+A filed card is one of three things, and which one it is has to be settled before the card binds to anything.
+It is one shippable task; or a programme: work too large to ship as a single task, whose children are the real work; or a persistent lane: a standing charter that produces work continuously and is never itself finished.
 
-Settle it first because the judgement cannot be revisited afterwards.
+Settle it before spending the issue's permanent task binding.
 An issue binds to exactly one task permanently and a conflicting relink is refused rather than overwritten, so a programme internalized as one task has spent its issue's one binding on work no worker can ship, recoverable only by abandoning that issue and filing a fresh one.
 The adapter refuses a promotion after a binding for exactly that reason, so a refusal is the ordering being enforced rather than an obstacle to route around.
+It refuses a lane declaration on a bound task on the same terms; the adapter header's PERSISTENT LANES contract owns the permitted container conversion and mutual exclusions.
 
-Read the issue in full, and any linked context it names, then take exactly one of two routes: "One shippable task" immediately below, or "Promoting a filed card firstmate judges to be a programme" under "Programmes and their children".
-Never take both, and never start down the task route and switch.
+Read the issue in full, and any linked context it names, then take exactly one of three routes: "One shippable task" immediately below, "Promoting a filed card firstmate judges to be a programme" under "Programmes and their children", or "Declaring a persistent lane" under "Persistent lanes".
+Choose one route; later reconsideration of a lane follows "Reversing one" below.
 When it is genuinely unclear which one it is, ask the captain rather than binding it to find out.
 
 ### One shippable task
@@ -205,6 +206,55 @@ Use GitHub's own sub-issue relationship and nothing else: the board already surf
 
 Container reconciliation follows the PARENT STATUS contract in [`bin/fm-board.sh`](../../../bin/fm-board.sh); a failed child read must be surfaced rather than treated as a settled card.
 
+## Persistent lanes
+
+Some work the captain files is neither one task nor a programme.
+A persistent lane is a standing charter: it has no fixed child set, it produces temporary work as evidence appears for as long as the product exists, and it is never itself completed.
+Its issue stays open indefinitely as the charter, and that is the settled end state rather than a gap.
+
+Programme semantics are wrong for one in every direction, which is why this is a classification rather than a way of handling a container.
+There is no breakdown to perform, so `decomposed` would assert one that never happened - the dishonest escape, and it is not available.
+No terminal state ever arrives, so a container's derived `done` could never be reached honestly.
+Left as a container, such an issue is offered for decomposition on every cycle forever with no legitimate way to settle the offer.
+
+The lane column configuration and its removal behavior are described in [configuration](../../../docs/configuration.md#persistent-lanes).
+
+### Declaring a persistent lane
+
+Make this judgement at intake or when a `decompose` offer reveals a standing charter, before committing to a breakdown; "Judge the card before anything binds" above owns the binding boundary.
+The script provides the mechanism and never decides what is or is not a lane; it reads no title, label, age, or other proxy, so a card only becomes a lane because firstmate said so once, deliberately.
+
+Declare a lane when the card names an ongoing responsibility rather than an outcome: work that recurs for as long as the product exists, whose pieces are discovered rather than enumerated, and which no breakdown could ever exhaust.
+Do not declare one merely because a programme is large, long-running, or hard to break down; a programme whose children are simply not all known yet is still a programme, and the answer there is to file the pieces that are known.
+Prefer a programme whenever a competent reader could write down the full set of children, however many there are.
+
+Run `bin/fm-board.sh lane <project> <issue-url>`.
+The card moves into the lane column, the durable record opens, and the card is never bound to a task, never offered for import, and never offered for decomposition again.
+The record outlives cleanup and restarts, exactly as the link and decomposition records do.
+
+Tell the captain plainly that their card is being treated as a standing lane rather than a programme, and why.
+That is a judgement they may disagree with, so it is reported rather than filed silently.
+
+### What a lane changes, and what it does not
+
+Nothing about a lane touches the work it generates.
+Each piece is filed, dispatched, carded, classified, and completed exactly as any other task is, including the captain gate on board-sourced work.
+A lane is not itself classified, for the same reason a container is not: it holds no task and ships nothing.
+
+A lane is never a parent in the board's own sense, so `--parent` and `child-add` refuse one.
+Attaching a piece of work to a lane as a GitHub sub-issue would make that work a member of a set the lane derives its status from, and a lane has no status to derive.
+File its work as ordinary tasks instead.
+
+A lane sitting open, cycle after cycle, produces no record at all - that is a settled charter, not something to reconcile.
+The only thing reported about one is a card someone moved out of the lane column, which is an ordinary divergence and gets the ordinary answer: report it, change nothing, and re-run `lane` to restore the card once the captain has decided.
+The adapter header's PERSISTENT LANES contract owns the repair write and retry mechanics.
+
+### Reversing one
+
+The captain may later decide a lane really was a programme, or one shippable task after all.
+Run `bin/fm-board.sh unlane <project> <issue-url>`, which retires the record and touches nothing else, after which the ordinary routes are open again and the issue can be promoted or imported.
+Reversal is always this deliberate act; no cycle ever undoes a lane on its own, and none ever declares one.
+
 ## Putting work firstmate already holds on the board
 
 `bin/fm-board.sh place <project> <task-id> <title> [<body>]` is the inverse of `import`: it files the issue, cards it, and records the link, after which every event below works on it with no special casing.
@@ -267,7 +317,7 @@ Firstmate writes them outward from the backlog; a card's column never tells firs
 That covers every one of them, including the optional `processed` and `queued` columns: each is written because firstmate's own records already moved, never to make the board read better than the records support.
 So a `divergence` line - a card showing a status firstmate did not write - means change nothing, dispatch nothing, stop nothing, and tell the captain in chat.
 The adapter has already declined to reconcile it in either direction, and firstmate must not do by hand what the adapter deliberately refused.
-Raise a given divergence once and do not repeat it every cycle while it stands unresolved; when the captain decides, `bin/fm-board.sh mark <task-id> <state>` is how the card is put right.
+Raise a given divergence once and do not repeat it every cycle while it stands unresolved; when the captain decides, `bin/fm-board.sh mark <task-id> <state>` puts a linked task's card right, while "Persistent lanes" above owns the lane response.
 A `classification-divergence` line is the same situation in the classification field and gets the same answer: report it, change nothing, and put the card right with `classify` once the captain has decided which area is correct.
 
 Treat an unexplained appearance in a configured `queued` column as security-relevant, because under this model it can only mean something outside firstmate wrote to that board.

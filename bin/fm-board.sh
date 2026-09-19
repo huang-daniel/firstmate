@@ -23,6 +23,9 @@
 #     [--area <name> | --unclassified]
 #   fm-board.sh decomposed <project> <parent-issue-url>
 #   fm-board.sh decompositions [<project>]
+#   fm-board.sh lane <project> <issue-url>
+#   fm-board.sh unlane <project> <issue-url>
+#   fm-board.sh lanes [<project>]
 #   fm-board.sh links [<project>]
 #   fm-board.sh lookup <issue-url|task-id>
 #   fm-board.sh mark <task-id> todo|processed|queued|in-progress|done
@@ -63,6 +66,7 @@
 #   big-picture-todo = Big Picture Processed         # optional; default: off
 #   big-picture-in-progress = Big Picture In Progress  # optional; default: off
 #   big-picture-done = Big Picture Done              # optional; default: off
+#   lane = Lanes                 # optional; default: persistent lanes off
 #
 # `queued` is optional and off by default. Configured, it names the column a card
 # sits in once firstmate has been cleared to launch the work. Unconfigured, no
@@ -150,9 +154,9 @@
 # OFF SWITCH. Deleting or emptying `config/boards` fully disables the bridge and
 # leaves no residue: there is no generated poll, watcher check, cadence file,
 # daemon, or background process to unwind, because none was ever created. The
-# only files this adapter ever writes are data/board-links.tsv and
-# data/board-decompositions.tsv, and an unconfigured home never reads either of
-# them into any behavior.
+# only files this adapter ever writes are data/board-links.tsv,
+# data/board-decompositions.tsv, and data/board-lanes.tsv, and an unconfigured
+# home never reads any of them into any behavior.
 #
 # WHAT DISABLING DOES NOT UNDO, by design. Work already done stays done: issues
 # and backlog items already imported remain, comments already posted on an issue
@@ -173,8 +177,8 @@
 # board, recorded as present before any of them runs, so declining to import it
 # is never mistaken for it having left.
 #
-# IDEMPOTENCY. data/board-links.tsv is the durable linkage record and the single
-# thing consulted before an import. It lives in data/, not state/, so it
+# IDEMPOTENCY. data/board-links.tsv is the durable linkage record and the
+# authority for duplicate task bindings. It lives in data/, not state/, so it
 # survives task cleanup: an issue whose task was long since torn down is still
 # linked and is never imported a second time. The issue URL is the identity, so
 # one issue can hold at most one task, and `import` for an issue that already
@@ -200,8 +204,9 @@
 # DECOMPOSITION. A big-picture card is a container: an issue whose children are
 # the real work. No worker can ship a container, so a container must never spend
 # the one issue-to-task binding above, and this adapter makes that structural
-# rather than conventional: every verb that would write one of the two records
-# refuses first when the issue already holds the other.
+# rather than conventional: every verb that would write one of these records
+# refuses first when the issue already holds another. PERSISTENT LANES below adds
+# the third record to that same mutual exclusion.
 #
 # On the binding side, `import` refuses an issue that holds a decomposition
 # record, and so does `card_ensure`, the one boundary `place` and `child-add`
@@ -217,6 +222,9 @@
 # such refusal exits 3. `poll` writes a container's record the first time it
 # sees the card rather than when it is decomposed, so the refusal covers every
 # container the board has ever shown, not only the ones already broken down.
+#
+# A lane record closes the same door on its own third side, and PERSISTENT LANES
+# below owns exactly which verb refuses which.
 #
 # PROMOTION, and why its ordering is a one-way door. A container arrives two
 # ways: the captain files one in the container lane, or firstmate judges a card
@@ -269,6 +277,69 @@
 # rather than the list of them; PARENT STATUS owns that distinction.
 # `desired` and `synced` carry the parent card's status exactly as
 # the linkage record's own two columns do.
+#
+# PERSISTENT LANES. A third thing a filed card can be is a standing charter: a
+# lane of work that has no fixed child set, produces temporary children for as
+# long as the product exists, and is never itself completed. Programme semantics
+# are wrong for one in every direction - there is no breakdown to perform, so
+# `decomposed` would assert one that never happened, and no terminal state ever
+# arrives, so a container's derived `done` could never be reached honestly. Left
+# as a container, such an issue is offered for decomposition on every cycle
+# forever with no legitimate way to settle the offer.
+#
+# `lane` is the third classification, alongside the linkage record and the
+# decomposition record, and it is recorded in data/board-lanes.tsv under the same
+# durability contract: it outlives task cleanup and restarts, so a lane declared
+# months ago is still a lane. One row per lane, tab separated:
+#   project  issue  synced
+# `synced` is `lane` once this adapter has confirmed the card in the configured
+# lane column and `-` while that write is still outstanding. There is no
+# `desired` column because a lane has exactly one board state, so there would be
+# nothing for one to vary.
+# An explicit `lane` call reapplies the configured column even for an existing
+# record, setting `synced` to `-` before the write so failure remains retryable.
+# It reports `lane` on success or `lane-partial` while the write is outstanding.
+#
+# The `lane` key names that column and is the whole on switch, defaulting to
+# unset in the same shape as every other optional key here. With it unset,
+# `lane` refuses new declarations and repairs. Existing records still exempt
+# their issues from import and decomposition, but poll skips column
+# reconciliation. `unlane` can retire an existing record while the project
+# remains configured, even without a lane column.
+#
+# NEVER INFERRED. The board column is where a declared lane is shown, never how
+# one is recognized: a card sitting in the lane column that holds no record is
+# simply a card in a column this adapter does not drive, exactly as any other
+# unconfigured column is. Nothing here reads a title, a label, an issue's age, or
+# any other proxy. The record is written by `lane` alone, which is one deliberate
+# statement, and that is what makes `unlane` a real reversal rather than
+# something the next cycle undoes.
+#
+# An issue holds at most one of the three records. Except for the undecomposed
+# container conversion below, writing one refuses an issue holding another:
+# `import` and `card_ensure` refuse a lane exactly as they refuse a container, `promote`, `child-add`, `decomposed`,
+# and `place --parent` refuse a lane parent exactly as they refuse a bound one,
+# and `lane` refuses an issue that already holds a task. Every such refusal exits
+# 3.
+#
+# `lane` does accept a container record the board has merely sighted or firstmate
+# promoted and has not broken down, retiring it in the same call: nothing has
+# been spent yet, and that case is precisely the standing lane mis-read as a
+# programme that this classification exists to correct. What it refuses is a
+# container that really was decomposed - one closed by `decomposed`, or one
+# already holding recorded children - because a breakdown that happened is not
+# something a later classification may deny.
+#
+# `poll` never prints `decompose` or `new` for a lane, whatever column its card
+# has reached, because the lane record is consulted before both. It reconciles
+# the card into the lane column with the same outstanding-write and divergence
+# rules every other card follows, and a lane already sitting there prints nothing
+# at all - which is the whole point: sitting open forever is a settled lane, not
+# a divergence. No terminal state is ever derived for one, no children are read,
+# and the classification field is never set on one, exactly as a container is
+# never classified. The temporary work a lane generates is filed, carded,
+# classified, dispatched, and completed as ordinary work, with nothing about this
+# record touching a child's lifecycle.
 #
 # PLACEMENT, the inverse of import. `place` puts a task firstmate already holds
 # onto the board: it creates the issue, cards it, sets it to the column that work
@@ -558,6 +629,7 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 BOARDS_FILE="$CONFIG/boards"
 LINKS="$DATA/board-links.tsv"
 DECOMPS="$DATA/board-decompositions.tsv"
+LANES="$DATA/board-lanes.tsv"
 GH="${FM_BOARD_GH:-gh}"
 TAB=$'\t'
 # One board read's ceiling, which belongs to `poll` alone.
@@ -589,7 +661,7 @@ print_help() {
 # boards_emit prints one tab-separated stanza per configured board:
 #   project owner number repo label mention assignee status_field todo
 #   in_progress done bp_todo bp_in_progress bp_done queued processed
-#   classify_field
+#   classify_field lane
 # Optional values that are unset print as `-`. Malformed configuration is an
 # actionable error rather than something to guess around.
 
@@ -615,7 +687,7 @@ boards_flush() {
   # Two keys naming one column would make a single card mean two different
   # things, so every configured column name has to be distinct.
   for name in "$todo" "$in_progress" "$done_col" "$queued" "$processed" \
-    "$bp_todo" "$bp_in_progress" "$bp_done"; do
+    "$bp_todo" "$bp_in_progress" "$bp_done" "$lane"; do
     [ "$name" != - ] || continue
     norm=$(norm_name "$name")
     case "$TAB$seen_cols" in
@@ -632,22 +704,23 @@ boards_flush() {
     && [ "$(norm_name "$classify_field")" = "$(norm_name "$status_field")" ]; then
     die "config/boards: board \"$project\" gives \"$classify_field\" as both its status field and its classification field"
   fi
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$project" "$owner" "$number" "$repo" "$label" "$mention" "$assignee" \
     "$status_field" "$todo" "$in_progress" "$done_col" \
     "$bp_todo" "$bp_in_progress" "$bp_done" "$queued" "$processed" \
-    "$classify_field"
+    "$classify_field" "$lane"
 }
 boards_emit() {
   local line key value project owner number repo label mention assignee
   local status_field todo in_progress done_col lineno=0 seen=
-  local bp_todo bp_in_progress bp_done queued processed classify_field
+  local bp_todo bp_in_progress bp_done queued processed classify_field lane
   [ -f "$BOARDS_FILE" ] || return 0
 
   project=''
   owner=- number=- repo=- label=firstmate mention=- assignee=-
   status_field=Status todo=Todo in_progress='In Progress' done_col=Done
   bp_todo=- bp_in_progress=- bp_done=- queued=- processed=- classify_field=-
+  lane=-
   while IFS= read -r line || [ -n "$line" ]; do
     lineno=$((lineno + 1))
     line=${line%$'\r'}
@@ -681,6 +754,7 @@ boards_emit() {
       owner=- number=- repo=- label=firstmate mention=- assignee=-
       status_field=Status todo=Todo in_progress='In Progress' done_col=Done
       bp_todo=- bp_in_progress=- bp_done=- queued=- processed=- classify_field=-
+      lane=-
       continue
     fi
     [ -n "$project" ] || die "config/boards line $lineno: \"$key\" appears before any project"
@@ -704,7 +778,7 @@ boards_emit() {
         esac
         ;;
       label | todo | in-progress | done | queued | processed | status-field \
-        | classify-field \
+        | classify-field | lane \
         | big-picture-todo | big-picture-in-progress | big-picture-done)
         [[ $value =~ $CONFIG_VALUE_RE ]] \
           || die "config/boards line $lineno: \"$key\" may use only letters, digits, spaces, dot, underscore, and dash"
@@ -715,6 +789,7 @@ boards_emit() {
           done) done_col=$value ;;
           status-field) status_field=$value ;;
           classify-field) classify_field=$value ;;
+          lane) lane=$value ;;
           queued) queued=$value ;;
           processed) processed=$value ;;
           big-picture-todo) bp_todo=$value ;;
@@ -962,6 +1037,101 @@ children_add() {
     out="${out:+$out,}$pair"
   done < <(children_pairs "$children")
   printf '%s\n' "${out:+$out,}$task=$url"
+}
+
+# decomps_drop <parent>: remove that container's row entirely. The one caller is
+# `lane`, reclassifying a container nothing has been spent on yet; PERSISTENT
+# LANES above owns which containers that is allowed for.
+decomps_drop() {
+  local parent=$1 tmp r_project r_parent r_state r_desired r_synced r_children
+  [ -f "$DECOMPS" ] || return 0
+  mkdir -p "$DATA" || die "cannot create $DATA" 1
+  tmp=$(umask 077; mktemp "$DATA/.board-decompositions.XXXXXX") \
+    || die "cannot write the decomposition record" 1
+  printf '%s\n' "$DECOMPS_HEADER" > "$tmp"
+  while IFS=$TAB read -r r_project r_parent r_state r_desired \
+    r_synced r_children; do
+    [ "$r_parent" != "$parent" ] || continue
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$r_project" "$r_parent" "$r_state" "$r_desired" \
+      "$r_synced" "$r_children" >> "$tmp"
+  done < <(decomps_rows)
+  mv -f "$tmp" "$DECOMPS" || { rm -f "$tmp"; die "cannot replace the decomposition record" 1; }
+}
+
+# --- durable persistent-lane record -----------------------------------------
+#
+# One row per standing lane, kept for the same reason the other two records are:
+# a lane declared long ago must never be offered for decomposition or import
+# again, however many cleanups and restarts have happened since. PERSISTENT
+# LANES in the header owns the contract; this is its storage.
+
+LANES_HEADER="# fm-board.sh durable persistent lanes: project${TAB}issue${TAB}synced"
+
+lanes_rows() {
+  local row
+  [ -f "$LANES" ] || return 0
+  while IFS= read -r row || [ -n "$row" ]; do
+    case "$row" in
+      '' | '#'*) continue ;;
+    esac
+    printf '%s\n' "$row"
+  done < "$LANES"
+}
+
+LANE_PROJECT=- LANE_ISSUE=- LANE_SYNCED=-
+
+lane_clear() {
+  LANE_PROJECT=- LANE_ISSUE=- LANE_SYNCED=-
+}
+
+# lanes_find <issue-url>: leave the matching row in the LANE_ variables and print
+# it, or clear them and return 1. Like the two records above, callers read the
+# variables, so this never runs inside a command substitution.
+lanes_find() {
+  local want=$1 found=
+  while IFS=$TAB read -r LANE_PROJECT LANE_ISSUE LANE_SYNCED; do
+    [ "$LANE_ISSUE" = "$want" ] || continue
+    found=1
+    break
+  done < <(lanes_rows)
+  if [ -z "$found" ]; then
+    lane_clear
+    return 1
+  fi
+  printf '%s\t%s\t%s\n' "$LANE_PROJECT" "$LANE_ISSUE" "$LANE_SYNCED"
+}
+
+# lanes_put <project> <issue> <synced>
+lanes_put() {
+  local project=$1 issue=$2 synced=$3
+  local tmp r_project r_issue r_synced
+  mkdir -p "$DATA" || die "cannot create $DATA" 1
+  tmp=$(umask 077; mktemp "$DATA/.board-lanes.XXXXXX") \
+    || die "cannot write the lane record" 1
+  printf '%s\n' "$LANES_HEADER" > "$tmp"
+  while IFS=$TAB read -r r_project r_issue r_synced; do
+    [ "$r_issue" != "$issue" ] || continue
+    printf '%s\t%s\t%s\n' "$r_project" "$r_issue" "$r_synced" >> "$tmp"
+  done < <(lanes_rows)
+  printf '%s\t%s\t%s\n' "$project" "$issue" "$synced" >> "$tmp"
+  mv -f "$tmp" "$LANES" || { rm -f "$tmp"; die "cannot replace the lane record" 1; }
+}
+
+# lanes_drop <issue>: retire that lane. The one caller is `unlane`, which is the
+# deliberate reversal the header promises; nothing removes a row on its own.
+lanes_drop() {
+  local issue=$1 tmp r_project r_issue r_synced
+  [ -f "$LANES" ] || return 0
+  mkdir -p "$DATA" || die "cannot create $DATA" 1
+  tmp=$(umask 077; mktemp "$DATA/.board-lanes.XXXXXX") \
+    || die "cannot write the lane record" 1
+  printf '%s\n' "$LANES_HEADER" > "$tmp"
+  while IFS=$TAB read -r r_project r_issue r_synced; do
+    [ "$r_issue" != "$issue" ] || continue
+    printf '%s\t%s\t%s\n' "$r_project" "$r_issue" "$r_synced" >> "$tmp"
+  done < <(lanes_rows)
+  mv -f "$tmp" "$LANES" || { rm -f "$tmp"; die "cannot replace the lane record" 1; }
 }
 
 # --- identifiers ------------------------------------------------------------
@@ -1952,10 +2122,10 @@ list_has() {
 cmd_boards() {
   local want=${1:-} project owner number repo label mention assignee
   local status_field todo in_progress done_col bp_todo bp_in_progress bp_done
-  local queued processed classify_field big
+  local queued processed classify_field lane big
   while IFS=$'\t' read -r project owner number repo label mention assignee \
     status_field todo in_progress done_col bp_todo bp_in_progress bp_done \
-    queued processed classify_field; do
+    queued processed classify_field lane; do
     [ -n "$project" ] || continue
     if [ -n "$want" ] && [ "$want" != "$project" ]; then
       continue
@@ -1965,10 +2135,14 @@ cmd_boards() {
     else
       big="$bp_todo|$bp_in_progress|$bp_done"
     fi
-    printf 'board %s %s/%s repo=%s label=%s mention=%s assignee=%s field=%s columns=%s|%s|%s processed=%s queued=%s big-picture=%s classify=%s\n' \
+    # `classify=` stays the LAST token on this line. A column, field, or lane
+    # name may contain spaces, so only the final token can be read back out of
+    # this listing unambiguously, and bin/fm-spawn.sh reads exactly that one to
+    # decide whether dispatch owes a classification. A new key goes before it.
+    printf 'board %s %s/%s repo=%s label=%s mention=%s assignee=%s field=%s columns=%s|%s|%s processed=%s queued=%s big-picture=%s lane=%s classify=%s\n' \
       "$project" "$owner" "$number" "$repo" "$label" "$mention" "$assignee" \
       "$status_field" "$todo" "$in_progress" "$done_col" "$processed" \
-      "$queued" "$big" "${classify_field:--}"
+      "$queued" "$big" "${lane:--}" "${classify_field:--}"
   done < <(boards_rows)
 }
 
@@ -2057,6 +2231,11 @@ cmd_import() {
   if decomps_find "$issue" >/dev/null; then
     die "$issue is a decomposition container on board \"$DECOMP_PROJECT\"; its children hold the work" 3
   fi
+  # A standing lane ships nothing either, so it spends no binding for the same
+  # reason a container does not.
+  if lanes_find "$issue" >/dev/null; then
+    die "$issue is a persistent lane on board \"$LANE_PROJECT\"; the temporary work it generates holds the tasks" 3
+  fi
   # This duplicate check is deliberately fleet-wide rather than scoped to one
   # board: an issue holds at most one task no matter which board carries it.
   if links_find issue "$issue" >/dev/null; then
@@ -2131,6 +2310,9 @@ card_ensure() {
   CARD_STEP=
   if decomps_find "$issue" >/dev/null; then
     die "$issue is a decomposition container on board \"$DECOMP_PROJECT\"; its children hold the work, so it can never bind task $task" 3
+  fi
+  if lanes_find "$issue" >/dev/null; then
+    die "$issue is a persistent lane on board \"$LANE_PROJECT\"; the work it generates holds the tasks, so it can never bind task $task" 3
   fi
   item_id=$(board_item_add "$owner" "$number" "$issue") || {
     CARD_STEP=card
@@ -2207,6 +2389,12 @@ container_open() {
   local project=$1 parent=$2 require=$3
   if links_find issue "$parent" >/dev/null; then
     die "$parent is linked to task $LINK_TASK, so it is ordinary work rather than a container" 3
+  fi
+  # A lane generates temporary work continuously rather than a fixed breakdown,
+  # so it is never a container and filing children against it would be the
+  # programme reading this classification exists to refuse.
+  if lanes_find "$parent" >/dev/null; then
+    die "$parent is a persistent lane on board \"$LANE_PROJECT\", not a container; its work is filed as ordinary tasks" 3
   fi
   if decomps_find "$parent" >/dev/null; then
     [ "$DECOMP_PROJECT" = "$project" ] \
@@ -2524,6 +2712,12 @@ cmd_promote() {
   if links_find issue "$issue" >/dev/null; then
     die "$issue is already linked to task $LINK_TASK, so it is ordinary work rather than a programme; a bound issue can never become a container" 3
   fi
+  # A lane is the other classification a container must not silently overwrite.
+  # Deciding a lane really was a programme is the captain's call and is made by
+  # retiring the lane first, never by promoting over the top of it.
+  if lanes_find "$issue" >/dev/null; then
+    die "$issue is a persistent lane on board \"$LANE_PROJECT\"; retire it with \"unlane\" before promoting it to a programme" 3
+  fi
 
   desired=- synced=- children=-
   if decomps_find "$issue" >/dev/null; then
@@ -2567,6 +2761,11 @@ cmd_decomposed() {
   if links_find issue "$parent" >/dev/null; then
     die "$parent is linked to task $LINK_TASK, so it is ordinary work rather than a container" 3
   fi
+  # A lane is never decomposed, so closing a breakdown on one would assert a
+  # breakdown that cannot have happened.
+  if lanes_find "$parent" >/dev/null; then
+    die "$parent is a persistent lane on board \"$LANE_PROJECT\", so it has no breakdown to close" 3
+  fi
   if decomps_find "$parent" >/dev/null; then
     [ "$DECOMP_PROJECT" = "$project" ] \
       || die "$parent is decomposed under project $DECOMP_PROJECT" 3
@@ -2589,6 +2788,124 @@ cmd_decompositions() {
     fi
     printf '%s\n' "$row"
   done < <(decomps_rows)
+}
+
+LANE_USAGE='usage: fm-board.sh lane <project> <issue-url>'
+UNLANE_USAGE='usage: fm-board.sh unlane <project> <issue-url>'
+
+# `lane` is the one route by which an issue becomes a standing charter, and it
+# is a deliberate statement rather than anything derived from the board. The
+# record is written before the card is touched, so every refusal the header
+# promises holds from that instant even when the move does not land; the move is
+# then an ordinary outstanding write that `poll` retries.
+cmd_lane() {
+  local project='' raw='' board owner number repo status_field lane_col issue
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -*) die "unknown option \"$1\"" ;;
+      *)
+        if [ -z "$project" ]; then
+          project=$1
+        elif [ -z "$raw" ]; then
+          raw=$1
+        else
+          die "$LANE_USAGE"
+        fi
+        shift
+        ;;
+    esac
+  done
+  [ -n "$project" ] && [ -n "$raw" ] || die "$LANE_USAGE"
+
+  board=$(board_for "$project")
+  owner=$(printf '%s' "$board" | cut -f2)
+  number=$(printf '%s' "$board" | cut -f3)
+  repo=$(printf '%s' "$board" | cut -f4)
+  status_field=$(printf '%s' "$board" | cut -f8)
+  lane_col=$(printf '%s' "$board" | cut -f18)
+  [ "$lane_col" != - ] \
+    || die "board \"$project\" configures no lane column, so it has nowhere to show a persistent lane"
+  issue=$(issue_canonical "$raw") || die "\"$raw\" is not an issue URL"
+  if [ "$repo" != - ] && [ "$(issue_repo "$issue")" != "$repo" ]; then
+    die "$issue is not in $repo, the repo configured for board \"$project\""
+  fi
+
+  # An issue that already holds a task is past the point where this judgement
+  # could still be made, exactly as it is past promotion.
+  if links_find issue "$issue" >/dev/null; then
+    die "$issue is already linked to task $LINK_TASK, so it is ordinary work rather than a standing lane" 3
+  fi
+  if lanes_find "$issue" >/dev/null; then
+    [ "$LANE_PROJECT" = "$project" ] \
+      || die "$issue is already a persistent lane under project $LANE_PROJECT" 3
+  elif decomps_find "$issue" >/dev/null; then
+    # A breakdown that really happened is not something a later classification
+    # may deny, so only a container nothing has been spent on is reclassified.
+    [ "$DECOMP_PROJECT" = "$project" ] \
+      || die "$issue is a decomposition container under project $DECOMP_PROJECT" 3
+    [ "$DECOMP_STATE" != 'done' ] \
+      || die "$issue was already decomposed on board \"$project\"; its children are its breakdown" 3
+    [ "$DECOMP_CHILDREN" = - ] \
+      || die "$issue already has children recorded against it on board \"$project\"; those pieces are its breakdown" 3
+    decomps_drop "$issue"
+  fi
+
+  lanes_put "$project" "$issue" -
+  if board_set_status "$owner" "$number" "$status_field" "$issue" "$lane_col"; then
+    lanes_put "$project" "$issue" lane
+    printf 'lane %s %s\n' "$project" "$issue"
+  else
+    printf 'lane-partial %s %s\n' "$project" "$issue"
+  fi
+  return 0
+}
+
+# The deliberate reversal, for a lane the captain decides really was a programme
+# or one shippable task. It retires the record and nothing else: the card stays
+# where it is until whichever classification comes next moves it, and no work,
+# comment, or issue is touched.
+cmd_unlane() {
+  local project='' raw='' issue
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -*) die "unknown option \"$1\"" ;;
+      *)
+        if [ -z "$project" ]; then
+          project=$1
+        elif [ -z "$raw" ]; then
+          raw=$1
+        else
+          die "$UNLANE_USAGE"
+        fi
+        shift
+        ;;
+    esac
+  done
+  [ -n "$project" ] && [ -n "$raw" ] || die "$UNLANE_USAGE"
+
+  board_for "$project" >/dev/null
+  issue=$(issue_canonical "$raw") || die "\"$raw\" is not an issue URL"
+  lanes_find "$issue" >/dev/null \
+    || die "$issue is not a persistent lane" 3
+  [ "$LANE_PROJECT" = "$project" ] \
+    || die "$issue is a persistent lane under project $LANE_PROJECT" 3
+  lanes_drop "$issue"
+  printf 'unlaned %s %s\n' "$project" "$issue"
+}
+
+cmd_lanes() {
+  local want=${1:-} row
+  while IFS= read -r row; do
+    if [ -n "$want" ]; then
+      case "$row" in
+        "$want$TAB"*) ;;
+        *) continue ;;
+      esac
+    fi
+    printf '%s\n' "$row"
+  done < <(lanes_rows)
 }
 
 cmd_mark() {
@@ -3029,7 +3346,17 @@ poll_board() {
       continue
     fi
 
-    # Not linked. A container is never intake and never binds a task, and either
+    # Not linked. A standing lane is settled before anything else is considered:
+    # it is neither intake nor a container, so it is never offered as `new` and
+    # never offered for decomposition, whatever column its card has reached.
+    # The record alone says so, which is what makes the classification explicit
+    # and `unlane` a reversal the next cycle does not undo.
+    if lanes_find "$canonical" >/dev/null; then
+      poll_lane "$board" "$id" "$canonical" "$status" "$board_state"
+      continue
+    fi
+
+    # A container is never intake and never binds a task, and either
     # the board or the durable record can say it is one. The record is consulted
     # too rather than the column alone, so a card firstmate promoted is a
     # container from the instant that record exists - including while the move
@@ -3090,6 +3417,52 @@ poll_board() {
     done < <(links_rows)
   fi
   rm -f "$seen_file"
+}
+
+# poll_lane <board-row> <card-id> <issue> <raw-status> <board-state>
+# A standing lane's whole reconciliation: keep its card in the configured lane
+# column and say nothing else about it. There is no state to derive, because a
+# lane has exactly one, and no terminal state to reach, because a lane is never
+# completed - so a lane sitting open cycle after cycle prints nothing at all,
+# which is the difference between a settled charter and a divergence.
+poll_lane() {
+  local board=$1 id=$2 issue=$3 raw=$4 board_state=$5
+  local project owner number status_field lane_col
+
+  project=$(printf '%s' "$board" | cut -f1)
+  owner=$(printf '%s' "$board" | cut -f2)
+  number=$(printf '%s' "$board" | cut -f3)
+  status_field=$(printf '%s' "$board" | cut -f8)
+  lane_col=$(printf '%s' "$board" | cut -f18)
+
+  if [ "$LANE_PROJECT" != "$project" ]; then
+    printf 'foreign %s %s %s -\n' "$project" "$issue" "$LANE_PROJECT"
+    return 0
+  fi
+  # A board whose lane column was removed after the lane was declared still owes
+  # the exemption, which is the durable half; it simply has nowhere to show it,
+  # so there is no column to reconcile and nothing to report.
+  [ "$lane_col" != - ] || return 0
+
+  if [ "$(norm_name "$raw")" = "$(norm_name "$lane_col")" ]; then
+    [ "$LANE_SYNCED" = lane ] || lanes_put "$project" "$issue" lane
+    return 0
+  fi
+  if [ "$LANE_SYNCED" != lane ]; then
+    # A write this adapter owes, retried exactly as any other outstanding card
+    # move is.
+    if board_write_status "$owner" "$number" "$status_field" "$id" "$issue" "$lane_col"; then
+      lanes_put "$project" "$issue" lane
+      printf 'synced %s %s - lane\n' "$project" "$issue"
+    else
+      printf 'stale %s %s - lane\n' "$project" "$issue"
+    fi
+    return 0
+  fi
+  # The card has been moved out of the lane column since this adapter confirmed
+  # it there, which is a status firstmate did not write and is reported rather
+  # than reconciled, exactly as on any other card.
+  printf 'divergence %s %s - lane %s %s\n' "$project" "$issue" "$board_state" "$raw"
 }
 
 # poll_container <board-row> <card-id> <parent-issue> <container-state> <raw-status> <labels>
@@ -3308,6 +3681,9 @@ case "$VERB" in
   child-add) cmd_child_add "$@" ;;
   decomposed) cmd_decomposed "$@" ;;
   decompositions) cmd_decompositions "$@" ;;
+  lane) cmd_lane "$@" ;;
+  unlane) cmd_unlane "$@" ;;
+  lanes) cmd_lanes "$@" ;;
   links) cmd_links "$@" ;;
   lookup) cmd_lookup "$@" ;;
   mark) cmd_mark "$@" ;;

@@ -2794,6 +2794,319 @@ test_placing_under_a_programme_refuses_rather_than_inventing_one
 test_placing_cleared_work_records_the_go_in_the_same_operation
 test_a_board_with_no_go_column_never_grows_one
 
+# --- persistent lanes ---------------------------------------------------------
+#
+# A standing charter is neither one shippable task nor a programme. It has no
+# fixed child set, so there is no breakdown to perform, and it is never finished,
+# so no terminal state ever arrives. Left as a container it is offered for
+# decomposition on every cycle forever, with the only way to silence the offer
+# being to assert a breakdown that never happened - which is the defect these
+# cases exist to catch. What they pin is that the offer really does stop, that
+# the classification cannot be reached over the top of another one, that the
+# temporary work a lane generates is untouched by any of it, and that a home
+# which never configured a lane column behaves exactly as it did before one
+# could be.
+
+# The container board with the lane column added, which is the shape a roadmap
+# has once some of its cards are standing lanes rather than programmes.
+lane_board() {
+  local home=$1
+  cat > "$home/config/boards" <<'EOF'
+project = harbourlight
+owner = harbour-collective
+number = 4
+repo = harbour-collective/app
+label = firstmate
+big-picture-todo = Big Picture Todo
+big-picture-in-progress = Big Picture In Progress
+big-picture-done = Big Picture Done
+lane = Lanes
+EOF
+  fields "$home" PVTSSF_status opt_todo:Todo 'opt_prog:In Progress' opt_done:Done \
+    'opt_bptodo:Big Picture Todo' 'opt_bpprog:Big Picture In Progress' \
+    'opt_bpdone:Big Picture Done' opt_lane:Lanes
+}
+
+test_a_persistent_lane_is_never_offered_for_decomposition() {
+  local home charter out i
+  home=$(new_home a_persistent_lane_is_never_offered_for_decomposition)
+  lane_board "$home"
+  charter=https://github.com/harbour-collective/app/issues/366
+  item "$home" PVTI_l Issue "$charter" 'Big Picture Todo' firstmate - \
+    'Keep the telemetry honest' 'a standing lane, not a programme'
+
+  # The defect as reported: read as a container, it is offered every cycle.
+  out=$(board "$home" poll)
+  assert_contains "$out" "decompose harbourlight $charter" \
+    "the fixture does not reproduce the repeating decomposition offer"
+
+  out=$(board "$home" lane harbourlight "$charter")
+  assert_contains "$out" "lane harbourlight $charter" "the lane was not declared"
+  assert_contains "$(gh_log "$home")" '--single-select-option-id opt_lane' \
+    "the declared lane was not moved into the lane column"
+  [ -z "$(board "$home" decompositions)" ] || fail \
+    "declaring a lane left the container record that was offering it"
+
+  # And it stays stopped, cycle after cycle, with nothing else said about it.
+  for i in 1 2 3 4 5; do
+    out=$(board "$home" poll)
+    assert_not_contains "$out" 'decompose' \
+      "a persistent lane was offered for decomposition on cycle $i"
+    assert_not_contains "$out" 'new harbourlight' \
+      "a persistent lane was offered as importable work on cycle $i"
+    [ -z "$out" ] || fail "a settled lane printed a record on cycle $i: $out"
+  done
+
+  # The record outlives task cleanup exactly as the other two do.
+  rm -rf "$home/state"
+  out=$(board "$home" poll)
+  [ -z "$out" ] || fail "the lane record did not survive cleanup: $out"
+  assert_contains "$(board "$home" lanes)" "$charter" "the lane record was lost"
+  pass "a standing lane is never offered for decomposition or import, on any cycle"
+}
+
+test_declaring_a_lane_is_refused_over_an_existing_classification() {
+  local home issue parent decomposed out rc
+  home=$(new_home declaring_a_lane_is_refused_over_an_existing_classification)
+  lane_board "$home"
+
+  # Bound as a task: past the point where the judgement could still be made, the
+  # same one-way door `promote` already enforces.
+  issue=https://github.com/harbour-collective/app/issues/400
+  item "$home" PVTI_a Issue "$issue" Todo firstmate - 'Ordinary work' -
+  board "$home" import harbourlight "$issue" fm-ordinary >/dev/null
+  out=$(board "$home" lane harbourlight "$issue" 2>&1) && rc=0 || rc=$?
+  expect_code 3 "$rc" "a bound issue was accepted as a standing lane"
+  assert_contains "$out" 'fm-ordinary' "the refusal did not name what the issue is already bound to"
+  [ -z "$(board "$home" lanes)" ] || fail "a refused declaration still wrote a lane record"
+
+  # Decomposed: a breakdown that really happened is not something a later
+  # classification may deny.
+  decomposed=https://github.com/harbour-collective/app/issues/401
+  item "$home" PVTI_b Issue "$decomposed" 'Big Picture Todo' firstmate - 'A real programme' -
+  board "$home" poll >/dev/null
+  board "$home" decomposed harbourlight "$decomposed" >/dev/null
+  out=$(board "$home" lane harbourlight "$decomposed" 2>&1) && rc=0 || rc=$?
+  expect_code 3 "$rc" "a decomposed container was accepted as a standing lane"
+  assert_contains "$out" 'breakdown' "the refusal did not say why the breakdown stands"
+
+  # A container part way through its breakdown is the same answer: the children
+  # already filed are its breakdown.
+  parent=https://github.com/harbour-collective/app/issues/402
+  item "$home" PVTI_c Issue "$parent" 'Big Picture Todo' firstmate - 'Half broken down' -
+  board "$home" poll >/dev/null
+  board "$home" child-add harbourlight "$parent" 'A piece' 'body' fm-piece >/dev/null
+  out=$(board "$home" lane harbourlight "$parent" 2>&1) && rc=0 || rc=$?
+  expect_code 3 "$rc" "a container already holding children was accepted as a standing lane"
+  assert_contains "$out" 'children' "the refusal did not name the children already filed"
+
+  # And the door is shut from the lane's own side on every verb that would write
+  # one of the other two records over it.
+  local charter=https://github.com/harbour-collective/app/issues/403
+  item "$home" PVTI_d Issue "$charter" Todo firstmate - 'A standing lane' -
+  board "$home" lane harbourlight "$charter" >/dev/null
+  out=$(board "$home" import harbourlight "$charter" fm-lane-task 2>&1) && rc=0 || rc=$?
+  expect_code 3 "$rc" "a standing lane was allowed to bind a task"
+  out=$(board "$home" promote harbourlight "$charter" 2>&1) && rc=0 || rc=$?
+  expect_code 3 "$rc" "a standing lane was promoted to a programme over the top of itself"
+  assert_contains "$out" 'unlane' "the refusal did not name the deliberate reversal"
+  out=$(board "$home" child-add harbourlight "$charter" 'A child' 'body' fm-lane-child 2>&1) && rc=0 || rc=$?
+  expect_code 3 "$rc" "a standing lane was broken down like a container"
+  out=$(board "$home" decomposed harbourlight "$charter" 2>&1) && rc=0 || rc=$?
+  expect_code 3 "$rc" "a standing lane was closed as though it had been broken down"
+  out=$(board "$home" place harbourlight fm-lane-under 'Under the lane' 'body' \
+    --parent "$charter" 2>&1) && rc=0 || rc=$?
+  expect_code 3 "$rc" "work was parented onto a standing lane as though it were a container"
+  pass "a classification is never reached over the top of another one, in either direction"
+}
+
+test_a_lane_sitting_open_forever_is_settled_not_divergent() {
+  local home charter out i
+  home=$(new_home a_lane_sitting_open_forever_is_settled_not_divergent)
+  lane_board "$home"
+  charter=https://github.com/harbour-collective/app/issues/367
+  item "$home" PVTI_l Issue "$charter" Todo firstmate - 'Keep the docs current' -
+  board "$home" lane harbourlight "$charter" >/dev/null
+
+  # No terminal state is ever derived for a lane, and nothing about it is ever
+  # read as a withdrawal, however long its issue stays open.
+  for i in 1 2 3; do
+    out=$(board "$home" poll)
+    [ -z "$out" ] || fail "an open standing lane reported something on cycle $i: $out"
+  done
+  assert_not_contains "$(board "$home" lanes)" 'done' "a lane reached a terminal state"
+  [ -z "$(board "$home" links)" ] || fail "a lane wrote a linkage record"
+
+  # A failed move is the ordinary outstanding write, retried on the next cycle
+  # rather than left as a divergence.
+  local stuck=https://github.com/harbour-collective/app/issues/368
+  item "$home" PVTI_m Issue "$stuck" Todo firstmate - 'Another lane' -
+  out=$(GH_FAIL='graphql card' board "$home" lane harbourlight "$stuck" 2>/dev/null) || true
+  assert_contains "$out" "lane-partial harbourlight $stuck" \
+    "a lane the board did not take was not reported as outstanding"
+  out=$(board "$home" poll)
+  assert_contains "$out" "synced harbourlight $stuck - lane" \
+    "an outstanding lane move was not retried on the next cycle"
+  assert_not_contains "$out" 'decompose' "a lane awaiting its move was offered for decomposition"
+  out=$(board "$home" poll)
+  [ -z "$out" ] || fail "a reconciled lane kept reporting: $out"
+
+  # A card moved out of the lane column after it was confirmed there is the one
+  # thing that is reported, because it is a status firstmate did not write.
+  local tmp
+  tmp=$(mktemp)
+  awk -F'\t' -v OFS='\t' -v u="$charter" '$3 == u { $4 = "Done" } { print }' \
+    "$home/items" > "$tmp"
+  mv "$tmp" "$home/items"
+  out=$(board "$home" poll)
+  assert_contains "$out" "divergence harbourlight $charter - lane done Done" \
+    "a lane card the captain moved was not reported"
+  out=$(board "$home" lane harbourlight "$charter")
+  assert_contains "$out" "lane harbourlight $charter" "the explicit repair was not reported"
+  assert_equals 'Lanes' \
+    "$(awk -F'\t' -v u="$charter" '$3 == u { print $4 }' "$home/items")" "the explicit repair did not restore the lane column"
+  out=$(board "$home" poll)
+  [ -z "$out" ] || fail "a repaired lane kept reporting divergence: $out"
+
+  tmp=$(mktemp)
+  awk -F'\t' -v OFS='\t' -v u="$charter" '$3 == u { $4 = "Done" } { print }' \
+    "$home/items" > "$tmp"
+  mv "$tmp" "$home/items"
+  out=$(GH_FAIL='graphql card' board "$home" lane harbourlight "$charter" 2>/dev/null)
+  assert_contains "$out" "lane-partial harbourlight $charter" \
+    "a failed repair was not reported as outstanding"
+  assert_contains "$(board "$home" lanes)" "harbourlight	$charter	-" \
+    "a failed repair lost its durable retry state"
+  out=$(board "$home" poll)
+  assert_contains "$out" "synced harbourlight $charter - lane" \
+    "poll did not retry the failed explicit repair"
+  assert_equals 'Lanes' \
+    "$(awk -F'\t' -v u="$charter" '$3 == u { print $4 }' "$home/items")" "the repair retry did not restore the lane column"
+  out=$(board "$home" poll)
+  [ -z "$out" ] || fail "a retried lane repair kept reporting: $out"
+  pass "a lane sitting open forever is settled, and only a card someone else moved is reported"
+}
+
+test_the_work_a_lane_generates_is_ordinary_in_every_respect() {
+  local home charter child out
+  home=$(new_home the_work_a_lane_generates_is_ordinary_in_every_respect)
+  lane_board "$home"
+  charter=https://github.com/harbour-collective/app/issues/370
+  item "$home" PVTI_l Issue "$charter" Todo firstmate - 'Keep the fleet healthy' -
+  board "$home" lane harbourlight "$charter" >/dev/null
+
+  # A piece of work the lane produced is taken in, carded, moved, and finished
+  # exactly as any other task is - the lane record touches none of it.
+  child=https://github.com/harbour-collective/app/issues/371
+  item "$home" PVTI_c Issue "$child" Todo firstmate - 'One piece of evidence' -
+  out=$(board "$home" poll)
+  assert_contains "$out" "new harbourlight $child label" \
+    "work filed alongside a lane stopped being importable"
+  board "$home" import harbourlight "$child" fm-evidence >/dev/null
+  board "$home" mark fm-evidence in-progress >/dev/null
+  assert_contains "$(board "$home" lookup fm-evidence)" 'in-progress' \
+    "a lane's child could not be moved like ordinary work"
+  board "$home" mark fm-evidence 'done' >/dev/null
+  assert_contains "$(board "$home" lookup fm-evidence)" "$(printf 'done\tdone')" \
+    "a lane's child could not be completed like ordinary work"
+
+  # Work firstmate holds itself is placed on the same board with the lane
+  # standing, and the lane is still never offered.
+  out=$(board "$home" place harbourlight fm-followup 'A follow-up' 'body')
+  assert_contains "$out" 'placed harbourlight' "a task could not be placed while a lane stands"
+  out=$(board "$home" poll)
+  assert_not_contains "$out" 'decompose' "the lane was offered while its work ran"
+  pass "the temporary work a lane generates is filed, carded and completed as ordinary work"
+}
+
+test_a_lane_is_reversed_only_by_a_deliberate_act() {
+  local home charter out rc
+  home=$(new_home a_lane_is_reversed_only_by_a_deliberate_act)
+  lane_board "$home"
+  charter=https://github.com/harbour-collective/app/issues/380
+  item "$home" PVTI_l Issue "$charter" 'Big Picture Todo' firstmate - 'Maybe a programme' -
+  board "$home" poll >/dev/null
+  board "$home" lane harbourlight "$charter" >/dev/null
+
+  # Polling never undoes it, however the card sits: the record is the whole
+  # authority, so nothing is inferred back out of the column.
+  local tmp
+  tmp=$(mktemp)
+  awk -F'\t' -v OFS='\t' -v u="$charter" '$3 == u { $4 = "Big Picture Todo" } { print }' \
+    "$home/items" > "$tmp"
+  mv "$tmp" "$home/items"
+  out=$(board "$home" poll)
+  assert_not_contains "$out" 'decompose' \
+    "a lane whose card sits in the container lane was offered for decomposition again"
+  [ -z "$(board "$home" decompositions)" ] || fail \
+    "polling recreated a container record for a declared lane"
+
+  # Deciding it really was a programme is one deliberate command, after which
+  # every ordinary route is open again.
+  out=$(board "$home" unlane harbourlight "$charter")
+  assert_contains "$out" "unlaned harbourlight $charter" "the reversal was not reported"
+  [ -z "$(board "$home" lanes)" ] || fail "the reversal left the lane record behind"
+  out=$(board "$home" promote harbourlight "$charter")
+  assert_contains "$out" "promoted harbourlight $charter" \
+    "a reversed lane could not be promoted to a programme"
+  out=$(board "$home" poll)
+  assert_contains "$out" "decompose harbourlight $charter" \
+    "a reversed lane was not offered for decomposition as a programme"
+
+  # Reversing something that is not a lane is refused rather than a silent no-op.
+  out=$(board "$home" unlane harbourlight "$charter" 2>&1) && rc=0 || rc=$?
+  expect_code 3 "$rc" "unlane accepted an issue that is not a lane"
+  pass "a lane is reversed only by a deliberate act, and never by a cycle"
+}
+
+test_persistent_lanes_do_not_exist_until_the_column_is_configured() {
+  local home before after out rc
+  home=$(new_home persistent_lanes_do_not_exist_until_the_column_is_configured)
+  # Exactly the lane board, minus the one key.
+  big_picture_board "$home"
+  item "$home" PVTI_a Issue https://github.com/harbour-collective/app/issues/390 \
+    'Big Picture Todo' firstmate - 'A container nobody declared a lane' -
+  item "$home" PVTI_b Issue https://github.com/harbour-collective/app/issues/391 \
+    Todo firstmate - 'Ordinary work' -
+
+  out=$(board "$home" lane harbourlight https://github.com/harbour-collective/app/issues/390 2>&1) \
+    && rc=0 || rc=$?
+  expect_code 2 "$rc" "a lane was declared on a board with no lane column"
+  assert_contains "$out" 'lane column' "the refusal did not name the missing key"
+  out=$(board "$home" unlane harbourlight https://github.com/harbour-collective/app/issues/390 2>&1) \
+    && rc=0 || rc=$?
+  expect_code 3 "$rc" "unlane invented a lane on a board with no lane column"
+  assert_absent "$home/data/board-lanes.tsv" "an unconfigured home created a lane record"
+  [ -z "$(gh_log "$home")" ] || fail "a refused lane command still reached the board"
+
+  # Every ordinary path answers exactly as it did before the key existed.
+  before=$(board "$home" poll)
+  assert_contains "$before" 'decompose harbourlight https://github.com/harbour-collective/app/issues/390' \
+    "an unconfigured home stopped offering a container"
+  assert_contains "$before" 'new harbourlight https://github.com/harbour-collective/app/issues/391 label' \
+    "an unconfigured home stopped offering ordinary work"
+  after=$(board "$home" poll)
+  [ "$before" = "$after" ] || fail "an unconfigured home's poll is not stable: $before vs $after"
+  assert_contains "$(board "$home" boards)" 'lane=-' "the listing did not say lanes were off"
+
+  # A home with no board at all is untouched by every one of the new verbs.
+  local bare
+  bare=$(new_home persistent_lanes_need_a_board_at_all)
+  out=$(board "$bare" lane harbourlight https://github.com/harbour-collective/app/issues/390 2>&1) \
+    && rc=0 || rc=$?
+  expect_code 2 "$rc" "a lane was declared in a home with no board configured"
+  [ -z "$(board "$bare" lanes)" ] || fail "a home with no board configured holds lane records"
+  [ -z "$(gh_log "$bare")" ] || fail "a home with no board configured reached GitHub"
+  pass "with no lane column configured nothing about persistent lanes exists"
+}
+
+test_a_persistent_lane_is_never_offered_for_decomposition
+test_declaring_a_lane_is_refused_over_an_existing_classification
+test_a_lane_sitting_open_forever_is_settled_not_divergent
+test_the_work_a_lane_generates_is_ordinary_in_every_respect
+test_a_lane_is_reversed_only_by_a_deliberate_act
+test_persistent_lanes_do_not_exist_until_the_column_is_configured
+
 # --- the second synchronized field -------------------------------------------
 #
 # A board may classify its work in a field of its own beside the column - an

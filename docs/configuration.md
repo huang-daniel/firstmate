@@ -149,6 +149,7 @@ queued = Queued
 big-picture-todo = Big Picture Processed
 big-picture-in-progress = Big Picture In Progress
 big-picture-done = Big Picture Done
+lane = Lanes
 ```
 
 `project` is the project's name in the local project registry (`data/projects.md`), and `owner` plus `number` are the GitHub Projects owner login and project number.
@@ -173,6 +174,9 @@ A card still sitting in Todo therefore means firstmate has genuinely not picked 
 
 The three `big-picture-*` keys are also optional and unset by default, and they are one switch rather than three: set all three or none, because a partial set is refused with the reason rather than half-enabled.
 They turn on decomposition, described below, and their values are ordinary column names like every other key here - a board whose main lane runs Todo to Processed usually names the first of them `Big Picture Processed`.
+
+`lane` is optional and unset by default too, and it turns on persistent lanes, described below.
+Its value is one more ordinary column name: the column that holds standing charters.
 No column name may be used twice across all of these keys.
 
 A card is picked up only when it is a real issue, sits in the Todo column, and carries the trigger.
@@ -238,7 +242,7 @@ Firstmate reads it, breaks it into concrete work items, and files each one as a 
 Containers also arrive the other way round.
 When you file an ordinary card that turns out to be too big to ship as one task, firstmate promotes it into the big-picture lane itself and breaks it down from there, then tells you it did and what the pieces are.
 It makes that call while reading the card and before the card is tied to any one piece of work, because an issue is tied to exactly one task permanently: a container that had already been tied to a task would be work nobody could ship, fixable only by abandoning that issue for a fresh one.
-So a card is either taken in as one task or promoted to a container, never one and then the other.
+A task binding cannot be converted into a container; standing charters follow "Persistent lanes" below.
 
 A container never becomes a task itself, and is only ever broken down once.
 Its card tracks all GitHub sub-issues, including externally attached work; the PARENT STATUS contract in [`bin/fm-board.sh`](../bin/fm-board.sh) defines how child states determine its big-picture column and how failed reads prevent stale updates.
@@ -246,11 +250,25 @@ Its card tracks all GitHub sub-issues, including externally attached work; the P
 Creating those child cards is unattended; running them is not.
 Children are captain-gated exactly like any other work that arrived from a board.
 
+### Persistent lanes
+
+Some work is neither one task nor a big-picture item that breaks into a known set of pieces.
+A persistent lane is a standing charter: it has no fixed child set, it throws off temporary work as evidence appears for as long as the product exists, and it is never itself finished.
+Its issue stays open indefinitely, and that is the settled end state rather than something waiting to be tidied up.
+
+Set `lane` to the column that holds these charters.
+Firstmate deliberately declares the classification; placing a card in that column alone does not declare a lane.
+The [board-orchestration policy](../.agents/skills/board-orchestration/SKILL.md#persistent-lanes) owns the declaration criteria, treatment of generated work, divergence response, and deliberate reversal.
+The PERSISTENT LANES contract in [the adapter header](../bin/fm-board.sh) owns commands, conversion restrictions, durable records, repair writes, and retries.
+
+Without `lane`, new declarations and explicit repairs are disabled.
+Removing the key after declaring lanes preserves their exemptions from import and decomposition but stops their column reconciliation; existing declarations can still be explicitly reversed while the project remains configured.
+
 ### Turning it off
 
 Delete `config/boards`, or empty it, and the bridge is fully disabled with no residue.
 That is the whole off switch: there is no generated poll, watcher check, cadence file, daemon, or background process to unwind, because the bridge never creates one.
-The only files it ever writes are the local records `data/board-links.tsv` and `data/board-decompositions.tsv`, which do nothing at all without configuration and are kept so a re-enabled board does not re-import issues it already imported or break down a container it already broke down.
+The only files it ever writes are the local records `data/board-links.tsv`, `data/board-decompositions.tsv`, and `data/board-lanes.tsv`, which do nothing at all without configuration and are kept so a re-enabled board does not re-import issues it already imported, break down a container it already broke down, or re-offer a standing lane.
 
 Disabling stops future board reads and writes; it is not an undo, and it deliberately leaves earlier work in place.
 Backlog items already imported stay in the backlog, issues already created stay on GitHub, comments already posted stay posted, and cards already moved stay in the column they were moved to.
