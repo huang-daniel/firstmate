@@ -717,6 +717,8 @@ test_the_bridge_is_inert_until_a_board_is_configured() {
     board "$home" "$verb" fm-x https://github.com/someone/app/pull/1 >/dev/null 2>&1 && rc=0 || rc=$?
     [ "$rc" != 0 ] || fail "an unconfigured home accepted \"$verb\""
   done
+  board "$home" card fm-x >/dev/null 2>&1 && rc=0 || rc=$?
+  expect_code 2 "$rc" "an unconfigured home carded something"
   # Placement refuses for the same reason, whichever facts it is asked to state.
   board "$home" place somewhere fm-x 'Work' 'body' >/dev/null 2>&1 && rc=0 || rc=$?
   expect_code 2 "$rc" "an unconfigured home accepted a placement"
@@ -3532,3 +3534,219 @@ test_the_board_names_the_areas_it_accepts
 test_a_board_that_classifies_nothing_is_untouched
 test_a_record_written_before_classification_reads_as_unclassified
 test_a_second_synchronized_field_costs_no_second_request
+
+# --- carding an issue that is already linked ---------------------------------
+#
+# The link and the card are two different facts, and an issue can hold the first
+# without the second. Every route that creates a card also creates the link, so
+# such an issue used to be unreachable: `import` answers already-linked without
+# touching the board, and `mark` refuses an issue that is not a card. The
+# roadmap then silently omitted work firstmate was running, with nothing in the
+# adapter able to repair it - which is the defect these cases exist to catch.
+#
+# What they pin is that the repair really does card it, with the status and area
+# firstmate's own records already hold rather than a default; that it is a no-op
+# on a card that exists; that it opens no door the other records keep shut; and
+# that a card it could not create is reported rather than claimed.
+
+# card_status <home> <issue>: the column that issue's card sits in, read from
+# the board fixture itself rather than from anything the adapter recorded.
+card_status() {
+  awk -F'\t' -v u="$2" '$3 == u { print $4 }' "$1/items"
+}
+
+# card_area <home> <issue>: the same for the classification field.
+card_area() {
+  awk -F'\t' -v u="$2" '$3 == u { print $9 }' "$1/items"
+}
+
+# cards_for <home> <issue>: how many cards the board carries for that issue,
+# which is what a repair filing a second one would show.
+cards_for() {
+  awk -F'\t' -v u="$2" '$3 == u { n++ } END { print n + 0 }' "$1/items"
+}
+
+test_an_issue_linked_without_a_card_is_carded_through_the_adapter() {
+  local home issue out rc
+  home=$(new_home an_issue_linked_without_a_card_is_carded)
+  classified_board "$home"
+  # An issue this board never carried a card for, linked anyway.
+  issue=https://github.com/harbour-collective/app/issues/436
+  out=$(board "$home" import harbourlight "$issue" fm-advisory --area Platform)
+  assert_contains "$out" "linked-stale harbourlight $issue fm-advisory" \
+    "the fixture did not leave the issue linked with its card outstanding"
+  assert_equals 0 "$(cards_for "$home" "$issue")" "the fixture already carded the issue"
+
+  # THE DEFECT. Neither route back reaches it: import is idempotent by design and
+  # says so without touching the board, and mark finds no card to move.
+  out=$(board "$home" import harbourlight "$issue" fm-advisory --area Platform) && rc=0 || rc=$?
+  expect_code 0 "$rc" "re-importing stopped being a no-op"
+  assert_contains "$out" 'already-linked' "the repeat import was not reported as already linked"
+  assert_equals 0 "$(cards_for "$home" "$issue")" "a repeat import filed a card as a side effect"
+  out=$(board "$home" mark fm-advisory in-progress 2>&1)
+  assert_contains "$out" "stale harbourlight $issue fm-advisory in-progress" \
+    "moving an uncarded issue did not degrade to a stale board"
+  assert_equals 0 "$(cards_for "$home" "$issue")" "mark filed a card"
+
+  # THE REPAIR. The card appears carrying what firstmate already recorded - the
+  # state the work is actually in, not the state a fresh card would default to.
+  out=$(board "$home" card fm-advisory) && rc=0 || rc=$?
+  expect_code 0 "$rc" "carding a linked issue failed"
+  assert_contains "$out" "carded harbourlight $issue fm-advisory in-progress Platform" \
+    "the repair did not report the card it filed"
+  assert_equals 1 "$(cards_for "$home" "$issue")" "the repair did not file exactly one card"
+  assert_equals 'In Progress' "$(card_status "$home" "$issue")" \
+    "the card shows a default rather than the state firstmate recorded"
+  assert_equals 'Platform' "$(card_area "$home" "$issue")" \
+    "the card was filed without the area firstmate already recorded"
+  assert_contains "$(board "$home" lookup fm-advisory)" 'in-progress	in-progress	-	-	Platform	Platform' \
+    "the record did not confirm the column and the area it wrote"
+
+  # And the board is reconciled: a repaired card is settled, not divergent.
+  out=$(board "$home" poll)
+  assert_not_contains "$out" 'divergence' "the repaired card diverged from the record"
+  assert_not_contains "$out" 'unclassified' "the repaired card was reported as unclassified"
+
+  # Repeating it is a successful no-op that says so, and files no second card.
+  : > "$home/gh.log"
+  out=$(board "$home" card fm-advisory) && rc=0 || rc=$?
+  expect_code 0 "$rc" "carding an issue that already has a card failed"
+  assert_contains "$out" "already-carded harbourlight $issue fm-advisory" \
+    "the repeat was not reported as already carded"
+  assert_equals 1 "$(cards_for "$home" "$issue")" "the repeat filed a second card"
+  assert_not_contains "$(gh_log "$home")" 'item-add' "the repeat added a card anyway"
+  assert_not_contains "$(gh_log "$home")" 'item-edit' "the repeat wrote to a card it was told to leave alone"
+
+  # An issue carded the ordinary way is left exactly as it is, and the issue URL
+  # reaches the same record the task id does.
+  local ordinary=https://github.com/harbour-collective/app/issues/437
+  item "$home" PVTI_o Issue "$ordinary" Todo firstmate - 'Carded the ordinary way' -
+  board "$home" import harbourlight "$ordinary" fm-ordinary --area Platform >/dev/null
+  board "$home" mark fm-ordinary 'done' >/dev/null
+  : > "$home/gh.log"
+  out=$(board "$home" card "$ordinary")
+  assert_contains "$out" "already-carded harbourlight $ordinary fm-ordinary" \
+    "the issue URL did not resolve the same record the task id does"
+  assert_equals 'Done' "$(card_status "$home" "$ordinary")" \
+    "carding an existing card moved it"
+  assert_not_contains "$(gh_log "$home")" 'item-edit' "an existing card was written to"
+  pass "an issue holding a link but no card is carded with the status and area already recorded"
+}
+
+test_carding_opens_no_door_the_records_keep_shut() {
+  local home issue container charter out rc before
+  home=$(new_home carding_opens_no_door_the_records_keep_shut)
+  lane_board "$home"
+  issue=https://github.com/harbour-collective/app/issues/419
+  board "$home" import harbourlight "$issue" fm-soc2 >/dev/null
+
+  # Binding is untouched: the repair takes no task id, so there is no parameter
+  # with which it could rebind, and the refusal it would bypass still stands.
+  out=$(board "$home" import harbourlight "$issue" fm-different 2>&1) && rc=0 || rc=$?
+  expect_code 3 "$rc" "relinking a linked issue to a different task was allowed"
+  assert_contains "$out" 'already linked to task fm-soc2' "the refusal did not name the existing task"
+  out=$(board "$home" card fm-different 2>&1) && rc=0 || rc=$?
+  expect_code 2 "$rc" "a task that holds no link was carded"
+  assert_contains "$out" 'not linked' "the refusal did not say the task holds no link"
+
+  # A container and a lane hold no task, so neither is reachable from here, and
+  # every refusal they already made is unchanged.
+  container=https://github.com/harbour-collective/app/issues/420
+  item "$home" PVTI_c Issue "$container" 'Big Picture Todo' firstmate - 'A programme' -
+  board "$home" poll >/dev/null
+  charter=https://github.com/harbour-collective/app/issues/366
+  item "$home" PVTI_l Issue "$charter" Todo firstmate - 'A standing lane' -
+  board "$home" lane harbourlight "$charter" >/dev/null
+  : > "$home/gh.log"
+  for out in "$container" "$charter"; do
+    board "$home" card "$out" >/dev/null 2>&1 && rc=0 || rc=$?
+    [ "$rc" != 0 ] || fail "a record that holds no task was carded: $out"
+  done
+  out=$(board "$home" import harbourlight "$container" fm-container 2>&1) && rc=0 || rc=$?
+  expect_code 3 "$rc" "a container was allowed to bind a task"
+  out=$(board "$home" import harbourlight "$charter" fm-lane 2>&1) && rc=0 || rc=$?
+  expect_code 3 "$rc" "a standing lane was allowed to bind a task"
+  assert_not_contains "$(gh_log "$home")" 'item-add' "a refused call still filed a card"
+
+  # The mutual exclusion is enforced in the repair itself rather than resting on
+  # the refusals above having held. Two records for one issue cannot be reached
+  # through any command here, so the pair is written by hand: this is the case
+  # where a damaged record must refuse rather than card a container.
+  printf '%s\t%s\t%s\n' harbourlight "$container" - >> "$home/data/board-lanes.tsv"
+  printf 'harbourlight\t%s\tfm-damaged\ttodo\ttodo\t-\t-\t-\t-\n' "$container" \
+    >> "$home/data/board-links.tsv"
+  out=$(board "$home" card fm-damaged 2>&1) && rc=0 || rc=$?
+  expect_code 3 "$rc" "an issue holding a second record was carded anyway"
+
+  # A link with no state this adapter drives has nothing a card could show, so
+  # it is refused before the board is touched rather than defaulted onto one.
+  board "$home" ack fm-soc2 >/dev/null
+  : > "$home/gh.log"
+  before=$(cat "$home/data/board-links.tsv")
+  out=$(board "$home" card fm-soc2 2>&1) && rc=0 || rc=$?
+  expect_code 2 "$rc" "a retired link was carded into a default column"
+  assert_contains "$out" 'mark' "the refusal did not say how to give it a state"
+  [ -z "$(gh_log "$home")" ] || fail "a refused repair reached the board: $(gh_log "$home")"
+  assert_equals "$before" "$(cat "$home/data/board-links.tsv")" \
+    "a refused repair rewrote the durable record"
+
+  # And a home with no board configured is untouched by the verb entirely.
+  local bare
+  bare=$(new_home carding_needs_a_board_at_all)
+  board "$bare" card fm-anything >/dev/null 2>&1 && rc=0 || rc=$?
+  expect_code 2 "$rc" "a home with no board configured carded something"
+  [ -z "$(gh_log "$bare")" ] || fail "a home with no board configured reached GitHub"
+  pass "the repair binds nothing, reaches no other record, and invents no status"
+}
+
+test_a_card_that_could_not_be_created_is_reported_not_claimed() {
+  local home issue out rc before
+  home=$(new_home a_card_that_could_not_be_created_is_reported)
+  classified_board "$home"
+  issue=https://github.com/harbour-collective/app/issues/428
+  board "$home" import harbourlight "$issue" fm-advisory --area Platform >/dev/null
+  before=$(cat "$home/data/board-links.tsv")
+
+  # A board that will not take the card says so and exits, rather than reporting
+  # a card that is not there.
+  : > "$home/calls"
+  out=$(GH_FAIL='project item-add' board "$home" card fm-advisory 2>&1) && rc=0 || rc=$?
+  expect_code 1 "$rc" "a card the board refused to create was reported as filed"
+  assert_contains "$out" 'could not card' "the failure did not name what could not be done"
+  assert_equals 0 "$(cards_for "$home" "$issue")" "a failed add left a card behind"
+  assert_equals "$before" "$(cat "$home/data/board-links.tsv")" \
+    "a failed add rewrote the durable record"
+
+  # A read that cannot tell whether a card exists is not absence: it refuses
+  # before adding anything, because adding on a guess is what files a duplicate.
+  : > "$home/calls"
+  out=$(GH_FAIL='graphql card' board "$home" card fm-advisory 2>&1) && rc=0 || rc=$?
+  expect_code 1 "$rc" "an unreadable board was taken as proof no card exists"
+  assert_contains "$out" 'could not read' "the failure did not name the unreadable read"
+  [ "$(gh_calls_of "$home" 'project item-add')" = 0 ] || fail \
+    "a card was added on a read that did not land"
+  assert_equals "$before" "$(cat "$home/data/board-links.tsv")" \
+    "an unreadable board rewrote the durable record"
+
+  # Once the card exists, everything after it degrades fail-soft: the step that
+  # did not land is named, and the next cycle retries it like any other write.
+  out=$(GH_FAIL='graphql write' board "$home" card fm-advisory 2>/dev/null) && rc=0 || rc=$?
+  expect_code 0 "$rc" "a card filed with its column outstanding failed the caller"
+  assert_contains "$out" "carded-partial harbourlight $issue fm-advisory processed status" \
+    "the outstanding step was not named"
+  assert_equals 1 "$(cards_for "$home" "$issue")" "the card itself was not filed"
+  out=$(board "$home" poll)
+  assert_contains "$out" "synced harbourlight $issue fm-advisory processed" \
+    "the outstanding column write was not retried on the next cycle"
+  assert_contains "$out" "classified harbourlight $issue fm-advisory Platform" \
+    "the outstanding area write was not retried on the next cycle"
+  assert_equals 'Processed' "$(card_status "$home" "$issue")" "the retry did not move the card"
+  assert_equals 'Platform' "$(card_area "$home" "$issue")" "the retry did not set the area"
+  out=$(board "$home" poll)
+  [ -z "$out" ] || fail "a repaired card kept reporting: $out"
+  pass "a card that could not be created is reported and exits, and one half-written is retried"
+}
+
+test_an_issue_linked_without_a_card_is_carded_through_the_adapter
+test_carding_opens_no_door_the_records_keep_shut
+test_a_card_that_could_not_be_created_is_reported_not_claimed

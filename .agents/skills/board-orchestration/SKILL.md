@@ -89,6 +89,11 @@ The record lives with the durable fleet records rather than the task's runtime s
 Step 1 exists only for the narrow window where a turn died between steps 2 and 3.
 Re-running `import` for an already-linked issue is a successful no-op, and an attempt to point a linked issue at a different task is refused rather than silently rebound; investigate a refusal instead of working around it.
 
+An issue can hold that link while the board carries no card for it - linked before it was ever carded, or its card removed by hand - and the roadmap then omits work firstmate is running.
+That is what `bin/fm-board.sh card <issue-url|task-id>` repairs: it cards the issue and shows the status and area firstmate's own records already hold.
+Reach for it when a card is missing from the board for work that is linked, and when `mark` or `classify` reports that the issue is not a card on the project.
+It binds nothing and states nothing, so it is never a way around a refused relink, a container, or a lane; run it one issue at a time, and never build a sweep that cards every linked issue at once.
+
 ### Board-sourced work is captain-gated
 
 Work that arrives from a board is not authorized to run merely because it arrived.
