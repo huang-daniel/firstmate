@@ -101,7 +101,10 @@ case "$kind" in
   # suite is allowed because fm-board.test.sh runs that filter for real. The
   # tenth column, a card's issue state, is left off: nothing here is withdrawn,
   # and an absent state reads as one that is not closed.
-  "graphql items") cat "$GH_ITEMS" ;;
+  "graphql items")
+    printf '%s\n' '-'
+    cat "$GH_ITEMS"
+    ;;
   "issue list")
     prev=''
     repo=''

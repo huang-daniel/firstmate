@@ -960,6 +960,7 @@ case "${1:-} ${2:-}" in
     # Only the whole-board read reaches this stub, already in the reduced shape
     # the adapter's own filter produces; tests/fm-board.test.sh is where that
     # filter runs against the response GitHub actually returns.
+    printf '%s\n' '-'
     printf 'PVTI_a	Issue	https://github.com/harbour-collective/app/issues/1	Todo	firstmate	-	New work	-	-	open
 '
     printf 'PVTI_b	Issue	https://github.com/harbour-collective/app/issues/2	Todo	firstmate	-	Settled work	-	-	open

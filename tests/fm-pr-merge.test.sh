@@ -388,6 +388,7 @@ case "\${1:-} \${2:-}" in
       *'endCursor'*)
         # The whole-board read, already in the reduced shape the adapter's own
         # filter produces; fm-board.test.sh is where that filter runs for real.
+        printf '%s\n' '-'
         printf 'PVTI_a\tIssue\t%s\tIn Progress\t-\t-\tcard\t-\t-\topen\n' '$issue'
         ;;
       *repositoryOwner*)
