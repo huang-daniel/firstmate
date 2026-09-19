@@ -236,7 +236,24 @@ case "$kind" in
         printf ']}}'
       fi
       printf '}}}'
-    } | jq -r "$(gh_jq_filter "$@")"
+    } | jq --rawfile fields "$GH_FIELDS" --rawfile items "$GH_ITEMS" '
+      ($fields | split("\n") | map(split("\t"))
+       | map(select(.[0] == "field"))) as $fields
+      | ($items | split("\n") | map(split("\t"))) as $items
+      | if .data.repository.issue != null then
+          .data.repository.issue.projectItems.nodes |= map(
+            .id as $id
+            | ([$items[] | select(.[0] == $id)] | first // []) as $item
+            | .fieldValues = {
+                nodes: [$fields[]
+                  | . as $field
+                  | ($item[($field[3] | tonumber) - 1] // "-") as $value
+                  | select($value != "-" and $value != "")
+                  | {name: $value, field: {name: $field[2]}}],
+                pageInfo: {hasNextPage: false}
+              })
+        else . end
+    ' | jq -r "$(gh_jq_filter "$@")"
     ;;
   "project item-edit")
     # Behave like the real board: the edit is visible to the next read, and it
