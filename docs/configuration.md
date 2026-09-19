@@ -502,6 +502,38 @@ Any other value, or an unreadable file, refuses every spawn from that home, whic
 The file is a captain-wide safety preference, so it is inherited into secondmate homes under the [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md) inherited-local-material contract; a secondmate's own Claude crewmates then launch on the same posture.
 The [Claude adapter reference](../.agents/skills/harness-adapters/references/harness/claude.md) records the verified shape of both launches and which once-per-machine dialog each one can meet.
 
+## Credential store (config/secrets)
+
+The optional local, gitignored `config/secrets/` directory holds reference-only manifests, one per credential.
+Each v2 manifest starts with `# fm-secret v2`, followed by one bare KEY name per line, with no assignments, paths, or values.
+Values live separately in `config/secret-values/<credential>/<KEY>`, exactly one value per file, with 0600 files and 0700 directories.
+Generic inspection of migrated manifests cannot disclose credential values.
+Both stores are local and are not inherited.
+
+Use [`bin/fm-secret.sh`](../bin/fm-secret.sh) for credential access:
+
+| Command | What it emits |
+| --- | --- |
+| `fm-secret.sh list` | credential names without opening files |
+| `fm-secret.sh names <credential>` | manifest key names, unambiguous legacy keys, or a filename-derived bare-value reference |
+| `fm-secret.sh reveal <credential> <KEY>` | one explicitly selected value, followed by a newline |
+| `fm-secret.sh export <credential>` | shell-quoted assignments for an explicit credential read |
+
+After migrating the credential, use `eval "$(bin/fm-secret.sh export twilio)"` instead of sourcing its file; export refuses legacy credentials.
+Export writes values only to stdout; keep its output out of logs.
+
+`migrate` reports pending work and `migrate --apply` replaces legacy files with manifests after writing and byte-comparing the separate value files.
+The manifest is atomically replaced only after values are ready; repeated migration leaves v2 credentials unchanged.
+A failed publication leaves the legacy credential unchanged.
+Retrying after values were published but before the manifest was replaced resumes migration only when the published files exactly match the expected names and bytes; conflicting contents are refused with the credential name.
+Legacy KEY=value files and bare single-line values remain readable through the accessor until migrated.
+Never inspect unmigrated files with generic text commands: a key-listing pattern can emit a bare secret.
+A single key-shaped legacy line remains ambiguous and requires `migrate --keyed <credential>` or `migrate --bare <credential>`; `names` refuses it.
+Bare values receive a key derived from the filename, uppercased with punctuation replaced by underscores and an underscore prepended to a leading digit.
+Quoted legacy values support trailing comments without evaluating shell code.
+
+Regression coverage in [`tests/fm-secret.test.sh`](../tests/fm-secret.test.sh) uses synthetic fixtures to reproduce the legacy key-listing leak, scan the migrated manifest tree directly for values, compare quoted-value migration against independent shell extraction, and exercise path boundaries and publication retries.
+
 ## Worker launch environment (config/launch-env-allowlist)
 
 The optional local, gitignored `config/launch-env-allowlist` limits the ambient environment passed to newly launched workers, scouts, and secondmates, including relaunches.
