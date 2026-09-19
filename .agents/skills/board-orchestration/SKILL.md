@@ -89,6 +89,12 @@ The record lives with the durable fleet records rather than the task's runtime s
 Step 1 exists only for the narrow window where a turn died between steps 2 and 3.
 Re-running `import` for an already-linked issue is a successful no-op, and an attempt to point a linked issue at a different task is refused rather than silently rebound; investigate a refusal instead of working around it.
 
+An issue can hold that link while the board carries no card for it - linked before it was ever carded, or its card removed by hand - and the roadmap then omits work firstmate is running.
+That is what `bin/fm-board.sh card <issue-url|task-id>` repairs: it cards the issue and shows the status and area firstmate's own records already hold.
+Reach for it when a card is missing from the board for work that is linked, and when `mark` or `classify` reports that the issue is not a card on the project.
+It binds nothing and states nothing, so it is never a way around a refused relink, a container, or a lane; run it one issue at a time, and never build a sweep that cards every linked issue at once.
+Never card linked issues automatically during a poll cycle; a reported withdrawal follows "Filing is intent; status is firstmate's report" below.
+
 ### Board-sourced work is captain-gated
 
 Work that arrives from a board is not authorized to run merely because it arrived.
@@ -344,7 +350,7 @@ This is a real security property of the design and the captain accepted it knowi
 - A `truncated` line means the board filled the read's card ceiling, so a card past it was never seen.
   Everything that read did report still stands, including `closed` records for visible cards, but no `cancelled` record is emitted for an unseen card, because absence cannot be told apart from the ceiling.
   Re-run `poll` for that board with a higher `--limit`, and if it stays truncated tell the captain the board has outgrown the default read.
-  The ceiling belongs to that read alone: `mark`, `import`, and `promote` find a card through the issue that holds it, so a card sitting past the ceiling is still moved normally.
+  The adapter header owns the read ceiling and the targeted lookup used outside a cycle.
 - A scope edit to a card's own text mid-flight follows the lifecycle rule AGENTS.md section 7 already owns: route it to follow-up work unless it completely invalidates the work being validated.
   A board edit does not create a second, competing rule for that.
 

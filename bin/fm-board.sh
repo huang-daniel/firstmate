@@ -15,6 +15,7 @@
 #   fm-board.sh poll [<project>] [--limit <n>] [--all]
 #   fm-board.sh import <project> <issue-url> <task-id>
 #     [--area <name> | --unclassified]
+#   fm-board.sh card <issue-url|task-id>
 #   fm-board.sh place <project> <task-id> <title> [<body>]
 #     [--lands-in <owner/name>] [--parent <issue-url>] [--cleared]
 #     [--area <name> | --unclassified]
@@ -39,9 +40,9 @@
 # `--limit` caps how many cards one board read returns and defaults to 200. It
 # belongs to `poll` alone, because `poll` is the only verb that reads the board;
 # a board carrying more cards than the limit needs it raised, and `poll` says so
-# with a `truncated` line. `mark`, `import`, and `promote` find a card through
-# the issue that holds it rather than by paging the board, so no card is out of
-# their reach however large the board grows and they take no limit at all.
+# with a `truncated` line. `mark`, `import`, `card`, and `promote` find a card
+# through the issue that holds it rather than by paging the board, so no card is
+# out of their reach however large the board grows and they take no limit at all.
 #
 # `--all` turns off `poll`'s default silence about settled cards. See RECORDS.
 #
@@ -201,6 +202,40 @@
 # No column is ever empty: `-` is the placeholder, because bash collapses empty
 # tab-separated fields when it reads them back.
 #
+# CARDING AN ISSUE THAT IS ALREADY LINKED. The link and the card are two
+# different facts, and an issue can hold the first without the second: it was
+# linked before the board carried it, or its card was deleted by hand.
+#
+# `card` is that route, and it is a separate verb rather than a widening of
+# `import` deliberately. `import`'s answer for an already-linked issue is
+# `already-linked` and no board call at all, which is what makes re-running it
+# safe; carding as a side effect of that no-op would be a board write the caller
+# did not ask for. `card` takes no new binding or classification,
+# so it cannot bind, rebind, or re-home anything: it reads firstmate's own record
+# and shows on the card exactly the status and area that record already holds,
+# never a default. It takes an issue URL or a task id, because the record answers
+# to both.
+#
+# An issue with no task link, including a container or lane, exits 2.
+# A conflicting container or lane record alongside a task link exits 3.
+# A record whose state is no column this board drives exits 2 before any board
+# call, naming what is missing, because a card for it could show nothing the
+# record supports.
+#
+# Repeating it is a no-op that says so. An issue already carded answers
+# `already-carded`, its card is not touched, and the ordinary cycle reconciles
+# that card exactly as it reconciles every other. Creating the card is the whole
+# purpose of the call, so a card that could not be created - a board that refused
+# the add, or a read that could not tell whether one exists - reports the failure
+# and exits 1 rather than reporting a card that is not there. Everything after
+# creation degrades fail-soft, exactly as PLACEMENT's second half does:
+# `carded-partial` names the step the board did not take, and what it owes is the
+# ordinary outstanding write `poll` retries.
+#
+# There is deliberately no sweep that cards every linked issue at once, for the
+# same reason PLACEMENT has no bulk placement: one issue at a time, by a caller
+# that decided that issue belongs on the board. No cycle cards anything either.
+#
 # DECOMPOSITION. A big-picture card is a container: an issue whose children are
 # the real work. No worker can ship a container, so a container must never spend
 # the one issue-to-task binding above, and this adapter makes that structural
@@ -317,10 +352,12 @@
 #
 # An issue holds at most one of the three records. Except for the undecomposed
 # container conversion below, writing one refuses an issue holding another:
-# `import` and `card_ensure` refuse a lane exactly as they refuse a container, `promote`, `child-add`, `decomposed`,
-# and `place --parent` refuse a lane parent exactly as they refuse a bound one,
-# and `lane` refuses an issue that already holds a task. Every such refusal exits
-# 3.
+# `import` and `card_ensure` refuse a lane exactly as they refuse a
+# container, `promote`, `child-add`, `decomposed`, and `place --parent` refuse a
+# lane parent exactly as they refuse a bound one, and `lane` refuses an issue
+# that already holds a task. Every such refusal exits 3.
+# `card`'s link prerequisite and conflict refusals are owned by CARDING AN ISSUE
+# THAT IS ALREADY LINKED above.
 #
 # `lane` does accept a container record the board has merely sighted or firstmate
 # promoted and has not broken down, retiring it in the same call: nothing has
@@ -458,8 +495,9 @@
 # at all while links are open - says so and reconciles nothing rather than
 # guessing. Exiting non-zero is reserved for the three things a caller must not
 # proceed past: a usage or configuration error exits 2, a refused conflicting
-# relink or container-versus-task conflict exits 3, and an issue this adapter was
-# asked to create but could not exits 1, as PLACEMENT above sets out.
+# relink or container-versus-task conflict exits 3, and an issue or card this
+# adapter was asked to create but could not exits 1, as PLACEMENT and CARDING AN
+# ISSUE THAT IS ALREADY LINKED above set out.
 #
 # DIRECTION OF AUTHORITY. Firstmate's own durable records are the truth and the
 # board is how that truth is shown; chat, not the board, is where the captain
@@ -551,7 +589,7 @@
 # programmes - a small set beside its work items by construction. It is also a
 # different budget: REST requests rather than GraphQL points.
 #
-# Outside a cycle, `mark`, `import`, and `promote`
+# Outside a cycle, `mark`, `import`, `card`, and `promote`
 # resolve their card from the issue that holds it - GitHub answers a card's id
 # from the issue's own node, so the request is the same size whether the board
 # carries ten cards or a thousand - and `place` and `child-add` read nothing at
@@ -1475,6 +1513,11 @@ CARD_QUERY='query($owner: String!, $name: String!, $number: Int!, $projects: Int
 # holding only an issue URL never has to page the board to find its card.
 # Archived cards are excluded so this agrees with the board read, which does not
 # list them either.
+#
+# It returns 1 for an issue this board carries no card for and 2 for a read that
+# did not land, the same distinction issue_sub_issues makes and for the same
+# reason: a caller that acts on absence must not act on its own blindness. A
+# caller that only needs the card treats both alike.
 board_card_values() {
   local owner=$1 number=$2 issue=$3 classify_field=$4 repo id
   repo=$(issue_repo "$issue")
@@ -1482,7 +1525,7 @@ board_card_values() {
     -f query="$CARD_QUERY" \
     -f owner="${repo%%/*}" -f name="${repo#*/}" \
     -F number="${issue##*/}" -F projects="$CARD_PROJECTS_LIMIT" \
-    --jq "$(card_jq "$owner" "$number" "$classify_field")" </dev/null) || return 1
+    --jq "$(card_jq "$owner" "$number" "$classify_field")" </dev/null) || return 2
   [ -n "$id" ] || return 1
   printf '%s\n' "$id"
 }
@@ -2279,6 +2322,114 @@ cmd_import() {
   else
     printf 'linked-stale %s %s %s %s%s\n' "$project" "$issue" "$task" "$entry" \
       "$(board_area_report "$classify_field" "$area")"
+  fi
+  return 0
+}
+
+CARD_USAGE='usage: fm-board.sh card <issue-url|task-id>'
+
+# The repair for an issue that holds a link but whose card is missing from the
+# board. CARDING AN ISSUE THAT IS ALREADY LINKED above owns why it is its own
+# verb and what it refuses; this is that contract's one implementation.
+#
+# It creates no record that did not already exist. The link it reads is the
+# whole of its authority, which is what makes it unable to bind, rebind, or
+# re-home anything however it is called.
+cmd_card() {
+  local want='' canonical board project issue task desired area pr pr_synced
+  local owner number status_field todo in_progress done_col queued processed
+  local classify_field column item_id rc=0
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -*) die "unknown option \"$1\"" ;;
+      *)
+        [ -z "$want" ] || die "$CARD_USAGE"
+        want=$1
+        shift
+        ;;
+    esac
+  done
+  [ -n "$want" ] || die "$CARD_USAGE"
+
+  if canonical=$(issue_canonical "$want"); then
+    links_find issue "$canonical" >/dev/null \
+      || die "$canonical is not linked to a task, so there is no record to card it from"
+  else
+    task_id_valid "$want" || die "\"$want\" is neither an issue URL nor a task id"
+    links_find task "$want" >/dev/null || die "task $want is not linked to a board issue"
+  fi
+  project=$LINK_PROJECT
+  issue=$LINK_ISSUE
+  task=$LINK_TASK
+  desired=$LINK_DESIRED
+  pr=$LINK_PR
+  pr_synced=$LINK_PR_SYNCED
+  area=$LINK_AREA
+
+  # The other two records hold no task, so neither can be reached from here.
+  # The link is checked first and these cannot both be true of one issue, which
+  # is exactly the invariant they are here to keep true.
+  if decomps_find "$issue" >/dev/null; then
+    die "$issue is a decomposition container on board \"$DECOMP_PROJECT\"; its children hold the work" 3
+  fi
+  if lanes_find "$issue" >/dev/null; then
+    die "$issue is a persistent lane on board \"$LANE_PROJECT\"; the temporary work it generates holds the tasks" 3
+  fi
+
+  board=$(board_for "$project")
+  owner=$(printf '%s' "$board" | cut -f2)
+  number=$(printf '%s' "$board" | cut -f3)
+  status_field=$(printf '%s' "$board" | cut -f8)
+  todo=$(printf '%s' "$board" | cut -f9)
+  in_progress=$(printf '%s' "$board" | cut -f10)
+  done_col=$(printf '%s' "$board" | cut -f11)
+  queued=$(printf '%s' "$board" | cut -f15)
+  processed=$(printf '%s' "$board" | cut -f16)
+  classify_field=$(printf '%s' "$board" | cut -f17)
+
+  # A card shows what firstmate recorded or it is not written at all. A retired
+  # link records no state this adapter drives, so there is nothing a card could
+  # honestly say about it, and the column has to be resolved before the board is
+  # touched so a refusal leaves no card behind.
+  case "$desired" in
+    todo | processed | queued | in-progress | 'done')
+      column=$(state_column "$desired" "$todo" "$in_progress" "$done_col" \
+        "$queued" "$processed") \
+        || die "board \"$project\" has no $desired column configured"
+      ;;
+    *)
+      die "task $task holds no board status firstmate drives, so a card for it would show nothing; \"mark\" it to the state it is in first"
+      ;;
+  esac
+
+  board_card_values "$owner" "$number" "$issue" "$classify_field" >/dev/null || rc=$?
+  case "$rc" in
+    0)
+      printf 'already-carded %s %s %s\n' "$project" "$issue" "$task"
+      return 0
+      ;;
+    1) ;;
+    *) die "could not read whether $issue is a card on project $owner/$number" 1 ;;
+  esac
+
+  item_id=$(board_item_add "$owner" "$number" "$issue") \
+    || die "could not card $issue on project $owner/$number" 1
+  # The card exists from here on, so the record says the board has confirmed no
+  # column for it until this write lands, exactly as a placement does. A fresh
+  # card carries no status, so that is also what the next cycle reads back, which
+  # is what makes an unlanded write an ordinary retry rather than a divergence.
+  links_put "$project" "$issue" "$task" "$desired" other "$pr" "$pr_synced" \
+    "$area" -
+  if board_write_values "$owner" "$number" "$item_id" "$issue" \
+    "$status_field" "$column" "$classify_field" "$area"; then
+    links_put "$project" "$issue" "$task" "$desired" "$desired" "$pr" \
+      "$pr_synced" "$area" "$area"
+    printf 'carded %s %s %s %s%s\n' "$project" "$issue" "$task" "$desired" \
+      "$(board_area_report "$classify_field" "$area")"
+  else
+    printf 'carded-partial %s %s %s %s status%s\n' "$project" "$issue" "$task" \
+      "$desired" "$(board_area_report "$classify_field" "$area")"
   fi
   return 0
 }
@@ -3676,6 +3827,7 @@ case "$VERB" in
   boards) cmd_boards "$@" ;;
   poll) cmd_poll "$@" ;;
   import) cmd_import "$@" ;;
+  card) cmd_card "$@" ;;
   place) cmd_place "$@" ;;
   promote) cmd_promote "$@" ;;
   child-add) cmd_child_add "$@" ;;
