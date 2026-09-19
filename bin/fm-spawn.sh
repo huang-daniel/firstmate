@@ -4168,6 +4168,9 @@ spawn_reflect_on_board() {
   board=$(FM_HOME="$FM_HOME" "$board_sh" boards "$project" 2>/dev/null)
   [ -n "$board" ] || return 0
   if ! FM_HOME="$FM_HOME" "$board_sh" lookup "$ID" >/dev/null 2>&1; then
+    # `classify=` is the last token on that line by contract, because a field or
+    # column name may contain spaces and only the final token reads back
+    # unambiguously; cmd_boards in bin/fm-board.sh owns that ordering.
     if [ "${#BOARD_CLASSIFICATION_ARGS[@]}" -eq 0 ] && [ "${board##* classify=}" != - ]; then
       echo "warning: board placement skipped for $ID: $project requires a caller-stated --area <name> or deliberate --unclassified; dispatch continues" >&2
       return 0

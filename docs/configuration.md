@@ -149,6 +149,7 @@ queued = Queued
 big-picture-todo = Big Picture Processed
 big-picture-in-progress = Big Picture In Progress
 big-picture-done = Big Picture Done
+lane = Lanes
 ```
 
 `project` is the project's name in the local project registry (`data/projects.md`), and `owner` plus `number` are the GitHub Projects owner login and project number.
@@ -173,6 +174,9 @@ A card still sitting in Todo therefore means firstmate has genuinely not picked 
 
 The three `big-picture-*` keys are also optional and unset by default, and they are one switch rather than three: set all three or none, because a partial set is refused with the reason rather than half-enabled.
 They turn on decomposition, described below, and their values are ordinary column names like every other key here - a board whose main lane runs Todo to Processed usually names the first of them `Big Picture Processed`.
+
+`lane` is optional and unset by default too, and it turns on persistent lanes, described below.
+Its value is one more ordinary column name: the column that holds standing charters.
 No column name may be used twice across all of these keys.
 
 A card is picked up only when it is a real issue, sits in the Todo column, and carries the trigger.
@@ -246,11 +250,35 @@ Its card tracks all GitHub sub-issues, including externally attached work; the P
 Creating those child cards is unattended; running them is not.
 Children are captain-gated exactly like any other work that arrived from a board.
 
+### Persistent lanes
+
+Some work is neither one task nor a big-picture item that breaks into a known set of pieces.
+A persistent lane is a standing charter: it has no fixed child set, it throws off temporary work as evidence appears for as long as the product exists, and it is never itself finished.
+Its issue stays open indefinitely, and that is the settled end state rather than something waiting to be tidied up.
+
+Treating such an issue as a big-picture item goes wrong in both directions.
+There is no breakdown to perform, so marking it broken down would claim something that never happened, and no finish line ever arrives, so its card could never honestly reach Done - which leaves firstmate asked to break it down on every cycle forever, with no legitimate way to settle the ask.
+
+Set `lane` to the column that holds those charters and firstmate gains a third answer for a filed card.
+It says once, deliberately, that a card is a standing lane; the card moves into that column; and from then on the issue is never taken in as a task, never offered for breaking down, and never given a finish state.
+Nothing is ever guessed from a title, a label, or how old an issue is - firstmate states it, and the record is kept locally so it survives cleanup and restarts.
+A card the captain later moves out of that column is reported as an ordinary difference, exactly as any other card is; a lane simply sitting there is silence.
+
+The classification cannot be reached over the top of another one, in either direction.
+An issue already taken in as a task is refused, as is one that really was broken down - its children are its breakdown, and a later classification does not get to deny that.
+An issue merely sitting in the big-picture lane that nothing has been spent on yet is exactly the case this exists to correct, so declaring it a lane retires the big-picture reading in the same step.
+
+The work a lane throws off is completely ordinary: it is taken in, carded, classified, dispatched, and finished exactly as any other task, and it is captain-gated exactly like any other work that arrived from a board.
+A lane never becomes the parent of that work on the board, because a parent's card follows its children to completion and a lane has no completion to follow them to.
+
+Deciding later that a lane really was a big-picture item, or one task after all, is one deliberate command that retires the charter and touches nothing else; no cycle ever declares or undoes one on its own.
+Leave `lane` out and none of this exists: no card is read or written as a lane and the bridge behaves exactly as it did before the key existed.
+
 ### Turning it off
 
 Delete `config/boards`, or empty it, and the bridge is fully disabled with no residue.
 That is the whole off switch: there is no generated poll, watcher check, cadence file, daemon, or background process to unwind, because the bridge never creates one.
-The only files it ever writes are the local records `data/board-links.tsv` and `data/board-decompositions.tsv`, which do nothing at all without configuration and are kept so a re-enabled board does not re-import issues it already imported or break down a container it already broke down.
+The only files it ever writes are the local records `data/board-links.tsv`, `data/board-decompositions.tsv`, and `data/board-lanes.tsv`, which do nothing at all without configuration and are kept so a re-enabled board does not re-import issues it already imported, break down a container it already broke down, or re-offer a standing lane.
 
 Disabling stops future board reads and writes; it is not an undo, and it deliberately leaves earlier work in place.
 Backlog items already imported stay in the backlog, issues already created stay on GitHub, comments already posted stay posted, and cards already moved stay in the column they were moved to.
