@@ -1146,7 +1146,7 @@ else
   fi
   case "$verdict" in
     empty)
-      # Confirmed submit is the one outcome this command used to report with
+      # Confirmed submit is the one outcome this plane used to report with
       # silence, and silence there is indistinguishable from a no-op, which is
       # what invites the duplicate send this plane must never carry. Report it
       # here, before the bookkeeping below, so a later warning cannot obscure
