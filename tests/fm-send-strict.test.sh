@@ -10,12 +10,12 @@
 # the confirmed one it once reported with silence, and the unconfirmed one whose
 # existing text and exit 3 must survive that addition. They also verify that the
 # typed plane refuses, rather than types, when the composer already holds
-# pending text, and when bytes that will execute as a harness command are aimed
-# at a worker whose agent is mid-turn - on tmux and on a non-tmux backend alike,
-# and whatever the backend's native agent-state claims - while text that merely
-# queues goes through: plain prose to a mid-turn worker, a marked secondmate
-# request whose marker makes it chat, and anything at all to a target this home
-# records no harness for.
+# pending text, and when bytes that will execute as a command are aimed at a
+# worker whose agent is mid-turn - on tmux and on a non-tmux backend alike, and
+# whatever the backend's native agent-state claims - while text that merely
+# queues goes through: plain prose to a mid-turn worker, "$"-prefixed prose to a
+# mid-turn codex worker, a marked secondmate request whose marker makes it chat,
+# and anything at all to a target this home records no harness for.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -443,6 +443,36 @@ test_typed_send_refuses_an_occupied_target() {
   pass "fm-send typed plane: a prefilled composer and a mid-turn invocation are each refused untyped, while plain prose, an unattributable tail and an idle worker still send"
 }
 
+# A leading "$" to a codex target is read as a skill invocation when a plane is
+# being chosen, and that reading is a documented over-match: "$200 is the budget
+# cap" and "$HOME" are ordinary text codex never executes. Choosing the wrong
+# plane over it costs nothing because both planes deliver, but refusing over it
+# would block a legitimate steer outright, since the mid-turn refusal has no
+# override flag. So the refusal must ask the narrower, provable question, and
+# prose like this must still reach a worker that is mid-turn.
+test_dollar_prose_to_a_mid_turn_codex_worker_still_sends() {
+  local dir fb home err log rc got
+  dir="$TMP_ROOT/typed-busy-codex"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); home=$(setup_home typedbusycodex); err="$dir/send.err"
+  log="$dir/tmux.log"; : > "$log"
+  fm_write_meta "$home/state/cdx-lane.meta" \
+    "window=sess:fm-cdx-lane" "kind=ship" "harness=codex"
+
+  # shellcheck disable=SC2016 # The leading $ is literal message bytes, not an expansion.
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    FM_FAKE_TMUX_BUSY=1 \
+    "$SEND" cdx-lane '$200 is the budget cap, stay under it' >/dev/null 2>"$err"; rc=$?
+  [ "$rc" != 1 ] \
+    || fail "\$-prefixed prose to a mid-turn codex worker must not be refused"$'\n'"$(cat "$err")"
+  got=$(cat "$log")
+  # shellcheck disable=SC2016 # The leading $ is literal message bytes, not an expansion.
+  assert_contains "$got" 'literal=1 arg=$200 is the budget cap, stay under it' \
+    "\$-prefixed prose must still be typed into a mid-turn codex worker"
+  assert_contains "$got" "target=sess:fm-cdx-lane literal=0 arg=Enter" \
+    "\$-prefixed prose to a mid-turn codex worker must still be submitted"
+  pass "fm-send typed plane: \$-prefixed prose executes nothing, so a mid-turn codex worker still takes it"
+}
+
 # A secondmate request is typed with the from-firstmate marker ahead of it, so
 # what the harness receives is chat, not a parser command - the Stage-1
 # compatibility boundary fm-send.sh documents and deliberately keeps. The
@@ -530,6 +560,7 @@ test_typed_send_refuses_a_mid_turn_non_tmux_target() {
 test_exact_lane_id_send_still_works
 test_key_send_exit_status_follows_delivery
 test_typed_send_refuses_an_occupied_target
+test_dollar_prose_to_a_mid_turn_codex_worker_still_sends
 test_marked_secondmate_invocation_still_sends_into_a_mid_turn_pane
 test_typed_send_refuses_a_mid_turn_non_tmux_target
 test_key_send_reports_confirmed_delivery

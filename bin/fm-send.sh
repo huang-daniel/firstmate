@@ -87,17 +87,20 @@
 # (fm_backend_composer_state, proven `pending` only) refuses when the composer
 # visibly holds pending text, because typing on top of someone's half-written
 # text garbles it whatever is being sent.
-# The MID-TURN check refuses exactly one thing, and every clause of it is a
-# property of the message or of evidence actually held: bytes that will EXECUTE
-# as a harness command, aimed at a target whose recorded harness has a
-# registered busy signature that its tail matches. A command STARTS something,
-# so letting one queue behind a run already under way is how a second run gets
+# The MID-TURN check refuses on four facts and nothing else, each one a
+# property of the message or evidence actually held: these bytes will EXECUTE
+# as a command (a leading "/", the only form that proves it), the send is not
+# marked, the target's recorded harness has a registered busy signature, and
+# that signature matches the captured tail. A command STARTS something, so
+# letting one queue behind a run already under way is how a second run gets
 # started against a branch the first already owns. Text that merely queues is
 # not refused: plain prose ("when you finish this, do X") still types into a
-# busy pane, which is the normal way to steer one, and so does a marked
-# secondmate request, which the from-firstmate marker turns into chat rather
-# than a parser command (see the Stage-1 compatibility boundary below), so it
-# starts nothing either. The busy
+# busy pane, which is the normal way to steer one; so does prose a codex target
+# reads as a skill invocation for plane selection ("$200 is the budget cap"),
+# because that reading is a documented over-match rather than proof; and so
+# does a marked secondmate request, which the from-firstmate marker turns into
+# chat rather than a parser command (see the Stage-1 compatibility boundary
+# below), so it executes nothing either. The busy
 # verdict comes from the fleet's usual ladder - the backend's native
 # agent-state where it has one, then the rendered busy footer read from a
 # captured tail - under one rule: a target is classified busy only when its
@@ -790,15 +793,30 @@ fm_send_rides_inbox() {  # <pre-marker-text>
 # (skill invocation). The "$" arm is scoped to codex on purpose: unlike "/", a
 # leading "$" commonly starts ordinary text ("$5/month", "$HOME"), so a
 # universal "$" rule would misclassify plain text to claude/opencode/pi.
-# Three readers share this one answer and so can never drift: plane selection
-# above (an invocation cannot ride the durable inbox), the typed plane's
-# mid-turn refusal (only an invocation STARTS something, so only an invocation
-# is refused onto a busy target), and the pre-Enter settle (these are exactly
-# the sends that open a completion popup).
+# Two readers share this one answer and so can never drift: plane selection
+# above (an invocation cannot ride the durable inbox), and the pre-Enter settle
+# (these are exactly the sends that open a completion popup). Both are hints:
+# a wrong answer costs a plane that delivers either way, or a spare second.
 fm_send_is_harness_native() {  # <pre-marker-text>
   case "$1" in
     /*) return 0 ;;
     \$*) [ "$TARGET_HARNESS" != codex ] || return 0 ;;
+  esac
+  return 1
+}
+
+# Will these bytes EXECUTE as a command once the harness parses them? Only a
+# leading "/" answers that with proof, which makes this deliberately narrower
+# than fm_send_is_harness_native above; the two must stay separate rather than
+# be merged back. They are asked for different reasons and a wrong answer costs
+# different amounts. The "$" arm there is a documented over-match ("$HOME",
+# "$5/month"): harmless when it only picks a plane, because both planes
+# deliver, and not harmless here, because the mid-turn refusal has no override
+# flag, so a wrong answer blocks a legitimate steer outright. A heuristic is a
+# fine basis for a hint and never a basis for a veto.
+fm_send_executes_as_command() {  # <pre-marker-text>
+  case "$1" in
+    /*) return 0 ;;
   esac
   return 1
 }
@@ -1190,18 +1208,25 @@ else
   # The composer condition covers all of it - typing on top of a composer that
   # already holds content garbles that content regardless of what is being
   # typed - and is the same single reading the ring uses.
-  # The mid-turn condition refuses exactly one thing: bytes that will EXECUTE
-  # as a harness command, on a target whose recorded harness has a registered
-  # busy signature that its tail matches. A command starts something, so
-  # letting one queue behind a run already under way is how a second pipeline
-  # run gets started against a branch the first already owns.
+  # The mid-turn condition refuses on four facts and nothing else: these bytes
+  # will EXECUTE as a command, the send is not marked, the target's recorded
+  # harness has a registered busy signature, and that signature matches the
+  # captured tail. Each is something known to be true, never a heuristic and
+  # never an absence of evidence, because this refusal has no override flag.
+  # The hazard behind it is that a command starts something, so letting one
+  # queue behind a run already under way is how a second pipeline run gets
+  # started against a branch the first already owns. Not every command starts a
+  # run (/compact, /model), so that consequence is stated here and the refusal
+  # itself reports only what it proved.
   # Text that merely queues is never refused, because queueing "when you finish
-  # this, do X" behind a running turn is the normal and useful outcome and
-  # there is no override flag to get past a refusal. Plain prose queues. So
-  # does a marked secondmate request: the from-firstmate marker is typed ahead
-  # of it, so the harness receives chat rather than a parser command (the
-  # Stage-1 compatibility boundary in the header), and nothing is started even
-  # though the text the operator wrote begins with a "/".
+  # this, do X" behind a running turn is the normal and useful outcome. Plain
+  # prose queues, including prose a codex target reads as a skill invocation
+  # when a plane is being chosen ("$200 is the budget cap"): that reading is a
+  # documented over-match, enough to pick a plane and never enough to veto a
+  # send. A marked secondmate request queues too - the from-firstmate marker is
+  # typed ahead of it, so the harness receives chat rather than a parser
+  # command (the Stage-1 compatibility boundary in the header), and nothing
+  # executes even though the text the operator wrote begins with a "/".
   # Both reads keep the ring's deliberately narrow posture: only a PROVEN
   # verdict refuses, so an ambiguous composer and an unreadable target still
   # type here, exactly as they still ring there.
@@ -1210,9 +1235,9 @@ else
   TYPED_REFUSAL=
   if [ "$TYPED_COMPOSER_STATE" = pending ]; then
     TYPED_REFUSAL='the composer visibly holds pending text, so the text would land on top of what is already pending there'
-  elif [ "$MARK_FROM_FIRSTMATE" != 1 ] && fm_send_is_harness_native "$RESOLVE_ANSWER_TEXT" \
+  elif [ "$MARK_FROM_FIRSTMATE" != 1 ] && fm_send_executes_as_command "$RESOLVE_ANSWER_TEXT" \
     && fm_send_target_is_busy; then
-    TYPED_REFUSAL='the agent there is mid-turn and these bytes would execute as a harness command, starting a second run behind the one already under way'
+    TYPED_REFUSAL='the agent there is mid-turn and these bytes would execute as a command rather than queue as text'
   fi
   if [ -n "$TYPED_REFUSAL" ]; then
     fm_send_known_undelivered_cleanup || \
