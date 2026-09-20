@@ -1,0 +1,71 @@
+
+========================================================================
+SCENARIO 1 - a delivered Enter is reported, and the key really lands
+========================================================================
+$ fm-send.sh fm-lane-live --key Enter
+exit status: 0
+stderr:
+fm-send: key 'Enter' sent to fmsess:fm-lane-live
+stdout: 0 bytes (the confirmation is stderr-only, so piped stdout is unchanged)
+keystrokes the lane's terminal received (^M = Enter):
+^M
+
+========================================================================
+SCENARIO 2 - the same send against the PRE-FIX script (base a4cc9bb)
+========================================================================
+$ fm-send.sh fm-lane-live --key Enter    # pre-fix
+exit status: 0
+stderr (nothing below = the delivered key was reported with silence):
+stdout: 0 bytes
+keystrokes received (a second ^M: the key WAS delivered, just never reported):
+^M^M
+
+========================================================================
+SCENARIO 3 - C-c to a live lane is reported and really interrupts
+========================================================================
+pane before (a long job is running):
+bash-5.3$ sleep 400
+$ fm-send.sh fm-lane-live --key C-c
+exit status: 0
+stderr:
+fm-send: key 'C-c' sent to fmsess:fm-lane-live
+pane after (^C, prompt back - the interrupt landed):
+bash-5.3$ sleep 400
+^C
+bash-5.3$
+
+========================================================================
+SCENARIO 4 - a key that CANNOT be delivered stays loud and is never confirmed
+========================================================================
+(lane-dead's recorded window no longer exists)
+$ fm-send.sh fm-lane-dead --key Enter
+exit status: 1
+stderr:
+can't find window: fm-lane-dead
+error: key 'Enter' not sent to fmsess:fm-lane-dead (tmux send failed; tried meta=/tmp/fm-live-final.3672568/home/state/lane-dead.meta; backend=from-meta)
+confirmation lines emitted: 0  (must be 0)
+
+========================================================================
+SCENARIO 5 - Escape: confirmed first, then the composer clear still runs
+========================================================================
+$ fm-send.sh fm-lane-muse --key Escape
+exit status: 0
+stderr:
+fm-send: key 'Escape' sent to fmsess:fm-lane-muse
+keystrokes received (^[ Escape, then ^U the post-confirmation composer clear):
+^[^U
+
+========================================================================
+SCENARIO 6 - a confirmed key whose follow-up bookkeeping fails still exits nonzero
+========================================================================
+(the lane's interrupt state cannot be recorded: state dir is read-only)
+$ fm-send.sh fm-lane-ro --key Escape
+exit status: 1  (the confirmation must not turn a failed send into a success)
+stderr:
+fm-send: key 'Escape' sent to fmsess:fm-lane-ro
+error: busy-state lock timeout for lane-ro
+error: key 'Escape' reached fmsess:fm-lane-ro, but the Claude interrupt state could not be recorded for lane-ro
+keystroke received (^[ - Escape itself did reach the lane):
+^[
+
+=== end of live drive ===

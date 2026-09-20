@@ -1,0 +1,18 @@
+tests/fm-send-strict.test.sh - the new key-plane report test, before and after the fix
+
+=== against the PRE-FIX bin/fm-send.sh (base a4cc9bb) ===
+ok - fm-send strict: exact task/lane ids resolve through home metadata
+ok - fm-send --key: exit status follows delivery, and an undelivered key never reports success
+not ok - the delivered key must be named in its own report (missing: 'key 'Enter' sent to')
+
+=== against this change (23497521) ===
+ok - fm-send strict: exact task/lane ids resolve through home metadata
+ok - fm-send --key: exit status follows delivery, and an undelivered key never reports success
+ok - fm-send --key: a confirmed key send reports the key and the target it reached
+ok - fm-send typed plane: a confirmed submit is reported, and the unconfirmed path keeps its text and exit 3
+ok - fm-send strict: unset FM_HOME fails before target resolution
+ok - fm-send strict: unresolvable selectors do not fall back to tmux
+ok - fm-send strict: prefixless herdr pane ids are rejected before tmux fallback
+ok - fm-send strict: unmatched single-colon explicit targets must verify live before sending
+ok - fm-send strict: fm-prefixed Herdr sessions remain explicit backend targets
+ok - fm-send strict: healthy fm-<id> sends record the steer and ring once
