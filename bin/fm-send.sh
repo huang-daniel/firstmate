@@ -90,9 +90,10 @@
 # The MID-TURN check refuses on three facts and nothing else, each one a
 # property of the message or evidence actually held: these bytes will EXECUTE
 # as a command (a leading "/", the only form that proves it), the send is not
-# marked, and the target is PROVEN busy by the ladder below - either the
-# backend's own native agent-state verdict, or, where there is none, a
-# registered and verified busy signature matching the captured tail.
+# marked, and the target is PROVEN busy by the ladder below - either a `busy`
+# verdict from the backend's own native agent-state, or, whenever that verdict
+# is anything else, a registered and verified busy signature matching the
+# captured tail.
 # A command STARTS something, so
 # letting one queue behind a run already under way is how a second run gets
 # started against a branch the first already owns. Text that merely queues is
@@ -1221,9 +1222,9 @@ else
   # typed - and is the same single reading the ring uses.
   # The mid-turn condition refuses on three facts and nothing else: these bytes
   # will EXECUTE as a command, the send is not marked, and the target reads busy
-  # on the ladder above - the backend's own agent-state where it has one,
-  # otherwise the recorded harness's registered busy signature matching the
-  # captured tail. Each is something known to be true, never a heuristic and
+  # on the ladder above - a `busy` verdict from the backend's own agent-state,
+  # or, whenever that verdict is anything else, the recorded harness's
+  # registered busy signature matching the captured tail. Each is something known to be true, never a heuristic and
   # never an absence of evidence, because this refusal has no override flag.
   # The hazard behind it is that a command starts something, so letting one
   # queue behind a run already under way is how a second pipeline run gets
