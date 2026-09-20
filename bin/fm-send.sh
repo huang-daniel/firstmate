@@ -73,7 +73,11 @@
 # type the literal
 # text through the target backend's verified submit core: typed ONCE, then
 # Enter retried (never retyped) until the backend confirms a submit or reports
-# an inconclusive send. Typed-plane exit contract: 0 = submit confirmed;
+# an inconclusive send. Every typed-plane outcome, confirmed submit included,
+# prints one line on stderr naming the target; a confirmed submit's line says
+# the text reached the terminal itself and that no durable record backs it, so
+# it cannot be read as the inbox plane's queued-but-unhandled receipt.
+# Typed-plane exit contract: 0 = submit confirmed;
 # 3 = the text was typed into the live endpoint and
 # Enter was sent, but the submit read-back stayed unconfirmed (verify the pane
 # before any resend, and never re-type blindly; a marked request's
@@ -1131,6 +1135,13 @@ else
   fi
   case "$verdict" in
     empty)
+      # Confirmed submit is the one outcome this command used to report with
+      # silence, and silence there is indistinguishable from a no-op, which is
+      # what invites the duplicate send this plane must never carry. Report it
+      # here, before the bookkeeping below, so a later warning cannot obscure
+      # the confirmed submit - the same ordering the inbox plane uses for its
+      # receipt.
+      echo "fm-send: text typed into $T and submitted (verdict=empty; tried $RESOLUTION_TRIED); the submit is confirmed - this text went straight into the terminal rather than into a durable record, so do not resend" >&2
       ;;
     send-failed)
       fm_send_known_undelivered_cleanup || \

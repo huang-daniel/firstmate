@@ -5,7 +5,10 @@
 # well-formed backend target must fail loudly. These tests pin the historical
 # silent-fallback failures: missing FM_HOME, unresolved selectors, prefixless
 # herdr pane ids, dead explicit endpoints, and the healthy exact/fm-id paths.
-# They also verify that a key send reports whether delivery actually succeeded.
+# They also verify that a key send reports whether delivery actually succeeded,
+# and that the typed plane accounts for both of its submit verdicts out loud:
+# the confirmed one it once reported with silence, and the unconfirmed one whose
+# existing text and exit 3 must survive that addition.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -57,7 +60,17 @@ case "${1:-}" in
     printf '%%1\n'
     exit 0 ;;
   capture-pane)
-    printf '╭────╮\n│    │\n╰────╯\n'
+    # FM_FAKE_TMUX_COMPOSER_TEXT leaves draft text inside the composer box, so
+    # one stub can drive the typed plane to either submit verdict: an empty box
+    # classifies as "empty" (submit confirmed) and a box still holding text as
+    # "pending" (delivered, submission unconfirmed).
+    # The box's inner width must match its borders, or the classifier reads the
+    # geometry as ambiguous and downgrades the verdict to pending-unproven.
+    if [ -n "${FM_FAKE_TMUX_COMPOSER_TEXT:-}" ]; then
+      printf '╭─────────────╮\n│ %-11.11s │\n╰─────────────╯\n' "$FM_FAKE_TMUX_COMPOSER_TEXT"
+    else
+      printf '╭────╮\n│    │\n╰────╯\n'
+    fi
     exit 0 ;;
   list-windows)
     printf 'foreign:%s\nfm-mpf-lane-m8\nfm-lane-ok\n' "${FM_FAKE_TMUX_WINDOW:-fm-lost}"
@@ -231,8 +244,47 @@ test_key_send_exit_status_follows_delivery() {
   pass "fm-send --key: exit status follows delivery, and an undelivered key never reports success"
 }
 
+# The typed plane writes no durable record, so its only account of what
+# happened is what it prints. A confirmed submit was once the single silent
+# outcome of this whole command, and silence there is indistinguishable from a
+# command that did nothing - which invites a duplicate send onto exactly the
+# plane that must never carry one. Both verdicts are driven from the same stub
+# so a later change cannot trade the confirmation for the already-loud
+# unconfirmed report, or the other way round.
+test_typed_submit_reports_confirmed_and_unconfirmed() {
+  local dir fb home err rc log got
+  dir="$TMP_ROOT/typed-report"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); home=$(setup_home typedreport); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
+
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    "$SEND" sess:win "hello captain" >"$dir/send.out" 2>"$err"; rc=$?
+  expect_code 0 "$rc" "a confirmed typed submit should still exit 0"
+  got=$(cat "$err")
+  assert_contains "$got" "sess:win" "the confirmed submit must name the target it reached"
+  assert_contains "$got" "verdict=empty" "the confirmed submit must report the verdict that proved it"
+  assert_contains "$got" "do not resend" "the confirmed submit must close the resend question"
+  assert_contains "$got" "rather than into a durable record" \
+    "the confirmed submit must not read as the inbox plane's queued receipt"
+  assert_no_grep "queued" "$err" "a typed submit must never claim the text was queued"
+  [ ! -s "$dir/send.out" ] || fail "the confirmation belongs on stderr, not stdout"$'\n'"$(cat "$dir/send.out")"
+
+  : > "$log"
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    FM_FAKE_TMUX_COMPOSER_TEXT="hello" \
+    "$SEND" sess:win "hello captain" >/dev/null 2>"$err"; rc=$?
+  expect_code 3 "$rc" "an unconfirmed typed submit must keep its documented exit 3"
+  got=$(cat "$err")
+  assert_contains "$got" "text delivered to sess:win but submission is unconfirmed" \
+    "the unconfirmed submit must keep its existing report"
+  assert_contains "$got" "verdict=pending" "the unconfirmed submit must keep naming its verdict"
+  assert_contains "$got" "do not retype or blindly resend" \
+    "the unconfirmed submit must keep its retype refusal"
+  pass "fm-send typed plane: a confirmed submit is reported, and the unconfirmed path keeps its text and exit 3"
+}
+
 test_exact_lane_id_send_still_works
 test_key_send_exit_status_follows_delivery
+test_typed_submit_reports_confirmed_and_unconfirmed
 test_unset_fm_home_fails
 test_unresolvable_target_does_not_tmux_fallback
 test_prefixless_herdr_pane_id_fails
