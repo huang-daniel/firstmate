@@ -167,6 +167,7 @@ On an unmarked return, `bin/fm-afk-return.sh` owns ordered shutdown, the record 
 The doorbell line is a shell no-op and is never typed into an endpoint classified as dead or missing; that record surfaces once for recovery instead of walking the re-ring ladder (`bin/fm-task-inbox-lib.sh` header).
 The [`fm-send.sh` header](../bin/fm-send.sh) owns delivery receipts and deliberate-repeat controls; the [`fm-task-inbox-lib.sh` header](../bin/fm-task-inbox-lib.sh) owns deduplication identity, scope, and acknowledgement races.
 Its local-only typed plane - harness-native invocations and explicit backend targets - selects a pre-Enter popup-settle for slash commands and for codex `$...` skill invocations using metadata-routed target `harness=` values, then adds its own `FM_SEND_SETTLE` pause after successful typed sends so immediate peeks catch the receiving turn starting; the sub-supervisor uses only the shared submit core and does not pay that post-submit pause.
+That plane types nothing at all when a pre-check proves the target cannot take the text - a composer visibly holding pending text, or an unmarked command-executing invocation aimed at a worker proven mid-turn - and that same header owns both conditions, their evidence rule, and the absence of an override.
 
 Text for a worker to read and commands that drive a worker's process are separate planes.
 `fm-send.sh` is the data plane and always routing-marks a `kind=secondmate` target, which is right for a message and wrong for a lifecycle command, because a marked exit command arrives as chat the agent reasons about instead of executing.
@@ -188,7 +189,7 @@ Endpoint death is the only process-level override and yields dead; child process
 `state/<id>.turn-ended` files remain wake notifications, not current state.
 
 Each record is bound to an incarnation token minted when the task's wiring is armed, so an event from a superseded incarnation is rejected rather than applied, and a record left behind by one classifies unknown.
-Three rendered-text checks deliberately remain outside this contract because they answer delivery questions: submit acknowledgement and the away-mode supervisor-pane busy guard consume the shared delivery-footer matcher owned by `bin/fm-composer-lib.sh`, while `bin/fm-pending-reply-lib.sh` owns the secondmate delivery-confirmation observation.
+Four rendered-text checks deliberately remain outside this contract because they answer delivery questions: submit acknowledgement, the away-mode supervisor-pane busy guard, and the tail rung of `fm-send.sh`'s typed-plane mid-turn refusal consume the shared delivery-footer matcher owned by `bin/fm-composer-lib.sh`, while `bin/fm-pending-reply-lib.sh` owns the secondmate delivery-confirmation observation.
 All are harness-scoped rather than a global pattern union, and none is a recorded worker state source.
 
 ## Runtime session backends
