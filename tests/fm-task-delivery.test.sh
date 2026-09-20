@@ -397,6 +397,57 @@ STUB
   pass "fm-promote: a promoted worker receives the same mode-specific delivery contract a briefed one does"
 }
 
+# The promoted task's next-step command must name the task id, not the branch name,
+# so that fm-send.sh can resolve it without requiring operator intervention.
+test_promote_prints_next_step_command_with_task_id() {
+  local home meta out sendroot payload id
+  home="$TMP_ROOT/promote-next-step/home"
+  sendroot="$TMP_ROOT/promote-next-step/sendroot"
+  mkdir -p "$home/state" "$sendroot/bin"
+
+  # Capture the message that would be sent, instead of actually sending it.
+  cat > "$sendroot/bin/fm-send.sh" <<'STUB'
+#!/usr/bin/env bash
+# Capture the target that fm-send.sh was called with.
+printf '%s' "$1" > "$FM_TEST_CAPTURE_TARGET"
+exit 0
+STUB
+  chmod +x "$sendroot/bin/fm-send.sh"
+
+  id="promote-next-step-test"
+  meta="$home/state/$id.meta"
+  printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\n' "$id" > "$meta"
+  FM_HOME="$home" "$BRIEF" "$id" fixture-project --scout >/dev/null 2>&1 \
+    || fail "scout brief generation should succeed"
+  fill_brief_subsections "$home/data/$id/brief.md" \
+    "Test the next-step command." "Verify it names the task id."
+
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo off 2>&1) \
+    || fail "promotion should succeed"
+
+  # Extract the fm-send.sh command from the output
+  local send_command next_line
+  next_line=$(printf '%s\n' "$out" | sed -n 's/^next: //p' | grep 'fm-send\.sh')
+  [ -n "$next_line" ] || fail "promotion did not print a next: fm-send.sh command"
+
+  # Run the command with our stub fm-send.sh to capture what target it uses
+  ( cd "$sendroot" \
+    && FM_TEST_CAPTURE_TARGET="$TMP_ROOT/promote-next-step/captured-target" \
+       eval "$next_line" ) \
+    || fail "promotion's next-step command did not run successfully"
+
+  payload="$TMP_ROOT/promote-next-step/captured-target"
+  assert_present "$payload" "fm-send.sh was not called with the expected target"
+
+  local captured_target
+  captured_target=$(cat "$payload")
+  # The target should be the task id exactly, not the branch name prefixed with "fm-"
+  [ "$captured_target" = "$id" ] \
+    || fail "fm-send.sh was called with '$captured_target' but expected '$id' (the task id, not the branch name fm-$id)"
+
+  pass "fm-promote: next-step command names the task id for fm-send.sh"
+}
+
 # The registry parser survives for the mechanical consumers only. It accepts the
 # conditional policy, maps it to its most rigorous leg for them, and exposes the
 # raw annotation for the one caller that must tell a policy from a flat mode.
@@ -799,6 +850,7 @@ test_scout_records_no_delivery_posture
 test_promote_requires_and_records_the_delivery_contract
 test_promote_refuses_a_symlinked_task_record
 test_promotion_delivers_the_real_definition_of_done
+test_promote_prints_next_step_command_with_task_id
 test_project_mode_maps_the_conditional_policy
 test_spawn_and_promote_require_filled_task_subsections
 echo "# all fm-task-delivery tests passed"
