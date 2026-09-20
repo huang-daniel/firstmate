@@ -1,0 +1,20 @@
+Real isolated tmux server; Codex CLI 0.154.0; isolated FM_HOME and CODEX_HOME. All stdout captures empty.
+
+bin/fm-send.sh typed:codex /status
+exit=0
+stderr: fm-send: text typed into typed:codex and submitted (verdict=empty; tried meta=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2YC5T993324XSXZKBWDGM9Y/.test-send-live/state/typed:codex.meta; metadata window/terminal lookup; backend=tmux; endpoint=verified); the submit is confirmed - this text went straight into the terminal rather than into a durable record, so do not resend
+
+bin/fm-send.sh typed:codex -probe
+exit=1
+stderr: error: text not sent to typed:codex (tmux send failed; tried meta=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2YC5T993324XSXZKBWDGM9Y/.test-send-live/state/typed:codex.meta; metadata window/terminal lookup; backend=tmux; endpoint=verified)
+
+Invalid slash draft then bin/fm-send.sh typed:codex " probe"
+exit=3
+stderr: fm-send: text delivered to typed:codex but submission is unconfirmed (verdict=pending; tried meta=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2YC5T993324XSXZKBWDGM9Y/.test-send-live/state/typed:codex.meta; metadata window/terminal lookup; backend=tmux; endpoint=verified); do not retype or blindly resend - verify with fm-peek.sh, then re-send '--key Enter' only if the composer still holds the text
+
+bin/fm-send.sh typed:shell ": FM_TYPED_LIVE_UNKNOWN"
+exit=1
+stderr: error: text not submitted to typed:shell (delivery unconfirmed; verdict=unknown; tried meta=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M2YC5T993324XSXZKBWDGM9Y/.test-send-live/state/typed:shell.meta; metadata window/terminal lookup; backend=tmux; endpoint=verified)
+
+Base comparison: /status exit 0, zero stdout/stderr bytes. Failure, pending, unknown exit 1, 3, 1; stderr byte-identical via cmp.
+Setup retries: pausing Codex did not retain a draft. Appending during the first baseline pending attempt submitted ordinary text. Fresh invalid slash commands reliably produced pending for the target and base.
