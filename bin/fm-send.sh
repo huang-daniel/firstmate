@@ -93,8 +93,14 @@
 # behind the one already under way. Plain prose to an explicit endpoint still
 # types into a busy pane, which is the normal way to steer one. The busy
 # verdict comes from the fleet's usual ladder - the backend's native
-# agent-state where it has one, then the harness-scoped rendered busy footer
-# read from a captured tail, which every backend supports.
+# agent-state where it has one, then the rendered busy footer read from a
+# captured tail - under one rule: a target is classified busy only when its
+# RECORDED harness is one whose busy signature firstmate has registered and
+# verified (claude, codex, opencode, pi/pi-signed, omp, grok, kimi, cursor),
+# and every other target sends. A target with no recorded harness, and a
+# recorded harness with no registered signature, are both left unclassified
+# and keep taking typed sends; registering a verified signature is how a
+# harness joins that set.
 # Each refusal names which of the two conditions fired and the target, says
 # nothing was sent, and says this plane has no durable record behind it. It
 # refuses rather than deferring because there is no durable record to defer to;
@@ -793,17 +799,26 @@ fm_send_is_harness_native() {  # <pre-marker-text>
 
 # The resolved target's busy verdict, on the same ladder the fleet already runs
 # in bin/fm-pending-reply-lib.sh and bin/fm-supervise-daemon.sh: the backend's
-# native agent-state where it has one, then the harness-scoped rendered busy
-# footer read from a captured tail, which every backend implements. Succeeds
-# only on a PROVEN busy verdict, so an idle target and an unreadable one both
-# still type.
+# native agent-state where it has one, then the rendered busy footer read from
+# a captured tail. One rule governs the whole rail: a target is classified busy
+# only when its RECORDED harness is one whose busy signature firstmate has
+# registered and verified - claude, codex, opencode, pi/pi-signed, omp, grok,
+# kimi, cursor (bin/fm-composer-lib.sh) - and every other target sends.
+# So a target this home holds no harness for is not classified here at all,
+# rather than being matched against the union of every vendor's busy token: a
+# foreign pane whose tail merely carries some other harness's token must keep
+# taking a typed send, because there is no override flag to get past a refusal.
+# A recorded harness with no registered signature is not classified busy
+# either; registering its verified signature in that table is how it joins.
+# Only a PROVEN busy verdict succeeds. A native verdict that is not `busy`
+# settles nothing and falls through to the tail: herdr's own adapter records
+# that live Claude keeps agent_status idle through a whole landed turn, which
+# is the exact state this rail exists to catch.
 fm_send_target_is_busy() {
   local native tail40
+  [ -n "$TARGET_HARNESS" ] || return 1
   native=$(fm_backend_busy_state "$TARGET_BACKEND" "$T" 2>/dev/null) || native=unknown
-  case "$native" in
-    busy) return 0 ;;
-    idle) return 1 ;;
-  esac
+  [ "$native" != busy ] || return 0
   tail40=$(fm_backend_capture "$TARGET_BACKEND" "$T" 40 "$EXPECTED_LABEL" 2>/dev/null) || return 1
   printf '%s' "$tail40" | grep -v '^[[:space:]]*$' | tail -12 \
     | fm_busy_lines_match "$TARGET_HARNESS"

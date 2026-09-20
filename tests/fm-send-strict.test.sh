@@ -10,9 +10,11 @@
 # the confirmed one it once reported with silence, and the unconfirmed one whose
 # existing text and exit 3 must survive that addition. They also verify that the
 # typed plane refuses, rather than types, when the composer already holds
-# pending text, and when a harness-native invocation is aimed at a target whose
-# agent is mid-turn - on tmux and on a non-tmux backend alike - while plain
-# prose to that same mid-turn target still goes through.
+# pending text, and when a harness-native invocation is aimed at a worker whose
+# agent is mid-turn - on tmux and on a non-tmux backend alike, and whatever the
+# backend's native agent-state claims - while plain prose to a mid-turn target,
+# and anything at all to a target this home records no harness for, still goes
+# through.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -112,12 +114,21 @@ case "${1:-} ${2:-}" in
   "pane send-keys") : ;;
   "pane read")
     # An empty composer box, plus the harness's mid-turn footer below it when
-    # FM_FAKE_HERDR_BUSY is set. `agent get` is deliberately unanswered, so
-    # herdr's NATIVE agent-state reads unknown and the busy verdict can only
-    # come from this rendered tail - which is the non-tmux half of the ladder.
+    # FM_FAKE_HERDR_BUSY is set. The two knobs are independent because herdr's
+    # native agent-state and its rendered tail genuinely disagree in the field.
     printf '╭────╮\n│    │\n╰────╯\n'
     if [ -n "${FM_FAKE_HERDR_BUSY:-}" ]; then
       printf '%s\n' '✻ Baking… (esc to interrupt)'
+    fi
+    ;;
+  "agent get")
+    # Unset leaves agent_status unparseable, so the native verdict is unknown.
+    # FM_FAKE_HERDR_AGENT_STATUS=idle is the live shape herdr's own adapter
+    # documents: Claude keeps agent_status idle through a whole landed turn,
+    # so an idle native reading is not evidence the pane is free.
+    if [ -n "${FM_FAKE_HERDR_AGENT_STATUS:-}" ]; then
+      printf '{"result":{"agent":{"agent":"claude","agent_status":"%s"}}}\n' \
+        "$FM_FAKE_HERDR_AGENT_STATUS"
     fi
     ;;
 esac
@@ -347,15 +358,20 @@ test_typed_submit_reports_confirmed_and_unconfirmed() {
 # inbox plane reads the composer condition before its doorbell and defers to its
 # durable record; the typed plane has no record to defer to, so it must refuse
 # and type nothing at all.
-# The refusals are asserted beside two sends that must NOT be refused, so no
-# later change can buy the guard by blocking the plane: an idle target still
-# takes an invocation, and a mid-turn one still takes plain prose, because
-# queueing "when you finish this, do X" behind a running turn is the normal way
-# to steer a busy pane and refusing it would leave no way to do so at all.
+# The refusals are asserted beside three sends that must NOT be refused, so no
+# later change can buy the guard by blocking the plane: an idle worker still
+# takes an invocation; a mid-turn one still takes plain prose, because queueing
+# "when you finish this, do X" behind a running turn is the normal way to steer
+# a busy pane and refusing it would leave no way to do so at all; and a target
+# this home records no harness for still takes an invocation whatever its tail
+# happens to render, because a busy token we cannot attribute to that target's
+# own harness is not evidence about that target.
 test_typed_send_refuses_an_occupied_target() {
   local dir fb home err log rc got
   dir="$TMP_ROOT/typed-busy"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); home=$(setup_home typedbusy); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
+  fm_write_meta "$home/state/busy-lane.meta" \
+    "window=sess:fm-busy-lane" "kind=ship" "harness=claude"
 
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
     FM_FAKE_TMUX_COMPOSER_PREFILL="half typed" \
@@ -377,10 +393,10 @@ test_typed_send_refuses_an_occupied_target() {
   : > "$log"
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
     FM_FAKE_TMUX_BUSY=1 \
-    "$SEND" sess:win "/no-mistakes" >"$dir/send.out" 2>"$err"; rc=$?
-  expect_code 1 "$rc" "a typed send onto a mid-turn pane must fail, not report a submit"
+    "$SEND" busy-lane "/no-mistakes" >"$dir/send.out" 2>"$err"; rc=$?
+  expect_code 1 "$rc" "a typed send onto a mid-turn worker must fail, not report a submit"
   got=$(cat "$err")
-  assert_contains "$got" "sess:win" "the mid-turn refusal must name the target it declined to type into"
+  assert_contains "$got" "sess:fm-busy-lane" "the mid-turn refusal must name the target it declined to type into"
   assert_contains "$got" "mid-turn" \
     "the mid-turn refusal must name its own condition, not the pending-text one"
   assert_contains "$got" "Nothing was sent" "the mid-turn refusal must say nothing was sent"
@@ -400,49 +416,82 @@ test_typed_send_refuses_an_occupied_target() {
   assert_contains "$(cat "$log")" "literal=1 arg=when you finish this, rerun the linter" \
     "plain prose to a mid-turn pane must still be typed"
 
-  # Same command, same stub, empty composer and an idle pane: the guard must
-  # not have made the ordinary typed send conditional on anything else.
+  # Same busy footer, same invocation, but an explicit address this home holds
+  # no task record for, so no harness is recorded for it. A busy token we
+  # cannot attribute to the target's own harness proves nothing about the
+  # target, and there is no override flag to get past a refusal, so this must
+  # still be typed.
   : > "$log"
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    FM_FAKE_TMUX_BUSY=1 \
     "$SEND" sess:win "/no-mistakes" >/dev/null 2>"$err"; rc=$?
-  expect_code 0 "$rc" "an idle composer must still take the typed send"
+  expect_code 0 "$rc" "an invocation to a target with no recorded harness must still be delivered"
   assert_contains "$(cat "$log")" "literal=1 arg=/no-mistakes" \
-    "an idle composer must still receive the typed text"
-  pass "fm-send typed plane: a prefilled composer and a mid-turn invocation are each refused untyped, while plain prose and an idle target still send"
+    "an unattributable busy tail must not withhold the typed text"
+
+  # Same worker, same command, empty composer and no busy footer: the guard
+  # must not have made the ordinary typed send conditional on anything else.
+  : > "$log"
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    "$SEND" busy-lane "/no-mistakes" >/dev/null 2>"$err"; rc=$?
+  expect_code 0 "$rc" "an idle worker must still take the typed send"
+  assert_contains "$(cat "$log")" "literal=1 arg=/no-mistakes" \
+    "an idle worker must still receive the typed text"
+  pass "fm-send typed plane: a prefilled composer and a mid-turn invocation are each refused untyped, while plain prose, an unattributable tail and an idle worker still send"
 }
 
 # The mid-turn rail is not a tmux rail: every spawn-supported backend reaches
 # this plane, and a worker mid-turn on any of them can queue a second run the
-# same way. herdr stands in for the non-tmux half here because its NATIVE
-# agent-state reads unknown under this stub, so the refusal can only come from
-# the backend-agnostic rung of the ladder - the captured tail - which is
-# exactly the rung cmux, zellij and orca depend on.
+# same way. herdr stands in for the non-tmux half because it is the one backend
+# with a NATIVE agent-state, which lets this pin both rungs of the ladder.
+# The second leg is the reported incident as herdr actually renders it: herdr's
+# own adapter records that live Claude keeps agent_status idle through a whole
+# landed turn, so a native "idle" is not evidence the worker is free and must
+# not settle the question before the rendered tail is read. Only a proven busy
+# verdict may refuse, so the idle-and-quiet leg must still send.
 test_typed_send_refuses_a_mid_turn_non_tmux_target() {
   local dir fb home err log herdr_log rc got
   dir="$TMP_ROOT/typed-busy-herdr"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); home=$(setup_home typedbusyherdr); err="$dir/send.err"
   log="$dir/tmux.log"; herdr_log="$dir/herdr.log"; : > "$log"; : > "$herdr_log"
+  fm_write_meta "$home/state/hbusy.meta" \
+    "window=default:wB:p2" "backend=herdr" "herdr_session=default" "herdr_pane_id=wB:p2" \
+    "kind=ship" "harness=claude"
 
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" \
     FM_HERDR_LOG="$herdr_log" FM_SEND_SETTLE=0 FM_FAKE_HERDR_BUSY=1 \
-    "$SEND" fm-remote:w1:p2 "/no-mistakes" >"$dir/send.out" 2>"$err"; rc=$?
+    "$SEND" hbusy "/no-mistakes" >"$dir/send.out" 2>"$err"; rc=$?
   expect_code 1 "$rc" "a typed invocation onto a mid-turn herdr pane must fail, not report a submit"
   got=$(cat "$err")
-  assert_contains "$got" "fm-remote:w1:p2" "the refusal must name the herdr target it declined to type into"
+  assert_contains "$got" "default:wB:p2" "the refusal must name the herdr target it declined to type into"
   assert_contains "$got" "mid-turn" "the herdr refusal must name the mid-turn condition"
   assert_contains "$got" "Nothing was sent" "the herdr refusal must say nothing was sent"
   assert_no_grep 'send-text' "$herdr_log" "a refused herdr send must type nothing at all"
   assert_no_grep 'send-keys' "$herdr_log" "a refused herdr send must not submit"
 
-  # Idle again, same stub and same invocation: the herdr rail must refuse on
-  # the busy footer alone, not on anything else about this target.
+  # Native agent-state says idle while the pane's own tail shows the turn still
+  # running. That disagreement is the documented live shape, and the rail must
+  # resolve it against the tail: taking the native idle as settled would type
+  # the invocation straight into the running turn.
   : > "$herdr_log"
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" \
-    FM_HERDR_LOG="$herdr_log" FM_SEND_SETTLE=0 \
-    "$SEND" fm-remote:w1:p2 "/no-mistakes" >/dev/null 2>"$err"; rc=$?
-  [ "$rc" != 1 ] || fail "an idle herdr pane must not be refused"$'\n'"$(cat "$err")"
-  assert_grep 'send-text' "$herdr_log" "an idle herdr pane must still receive the typed text"
-  pass "fm-send typed plane: the mid-turn refusal reaches non-tmux backends through the captured tail"
+    FM_HERDR_LOG="$herdr_log" FM_SEND_SETTLE=0 FM_FAKE_HERDR_BUSY=1 \
+    FM_FAKE_HERDR_AGENT_STATUS=idle \
+    "$SEND" hbusy "/no-mistakes" >/dev/null 2>"$err"; rc=$?
+  expect_code 1 "$rc" "a native idle verdict must not settle a pane whose tail is still mid-turn"
+  assert_contains "$(cat "$err")" "mid-turn" "the natively-idle mid-turn pane must still be refused as mid-turn"
+  assert_no_grep 'send-text' "$herdr_log" "a natively-idle mid-turn pane must be typed nothing at all"
+  assert_no_grep 'send-keys' "$herdr_log" "a natively-idle mid-turn pane must not be submitted to"
+
+  # Natively idle AND quiet: nothing proves this pane busy, so it must send.
+  # Without this the rail could pass the leg above by refusing everything.
+  : > "$herdr_log"
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" \
+    FM_HERDR_LOG="$herdr_log" FM_SEND_SETTLE=0 FM_FAKE_HERDR_AGENT_STATUS=idle \
+    "$SEND" hbusy "/no-mistakes" >/dev/null 2>"$err"; rc=$?
+  [ "$rc" != 1 ] || fail "an idle, quiet herdr pane must not be refused"$'\n'"$(cat "$err")"
+  assert_grep 'send-text' "$herdr_log" "an idle, quiet herdr pane must still receive the typed text"
+  pass "fm-send typed plane: the mid-turn refusal reaches non-tmux backends, and a native idle verdict never settles it"
 }
 
 test_exact_lane_id_send_still_works
