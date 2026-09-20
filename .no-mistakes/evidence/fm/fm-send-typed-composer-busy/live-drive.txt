@@ -1,0 +1,299 @@
+fm-send typed-plane mid-turn rail — live drive against a real tmux server
+target commit 5865997 · isolated TMUX_TMPDIR · isolated FM_HOME
+
+════════════════════════════════════════════════════════════════════
+SCENARIO S1  incident: /no-mistakes into a mid-turn worker with an EMPTY composer
+$ fm-send.sh busy-lane /no-mistakes
+exit=1
+--- fm-send stdout ---
+--- fm-send stderr (supervision banner elided) ---
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed 
+this episode.
+error: text not typed into fmlive:busy-worker (the target reads busy and these bytes would execute as a 
+command rather than queue as text); this plane types straight into the terminal with no durable record behind 
+it. Nothing was sent. Inspect fmlive:busy-worker (fm-peek.sh) and send again only if you still mean to.
+--- live pane busy-worker after the send ---
+  │   worker pane — harness claude
+  │ 
+  │   [transcript] task: drive my own validation run
+  │ 
+  │ ╭──────────────────────────────────────────────────╮
+  │ │ >                                                │
+  │ ╰──────────────────────────────────────────────────╯
+  │ ✻ Baking… (esc to interrupt · 42s)
+  │ 
+  │ 
+
+════════════════════════════════════════════════════════════════════
+SCENARIO S2  composer already holds someone's half-typed text
+$ fm-send.sh prefill-lane /no-mistakes
+exit=1
+--- fm-send stdout ---
+--- fm-send stderr (supervision banner elided) ---
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed 
+this episode.
+error: text not typed into fmlive:prefill-worker (the composer visibly holds pending text, so the text would 
+land on top of what is already pending there); this plane types straight into the terminal with no durable 
+record behind it. Nothing was sent. Inspect fmlive:prefill-worker (fm-peek.sh) and send again only if you 
+still mean to.
+--- live pane prefill-worker after the send ---
+  │   worker pane — harness claude
+  │ 
+  │   [transcript] task: drive my own validation run
+  │ 
+  │ ╭──────────────────────────────────────────────────╮
+  │ │ > half typed plan                                │
+  │ ╰──────────────────────────────────────────────────╯
+  │ 
+  │ 
+  │ 
+
+════════════════════════════════════════════════════════════════════
+SCENARIO S3  plain prose still queues into the same mid-turn worker
+$ fm-send.sh fmlive:busy-worker when you finish this, rerun the linter
+exit=0
+--- fm-send stdout ---
+--- fm-send stderr (supervision banner elided) ---
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed 
+this episode.
+fm-send: text typed into fmlive:busy-worker and submitted (verdict=empty; tried explicit target 
+'fmlive:busy-worker' matched /tmp/fmlive-qpRyhV/home/state/busy-lane.meta; backend=tmux); the submit is 
+confirmed - this text went straight into the terminal rather than into a durable record, so do not resend
+--- live pane busy-worker after the send ---
+  │   worker pane — harness claude
+  │ 
+  │   [transcript] task: drive my own validation run
+  │   [submitted] when you finish this, rerun the linter
+  │ 
+  │ ╭──────────────────────────────────────────────────╮
+  │ │ >                                                │
+  │ ╰──────────────────────────────────────────────────╯
+  │ ✻ Baking… (esc to interrupt · 42s)
+  │ 
+
+════════════════════════════════════════════════════════════════════
+SCENARIO S4  idle worker still takes the invocation
+$ fm-send.sh idle-lane /no-mistakes
+exit=0
+--- fm-send stdout ---
+--- fm-send stderr (supervision banner elided) ---
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed 
+this episode.
+fm-send: text typed into fmlive:idle-worker and submitted (verdict=empty; tried 
+meta=/tmp/fmlive-qpRyhV/home/state/idle-lane.meta; backend=from-meta); the submit is confirmed - this text 
+went straight into the terminal rather than into a durable record, so do not resend
+--- live pane idle-worker after the send ---
+  │   worker pane — harness claude
+  │ 
+  │   [transcript] task: drive my own validation run
+  │   [submitted] /no-mistakes
+  │ 
+  │ ╭──────────────────────────────────────────────────╮
+  │ │ >                                                │
+  │ ╰──────────────────────────────────────────────────╯
+  │ 
+  │ 
+
+════════════════════════════════════════════════════════════════════
+SCENARIO S5  $-prefixed prose to a mid-turn CODEX worker (documented over-match must not veto)
+$ fm-send.sh codex-lane $200 is the budget cap, stay under it
+exit=0
+--- fm-send stdout ---
+--- fm-send stderr (supervision banner elided) ---
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed 
+this episode.
+fm-send: text typed into fmlive:codex-busy and submitted (verdict=empty; tried 
+meta=/tmp/fmlive-qpRyhV/home/state/codex-lane.meta; backend=from-meta); the submit is confirmed - this text 
+went straight into the terminal rather than into a durable record, so do not resend
+--- live pane codex-busy after the send ---
+  │   worker pane — harness codex
+  │ 
+  │   [transcript] task: drive my own validation run
+  │   [submitted] $200 is the budget cap, stay under it
+  │ 
+  │ ╭──────────────────────────────────────────────────╮
+  │ │ >                                                │
+  │ ╰──────────────────────────────────────────────────╯
+  │ • Working (esc to interrupt)
+  │ 
+
+════════════════════════════════════════════════════════════════════
+SCENARIO S6  marked secondmate request (marker makes it chat) into a mid-turn pane
+$ fm-send.sh lsm /audit the ledger
+exit=0
+--- fm-send stdout ---
+--- fm-send stderr (supervision banner elided) ---
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed 
+this episode.
+fm-send: text typed into fmlive:sm-busy and submitted (verdict=empty; tried 
+meta=/tmp/fmlive-qpRyhV/home/state/lsm.meta; backend=from-meta); the submit is confirmed - this text went 
+straight into the terminal rather than into a durable record, so do not resend
+--- live pane sm-busy after the send ---
+  │   worker pane — harness claude
+  │ 
+  │   [transcript] task: drive my own validation run
+  │   [submitted] [fm-from-firstmate]⁣corr=71294357a709de42 /audit the ledger
+  │ 
+  │ ╭──────────────────────────────────────────────────╮
+  │ │ >                                                │
+  │ ╰──────────────────────────────────────────────────╯
+  │ ✻ Baking… (esc to interrupt · 42s)
+  │ 
+
+════════════════════════════════════════════════════════════════════
+SCENARIO S7  invocation to a target this home records NO harness for, busy tail and all
+$ fm-send.sh fmlive:foreign-busy /no-mistakes
+exit=0
+--- fm-send stdout ---
+--- fm-send stderr (supervision banner elided) ---
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed 
+this episode.
+fm-send: text typed into fmlive:foreign-busy and submitted (verdict=empty; tried 
+meta=/tmp/fmlive-qpRyhV/home/state/fmlive:foreign-busy.meta; metadata window/terminal lookup; backend=tmux; 
+endpoint=verified); the submit is confirmed - this text went straight into the terminal rather than into a 
+durable record, so do not resend
+--- live pane foreign-busy after the send ---
+  │   worker pane — harness claude
+  │ 
+  │   [transcript] task: drive my own validation run
+  │   [submitted] /no-mistakes
+  │ 
+  │ ╭──────────────────────────────────────────────────╮
+  │ │ >                                                │
+  │ ╰──────────────────────────────────────────────────╯
+  │ ✻ Baking… (esc to interrupt · 42s)
+  │ 
+
+════════════════════════════════════════════════════════════════════
+SCENARIO S8  ADVERSARIAL: unregistered harness signature (gemini) - documented open gap
+$ fm-send.sh gemini-lane /no-mistakes
+exit=0
+--- fm-send stdout ---
+--- fm-send stderr (supervision banner elided) ---
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed 
+this episode.
+fm-send: text typed into fmlive:gemini-busy and submitted (verdict=empty; tried 
+meta=/tmp/fmlive-qpRyhV/home/state/gemini-lane.meta; backend=from-meta); the submit is confirmed - this text 
+went straight into the terminal rather than into a durable record, so do not resend
+--- live pane gemini-busy after the send ---
+  │   worker pane — harness gemini
+  │ 
+  │   [transcript] task: drive my own validation run
+  │   [submitted] /no-mistakes
+  │ 
+  │ ╭──────────────────────────────────────────────────╮
+  │ │ >                                                │
+  │ ╰──────────────────────────────────────────────────╯
+  │ ⠋ Thinking… (esc to interrupt)
+  │ 
+
+════════════════════════════════════════════════════════════════════
+SCENARIO S9  ADVERSARIAL: both conditions true (mid-turn AND pending text) - which one is named
+$ fm-send.sh both-lane /no-mistakes
+exit=1
+--- fm-send stdout ---
+--- fm-send stderr (supervision banner elided) ---
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed 
+this episode.
+error: text not typed into fmlive:both-busy (the composer visibly holds pending text, so the text would land 
+on top of what is already pending there); this plane types straight into the terminal with no durable record 
+behind it. Nothing was sent. Inspect fmlive:both-busy (fm-peek.sh) and send again only if you still mean to.
+--- live pane both-busy after the send ---
+  │   worker pane — harness claude
+  │ 
+  │   [transcript] task: drive my own validation run
+  │ 
+  │ ╭──────────────────────────────────────────────────╮
+  │ │ > draft: ask the captain                         │
+  │ ╰──────────────────────────────────────────────────╯
+  │ ✻ Baking… (esc to interrupt · 42s)
+  │ 
+  │ 
+
+════════════════════════════════════════════════════════════════════
+SCENARIO S10 durable plane unchanged: the same steer by task id still rides the inbox
+$ fm-send.sh busy-lane please rebase onto main when you are free
+exit=0
+--- fm-send stdout ---
+--- fm-send stderr (supervision banner elided) ---
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed 
+this episode.
+fm-send: steer queued for busy-lane at /tmp/fmlive-qpRyhV/home/state/busy-lane.inbox/001.msg
+fm-send: doorbell not typed because the agent in fmlive:busy-worker has exited; the steer is durably recorded 
+at /tmp/fmlive-qpRyhV/home/state/busy-lane.inbox/001.msg for recovery (stuck-crewmate-recovery), and the 
+watcher will not re-ring a dead pane
+--- live pane busy-worker after the send ---
+  │   worker pane — harness claude
+  │ 
+  │   [transcript] task: drive my own validation run
+  │   [submitted] when you finish this, rerun the linter
+  │ 
+  │ ╭──────────────────────────────────────────────────╮
+  │ │ >                                                │
+  │ ╰──────────────────────────────────────────────────╯
+  │ ✻ Baking… (esc to interrupt · 42s)
+  │ 
+
+════════════════════════════════════════════════════════════════════
+SCENARIO S11 ADVERSARIAL: try to get past the mid-turn refusal (intent says there is NO override flag)
+
+$ fm-send.sh --force busy-lane /no-mistakes
+exit=1
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed 
+this episode.
+error: target '--force' is not resolvable (tried meta=/tmp/fmlive-qpRyhV/home/state/--force.meta; metadata 
+window/terminal lookup; backend=none). Use fm---force for a recorded task/lane, or pass a well-formed 
+explicit backend target such as session:window.
+
+$ fm-send.sh --yes busy-lane /no-mistakes
+exit=1
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed 
+this episode.
+error: target '--yes' is not resolvable (tried meta=/tmp/fmlive-qpRyhV/home/state/--yes.meta; metadata 
+window/terminal lookup; backend=none). Use fm---yes for a recorded task/lane, or pass a well-formed explicit 
+backend target such as session:window.
+
+$ fm-send.sh --no-busy-check busy-lane /no-mistakes
+exit=1
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed 
+this episode.
+error: target '--no-busy-check' is not resolvable (tried 
+meta=/tmp/fmlive-qpRyhV/home/state/--no-busy-check.meta; metadata window/terminal lookup; backend=none). Use 
+fm---no-busy-check for a recorded task/lane, or pass a well-formed explicit backend target such as 
+session:window.
+
+$ FM_SEND_FORCE=1 fm-send.sh busy-lane /no-mistakes
+exit=1
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed 
+this episode.
+error: text not typed into fmlive:busy-worker (the target reads busy and these bytes would execute as a 
+command rather than queue as text); this plane types straight into the terminal with no durable record behind 
+it. Nothing was sent. Inspect fmlive:busy-worker (fm-peek.sh) and send again only if you still mean to.
+
+$ FM_SEND_SKIP_BUSY=1 fm-send.sh busy-lane /no-mistakes
+exit=1
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed 
+this episode.
+error: text not typed into fmlive:busy-worker (the target reads busy and these bytes would execute as a 
+command rather than queue as text); this plane types straight into the terminal with no durable record behind 
+it. Nothing was sent. Inspect fmlive:busy-worker (fm-peek.sh) and send again only if you still mean to.
+
+$ FM_BUSY_REGEX='a^' fm-send.sh busy-lane /no-mistakes
+exit=0
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed 
+this episode.
+fm-send: text typed into fmlive:busy-worker and submitted (verdict=empty; tried 
+meta=/tmp/fmlive-qpRyhV/home/state/busy-lane.meta; backend=from-meta); the submit is confirmed - this text 
+went straight into the terminal rather than into a durable record, so do not resend
+
+--- live pane busy-worker after every override attempt ---
+  │   worker pane — harness claude
+  │ 
+  │   [transcript] task: drive my own validation run
+  │   [submitted] /no-mistakes
+  │ 
+  │ ╭──────────────────────────────────────────────────╮
+  │ │ >                                                │
+  │ ╰──────────────────────────────────────────────────╯
+  │ ✻ Baking… (esc to interrupt · 42s)
+  │ 

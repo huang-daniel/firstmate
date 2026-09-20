@@ -1,0 +1,101 @@
+<!doctype html><meta charset="utf-8">
+<title>fm-send mid-turn rail — what it refuses and what it must not</title>
+<style>
+ body{background:#11131a;color:#d6dae3;font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:26px}
+ h1{font-size:19px;margin:0 0 4px} .sub{color:#8b93a7;margin-bottom:20px;font-size:13px}
+ .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+ .card{border:1px solid #2a2f3d;border-radius:10px;padding:14px;background:#161923}
+ .card.refuse{border-color:#3c6b45} .card.send{border-color:#2f4f7a}
+ .hdr{display:flex;align-items:center;gap:9px;margin-bottom:6px} h3{font-size:13px;margin:0;font-weight:600}
+ .badge{font:600 10px ui-monospace,monospace;padding:3px 7px;border-radius:999px;white-space:nowrap}
+ .refuse .badge{background:#1d3a24;color:#7ee39b} .send .badge{background:#16304d;color:#8ec2ff}
+ .note{color:#98a1b5;font-size:12px;margin:0 0 9px}
+ pre{font:11px/1.4 ui-monospace,Menlo,monospace;white-space:pre-wrap;word-break:break-word;background:#0c0e14;
+      border:1px solid #232838;border-radius:7px;padding:9px;margin:0}
+ .prompt{color:#6fa8ff} .rc{color:#ffd479} .pane{color:#b9c2d4;white-space:pre;overflow-x:hidden}
+ .lbl{color:#6f7891;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin:9px 0 5px}
+</style>
+<h1>The rail refuses two proven states — and nothing else</h1>
+<div class="sub">Every card below was driven live against a real tmux 3.6 server at HEAD 5865997. Green = refused untyped; blue = must still be delivered, and was.</div>
+<div class="grid"><div class="card refuse"><div class="hdr"><span class="badge">REFUSED</span><h3>Composer already holds someone else&#x27;s half-typed text</h3></div>
+    <div class="note">The other condition, and the refusal says <b>which</b> one fired: "the composer visibly holds pending text". The draft survives intact.</div>
+    <pre class="cli"><span class="prompt">$</span> fm-send.sh prefill-lane &quot;/no-mistakes&quot;
+<span class="rc">exit=1</span>
+error: text not typed into fmlive:prefill-worker (the composer visibly holds pending text, so the text would land on top of what is already pending there); this plane types straight into the terminal with no durable record behind it. Nothing was sent. Inspect fmlive:prefill-worker (fm-peek.sh) and send again only if you still mean to.</pre>
+    <div class="lbl">live tmux pane afterwards</div>
+    <pre class="pane">  worker pane — harness claude
+
+  [transcript] task: drive my own validation run
+
+╭──────────────────────────────────────────────────╮
+│ &gt; half typed plan                                │
+╰──────────────────────────────────────────────────╯</pre></div><div class="card send"><div class="hdr"><span class="badge">DELIVERED</span><h3>Plain prose to the same mid-turn worker</h3></div>
+    <div class="note">Text that merely queues is not refused — steering a busy pane still works.</div>
+    <pre class="cli"><span class="prompt">$</span> fm-send.sh fmlive:busy-worker &quot;when you finish this, rerun the linter&quot;
+<span class="rc">exit=0</span>
+fm-send: text typed into fmlive:busy-worker and submitted (verdict=empty; tried explicit target &#x27;fmlive:busy-worker&#x27; matched /tmp/fmlive-qpRyhV/home/state/busy-lane.meta; backend=tmux); the submit is confirmed - this text went straight into the terminal rather than into a durable record, so do not resend</pre>
+    <div class="lbl">live tmux pane afterwards</div>
+    <pre class="pane">  worker pane — harness claude
+
+  [transcript] task: drive my own validation run
+  [submitted] when you finish this, rerun the linter
+
+╭──────────────────────────────────────────────────╮
+│ &gt;                                                │
+╰──────────────────────────────────────────────────╯
+✻ Baking… (esc to interrupt · 42s)</pre></div><div class="card send"><div class="hdr"><span class="badge">DELIVERED</span><h3>Idle worker, same invocation</h3></div>
+    <div class="note">The guard was not bought by blocking the plane: an idle worker still takes the invocation.</div>
+    <pre class="cli"><span class="prompt">$</span> fm-send.sh idle-lane &quot;/no-mistakes&quot;
+<span class="rc">exit=0</span>
+fm-send: text typed into fmlive:idle-worker and submitted (verdict=empty; tried meta=/tmp/fmlive-qpRyhV/home/state/idle-lane.meta; backend=from-meta); the submit is confirmed - this text went straight into the terminal rather than into a durable record, so do not resend</pre>
+    <div class="lbl">live tmux pane afterwards</div>
+    <pre class="pane">  worker pane — harness claude
+
+  [transcript] task: drive my own validation run
+  [submitted] /no-mistakes
+
+╭──────────────────────────────────────────────────╮
+│ &gt;                                                │
+╰──────────────────────────────────────────────────╯</pre></div><div class="card send"><div class="hdr"><span class="badge">DELIVERED</span><h3>&quot;$&quot;-prefixed prose to a mid-turn codex worker</h3></div>
+    <div class="note">A leading "$" picks the typed plane for codex but is a documented over-match, so it never vetoes a legitimate steer.</div>
+    <pre class="cli"><span class="prompt">$</span> fm-send.sh codex-lane &#x27;$200 is the budget cap, stay under it&#x27;
+<span class="rc">exit=0</span>
+fm-send: text typed into fmlive:codex-busy and submitted (verdict=empty; tried meta=/tmp/fmlive-qpRyhV/home/state/codex-lane.meta; backend=from-meta); the submit is confirmed - this text went straight into the terminal rather than into a durable record, so do not resend</pre>
+    <div class="lbl">live tmux pane afterwards</div>
+    <pre class="pane">  worker pane — harness codex
+
+  [transcript] task: drive my own validation run
+  [submitted] $200 is the budget cap, stay under it
+
+╭──────────────────────────────────────────────────╮
+│ &gt;                                                │
+╰──────────────────────────────────────────────────╯
+• Working (esc to interrupt)</pre></div><div class="card send"><div class="hdr"><span class="badge">DELIVERED</span><h3>Marked secondmate request into a mid-turn pane</h3></div>
+    <div class="note">The from-firstmate marker is typed ahead of it, so the harness receives chat rather than a parser command — nothing executes.</div>
+    <pre class="cli"><span class="prompt">$</span> fm-send.sh lsm &quot;/audit the ledger&quot;
+<span class="rc">exit=0</span>
+fm-send: text typed into fmlive:sm-busy and submitted (verdict=empty; tried meta=/tmp/fmlive-qpRyhV/home/state/lsm.meta; backend=from-meta); the submit is confirmed - this text went straight into the terminal rather than into a durable record, so do not resend</pre>
+    <div class="lbl">live tmux pane afterwards</div>
+    <pre class="pane">  worker pane — harness claude
+
+  [transcript] task: drive my own validation run
+  [submitted] [fm-from-firstmate]⁣corr=e2caec219356bc0d /audit the ledger
+
+╭──────────────────────────────────────────────────╮
+│ &gt;                                                │
+╰──────────────────────────────────────────────────╯
+✻ Baking… (esc to interrupt · 42s)</pre></div><div class="card send"><div class="hdr"><span class="badge">DELIVERED</span><h3>Invocation to a target this home records no harness for</h3></div>
+    <div class="note">The pane renders a busy footer, but it cannot be attributed to that target's own harness, so it is not proof and the send goes through.</div>
+    <pre class="cli"><span class="prompt">$</span> fm-send.sh fmlive:foreign-busy &quot;/no-mistakes&quot;
+<span class="rc">exit=0</span>
+fm-send: text typed into fmlive:foreign-busy and submitted (verdict=empty; tried meta=/tmp/fmlive-qpRyhV/home/state/fmlive:foreign-busy.meta; metadata window/terminal lookup; backend=tmux; endpoint=verified); the submit is confirmed - this text went straight into the terminal rather than into a durable record, so do not resend</pre>
+    <div class="lbl">live tmux pane afterwards</div>
+    <pre class="pane">  worker pane — harness claude
+
+  [transcript] task: drive my own validation run
+  [submitted] /no-mistakes
+
+╭──────────────────────────────────────────────────╮
+│ &gt;                                                │
+╰──────────────────────────────────────────────────╯
+✻ Baking… (esc to interrupt · 42s)</pre></div></div>

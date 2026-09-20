@@ -1,0 +1,57 @@
+<!doctype html><meta charset="utf-8">
+<title>fm-send typed plane: mid-turn refusal — live drive</title>
+<style>
+ body{background:#11131a;color:#d6dae3;font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:28px}
+ h1{font-size:20px;margin:0 0 4px} .sub{color:#8b93a7;margin-bottom:22px;font-size:13px}
+ .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+ .card{border:1px solid #2a2f3d;border-radius:10px;padding:16px;background:#161923}
+ .card.refuse{border-color:#3c6b45} .card.send{border-color:#7a3a3a}
+ .hdr{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+ h3{font-size:14px;margin:0;font-weight:600}
+ .badge{font:600 11px ui-monospace,monospace;padding:3px 8px;border-radius:999px}
+ .refuse .badge{background:#1d3a24;color:#7ee39b} .send .badge{background:#3a1d1d;color:#ff9b9b}
+ .note{color:#98a1b5;font-size:12.5px;margin:0 0 10px}
+ pre{font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-word;
+      background:#0c0e14;border:1px solid #232838;border-radius:7px;padding:10px;margin:0}
+ .cli{color:#cfd6e4} .prompt{color:#6fa8ff} .rc{color:#ffd479}
+ .pane{color:#b9c2d4;white-space:pre;overflow-x:auto}
+ .lbl{color:#6f7891;font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin:10px 0 5px}
+</style>
+<h1>fm-send typed plane — a slash invocation aimed at a mid-turn worker</h1>
+<div class="sub">Driven live against a real tmux 3.6 server (isolated TMUX_TMPDIR, isolated FM_HOME).
+The target pane runs a stand-in worker TUI that renders a bordered composer plus claude's mid-turn footer
+<code>✻ Baking… (esc to interrupt · 42s)</code> and echoes whatever is actually typed into it.</div>
+<div class="grid">
+    <div class="card send">
+      <div class="hdr"><span class="badge">TYPED IN</span><h3>BEFORE (base 399de1b) — the reported incident</h3></div>
+      <div class="note">The invocation is typed and submitted into a worker that is mid-turn — <b>[submitted] /no-mistakes</b> lands in the pane. This is the second run starting.</div>
+      <pre class="cli"><span class="prompt">$</span> fm-send.sh busy-lane &quot;/no-mistakes&quot;
+<span class="rc">exit=0</span>
+fm-send: text typed into fmlive:busy-worker and submitted (verdict=empty; tried meta=/tmp/fmlive-qpRyhV/home/state/busy-lane.meta; backend=from-meta); the submit is confirmed - this text went straight into the terminal rather than into a durable record, so do not resend</pre>
+      <div class="lbl">live tmux pane afterwards</div>
+      <pre class="pane">  worker pane — harness claude
+
+  [transcript] task: drive my own validation run
+  [submitted] /no-mistakes
+
+╭──────────────────────────────────────────────────╮
+│ &gt;                                                │
+╰──────────────────────────────────────────────────╯
+✻ Baking… (esc to interrupt · 42s)</pre>
+    </div>
+    <div class="card refuse">
+      <div class="hdr"><span class="badge">REFUSED</span><h3>AFTER (HEAD 5865997) — same pane, same command</h3></div>
+      <div class="note">Composer is empty, pane is mid-turn. The typed plane refuses, exits 1, and the pane is <b>untouched</b> — no keystroke, no Enter.</div>
+      <pre class="cli"><span class="prompt">$</span> fm-send.sh busy-lane &quot;/no-mistakes&quot;
+<span class="rc">exit=1</span>
+error: text not typed into fmlive:busy-worker (the target reads busy and these bytes would execute as a command rather than queue as text); this plane types straight into the terminal with no durable record behind it. Nothing was sent. Inspect fmlive:busy-worker (fm-peek.sh) and send again only if you still mean to.</pre>
+      <div class="lbl">live tmux pane afterwards</div>
+      <pre class="pane">  worker pane — harness claude
+
+  [transcript] task: drive my own validation run
+
+╭──────────────────────────────────────────────────╮
+│ &gt;                                                │
+╰──────────────────────────────────────────────────╯
+✻ Baking… (esc to interrupt · 42s)</pre>
+    </div></div>
