@@ -48,9 +48,13 @@ TMP_ROOT=$(cd "$TMP_ROOT" && pwd)
 
 # Stub tmux for the local typed-plane legs: logs literal typed text to
 # FM_SEND_LOG. The default composer reads empty (clean submit);
-# FM_FAKE_TMUX_PENDING=1 keeps a proven pending composer with no busy footer,
-# so the real submit core exhausts its Enter budget and reports the pending
-# verdict. The ssh stub counts invocations, logs the wire line, and either
+# FM_FAKE_TMUX_PENDING=1 keeps a proven pending composer with no busy footer
+# from the moment the text is TYPED onward, so the real submit core exhausts
+# its Enter budget and reports the pending verdict. It renders empty before
+# that first literal send-keys, because the typed plane reads the composer once
+# more before it types and refuses a target that already holds pending text -
+# a composer prefilled from the start would refuse this fixture rather than
+# submitting into it. The ssh stub counts invocations, logs the wire line, and either
 # fails with FM_FAKE_SSH_RC (emitting FM_FAKE_SSH_STDERR as the remote
 # stderr), or decodes the entrypoint argv and executes the REAL host-local
 # command against the decoded remote home - with FM_FAKE_SSH_AMBIGUOUS=1
@@ -81,7 +85,7 @@ case "${1:-}" in
     for a in "$@"; do case "$a" in *cursor_y*) printf '1\n'; exit 0 ;; esac; done
     printf 'fakepane\n'; exit 0 ;;
   capture-pane)
-    if [ "${FM_FAKE_TMUX_PENDING:-0}" = 1 ]; then
+    if [ "${FM_FAKE_TMUX_PENDING:-0}" = 1 ] && [ -s "${FM_SEND_LOG:-}" ]; then
       printf '╭────────────╮\n│ > steer    │\n╰────────────╯\n'
     else
       printf '╭────╮\n│    │\n╰────╯\n'

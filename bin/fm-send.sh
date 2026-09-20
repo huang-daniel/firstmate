@@ -81,16 +81,25 @@
 # the text reached the terminal itself and that no durable record backs it, so
 # it cannot be read as the inbox plane's queued-but-unhandled receipt.
 # Before typing anything, this plane runs two pre-checks and REFUSES, rather
-# than typing, when either one PROVES the target cannot take typed text: the
-# SAME composer read the doorbell uses (fm_backend_composer_state, proven
-# `pending` only) when the composer visibly holds pending text, and a proven
-# busy verdict - the backend's native agent-state where it has one, the
-# harness-scoped rendered busy footer otherwise - when the agent there is
-# mid-turn. Each refusal names which of the two conditions fired and the
-# target. It refuses rather than deferring because typed text is an instruction
-# to start something rather than queueable work, and there is no durable record
-# to defer to; an operator who means to send anyway can inspect the pane and
-# re-run. There is no override flag.
+# than typing, when one of them PROVES the target cannot take the text. They
+# cover different parts of the plane.
+# The COMPOSER check covers the WHOLE plane: the same read the doorbell uses
+# (fm_backend_composer_state, proven `pending` only) refuses when the composer
+# visibly holds pending text, because typing on top of someone's half-written
+# text garbles it whatever is being sent.
+# The MID-TURN check covers harness-native invocations ONLY (the same
+# classification that keeps them off the inbox plane): an invocation STARTS
+# something, so a proven busy target refuses rather than queueing a second run
+# behind the one already under way. Plain prose to an explicit endpoint still
+# types into a busy pane, which is the normal way to steer one. The busy
+# verdict comes from the fleet's usual ladder - the backend's native
+# agent-state where it has one, then the harness-scoped rendered busy footer
+# read from a captured tail, which every backend supports.
+# Each refusal names which of the two conditions fired and the target, says
+# nothing was sent, and says this plane has no durable record behind it. It
+# refuses rather than deferring because there is no durable record to defer to;
+# an operator who means to send anyway can inspect the pane and re-run. There
+# is no override flag.
 # Typed-plane exit contract: 0 = submit confirmed;
 # 3 = the text was typed into the live endpoint and
 # Enter was sent, but the submit read-back stayed unconfirmed (verify the pane
@@ -746,9 +755,8 @@ fm_send_feed_resolved_holds() {  # <answer-text>
 # selection below and the --again refusal read it, so the two can never drift.
 #
 # Text addressed to a task selector resolved through this home's metadata rides
-# the inbox, unless it is a LOCAL harness-native invocation that must reach the
-# harness's own parser - a leading "/" (slash command), or a leading "$" to a
-# codex target (skill invocation). A remote secondmate selector always rides
+# the inbox, unless it is a LOCAL harness-native invocation (below). A remote
+# secondmate selector always rides
 # the inbox: its requests are marked, and a marked request reaches the harness
 # as marker-prefixed chat rather than a parser command anyway, so no remote text
 # has a typed plane to lose. An explicit backend target stays typed even when it
@@ -762,11 +770,43 @@ fm_send_rides_inbox() {  # <pre-marker-text>
   if [ -n "$FIRE_AND_FORGET_ID" ] || [ "$TARGET_BACKEND" = remote ]; then
     return 0
   fi
+  ! fm_send_is_harness_native "$1"
+}
+
+# Harness-native invocation, in ONE place: text the harness's own parser must
+# receive - a leading "/" (slash command), or a leading "$" to a codex target
+# (skill invocation). The "$" arm is scoped to codex on purpose: unlike "/", a
+# leading "$" commonly starts ordinary text ("$5/month", "$HOME"), so a
+# universal "$" rule would misclassify plain text to claude/opencode/pi.
+# Three readers share this one answer and so can never drift: plane selection
+# above (an invocation cannot ride the durable inbox), the typed plane's
+# mid-turn refusal (only an invocation STARTS something, so only an invocation
+# is refused onto a busy target), and the pre-Enter settle (these are exactly
+# the sends that open a completion popup).
+fm_send_is_harness_native() {  # <pre-marker-text>
   case "$1" in
-    /*) return 1 ;;
-    \$*) [ "$TARGET_HARNESS" != codex ] || return 1 ;;
+    /*) return 0 ;;
+    \$*) [ "$TARGET_HARNESS" != codex ] || return 0 ;;
   esac
-  return 0
+  return 1
+}
+
+# The resolved target's busy verdict, on the same ladder the fleet already runs
+# in bin/fm-pending-reply-lib.sh and bin/fm-supervise-daemon.sh: the backend's
+# native agent-state where it has one, then the harness-scoped rendered busy
+# footer read from a captured tail, which every backend implements. Succeeds
+# only on a PROVEN busy verdict, so an idle target and an unreadable one both
+# still type.
+fm_send_target_is_busy() {
+  local native tail40
+  native=$(fm_backend_busy_state "$TARGET_BACKEND" "$T" 2>/dev/null) || native=unknown
+  case "$native" in
+    busy) return 0 ;;
+    idle) return 1 ;;
+  esac
+  tail40=$(fm_backend_capture "$TARGET_BACKEND" "$T" 40 "$EXPECTED_LABEL" 2>/dev/null) || return 1
+  printf '%s' "$tail40" | grep -v '^[[:space:]]*$' | tail -12 \
+    | fm_busy_lines_match "$TARGET_HARNESS"
 }
 
 if [ "${1:-}" = "--key" ]; then
@@ -1122,39 +1162,32 @@ else
     esac
     exit 0
   fi
-  # Typed text goes into the terminal itself, so what this plane carries is an
-  # instruction to START something, not queueable work: typing it on top of a
-  # composer that already holds something garbles that content, and typing it
-  # into a pane whose agent is mid-turn queues it behind the turn already
-  # running - which is how a second pipeline run gets started against a branch
-  # the first already owns. The inbox plane reads the composer condition before
-  # its doorbell and defers to its durable record; here there is nothing to
-  # defer to, so refuse instead and let the operator look at the pane and
-  # decide.
-  # Both reads keep the ring's deliberately narrow posture - only a PROVEN
-  # verdict refuses, so an ambiguous composer and an unreadable pane still type
-  # here, exactly as they still ring there. The composer read is the same
-  # single reading the ring uses. The busy read is needed alongside it because
-  # the composer cannot see this half of the hazard: a worker driving its own
-  # run with nothing typed reads `empty`. It follows the fleet's usual ladder -
-  # the backend's native agent-state where it has one, and the harness-scoped
-  # rendered footer that tmux (always `unknown` natively) falls back to. A
-  # backend with neither signal reads unknown and types, as before.
+  # Typed text goes into the terminal itself, so this plane has nothing to
+  # defer to the way the inbox plane defers to its durable record: refusing is
+  # the only alternative to typing. Two conditions prove the target cannot take
+  # the text, and each covers a different part of the plane.
+  # The composer condition covers all of it - typing on top of a composer that
+  # already holds content garbles that content regardless of what is being
+  # typed - and is the same single reading the ring uses.
+  # The mid-turn condition covers harness-native invocations only. Those START
+  # something, so queueing one behind a run already under way is how a second
+  # pipeline run gets started against a branch the first already owns. The
+  # other half of this plane is plain prose to an explicit backend target, and
+  # there queueing "when you finish this, do X" behind a running turn is the
+  # normal and useful outcome: an explicit endpoint names no task, so it has no
+  # durable inbox plane to fall back to, and there is no override flag, so
+  # refusing it would leave an operator unable to steer a busy foreign pane
+  # through fm-send at all.
+  # Both reads keep the ring's deliberately narrow posture: only a PROVEN
+  # verdict refuses, so an ambiguous composer and an unreadable target still
+  # type here, exactly as they still ring there.
   TYPED_COMPOSER_STATE=$(fm_backend_composer_state "$TARGET_BACKEND" "$T" "$EXPECTED_LABEL" 2>/dev/null) \
     || TYPED_COMPOSER_STATE=unknown
   TYPED_REFUSAL=
   if [ "$TYPED_COMPOSER_STATE" = pending ]; then
     TYPED_REFUSAL='the composer visibly holds pending text, so the text would land on top of what is already pending there'
-  else
-    TYPED_BUSY_STATE=$(fm_backend_busy_state "$TARGET_BACKEND" "$T" 2>/dev/null) \
-      || TYPED_BUSY_STATE=unknown
-    if [ "$TYPED_BUSY_STATE" = unknown ] && [ "$TARGET_BACKEND" = tmux ]; then
-      TYPED_BUSY_STATE=$(fm_pane_busy_state "$T" "$TARGET_HARNESS" 2>/dev/null) \
-        || TYPED_BUSY_STATE=unknown
-    fi
-    if [ "$TYPED_BUSY_STATE" = busy ]; then
-      TYPED_REFUSAL='the agent there is mid-turn, so the text would queue behind the run already under way'
-    fi
+  elif fm_send_is_harness_native "$RESOLVE_ANSWER_TEXT" && fm_send_target_is_busy; then
+    TYPED_REFUSAL='the agent there is mid-turn, so this invocation would queue behind the run already under way'
   fi
   if [ -n "$TYPED_REFUSAL" ]; then
     fm_send_known_undelivered_cleanup || \
@@ -1165,18 +1198,11 @@ else
   # Slash commands open a completion popup in some TUIs (verified on codex);
   # submitting too fast selects nothing, so give the popup time to settle before
   # the (retried) Enter. Codex opens the same kind of popup for a `$<skill>`
-  # invocation, so a `$...` message to a codex target gets the same settle. That
-  # `$` case is scoped to codex on purpose: unlike `/`, a leading `$` commonly
-  # starts ordinary text ("$5/month", "$HOME"), so a universal `$` rule would
-  # needlessly slow plain text to claude/opencode/pi. The target backend's
-  # verified submit retry still backs the settle up either way.
-  case "$*" in
-    /*) settle=1.2 ;;
-    \$*)
-      if [ "$TARGET_HARNESS" = codex ]; then settle=1.2; else settle=0.3; fi
-      ;;
-    *) settle=0.3 ;;
-  esac
+  # invocation, so the sends that need the longer settle are exactly the
+  # harness-native set - read from the one classifier rather than restated here,
+  # so plain text to claude/opencode/pi is never needlessly slowed. The target
+  # backend's verified submit retry still backs the settle up either way.
+  if fm_send_is_harness_native "$RESOLVE_ANSWER_TEXT"; then settle=1.2; else settle=0.3; fi
   retries=${FM_SEND_RETRIES:-3}
   sleep_s=${FM_SEND_SLEEP:-0.4}
   # Type once, submit, verify. Only exact empty confirms delivery; every other
