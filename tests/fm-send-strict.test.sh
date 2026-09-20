@@ -398,7 +398,7 @@ test_typed_send_refuses_an_occupied_target() {
   expect_code 1 "$rc" "a typed send onto a mid-turn worker must fail, not report a submit"
   got=$(cat "$err")
   assert_contains "$got" "sess:fm-busy-lane" "the mid-turn refusal must name the target it declined to type into"
-  assert_contains "$got" "mid-turn" \
+  assert_contains "$got" "reads busy" \
     "the mid-turn refusal must name its own condition, not the pending-text one"
   assert_contains "$got" "Nothing was sent" "the mid-turn refusal must say nothing was sent"
   assert_no_grep 'literal=1' "$log" "a refused mid-turn send must type nothing at all"
@@ -527,7 +527,7 @@ test_typed_send_refuses_a_mid_turn_non_tmux_target() {
   expect_code 1 "$rc" "a typed invocation onto a mid-turn herdr pane must fail, not report a submit"
   got=$(cat "$err")
   assert_contains "$got" "default:wB:p2" "the refusal must name the herdr target it declined to type into"
-  assert_contains "$got" "mid-turn" "the herdr refusal must name the mid-turn condition"
+  assert_contains "$got" "reads busy" "the herdr refusal must name the mid-turn condition"
   assert_contains "$got" "Nothing was sent" "the herdr refusal must say nothing was sent"
   assert_no_grep 'send-text' "$herdr_log" "a refused herdr send must type nothing at all"
   assert_no_grep 'send-keys' "$herdr_log" "a refused herdr send must not submit"
@@ -542,7 +542,7 @@ test_typed_send_refuses_a_mid_turn_non_tmux_target() {
     FM_FAKE_HERDR_AGENT_STATUS=idle \
     "$SEND" hbusy "/no-mistakes" >/dev/null 2>"$err"; rc=$?
   expect_code 1 "$rc" "a native idle verdict must not settle a pane whose tail is still mid-turn"
-  assert_contains "$(cat "$err")" "mid-turn" "the natively-idle mid-turn pane must still be refused as mid-turn"
+  assert_contains "$(cat "$err")" "reads busy" "the natively-idle mid-turn pane must still be refused as busy"
   assert_no_grep 'send-text' "$herdr_log" "a natively-idle mid-turn pane must be typed nothing at all"
   assert_no_grep 'send-keys' "$herdr_log" "a natively-idle mid-turn pane must not be submitted to"
 

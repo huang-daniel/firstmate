@@ -101,15 +101,16 @@
 # does a marked secondmate request, which the from-firstmate marker turns into
 # chat rather than a parser command (see the Stage-1 compatibility boundary
 # below), so it executes nothing either. The busy
-# verdict comes from the fleet's usual ladder - the backend's native
-# agent-state where it has one, then the rendered busy footer read from a
-# captured tail - under one rule: a target is classified busy only when its
-# RECORDED harness is one whose busy signature firstmate has registered and
-# verified (claude, codex, opencode, pi/pi-signed, omp, grok, kimi, cursor),
-# and every other target sends. A target with no recorded harness, and a
-# recorded harness with no registered signature, are both left unclassified
-# and keep taking typed sends; registering a verified signature is how a
-# harness joins that set.
+# verdict comes from the fleet's usual ladder, whose two rungs prove different
+# things. Where the backend exposes native agent-state (herdr), a `busy`
+# verdict is that backend's own reading of that pane and is taken as it comes,
+# whatever harness the meta records. Everywhere else the rail reads the
+# rendered busy footer from a captured tail, matched only against the recorded
+# harness's own registered and verified signature: claude, codex, opencode,
+# pi/pi-signed, omp, grok, kimi, cursor. A recorded harness outside that set is
+# not classified busy by the tail rung, and registering its verified signature
+# is how a harness joins the set. A target this home records no harness for is
+# not classified by either rung and keeps taking typed sends.
 # Each refusal names which of the two conditions fired and the target, says
 # nothing was sent, and says this plane has no durable record behind it. It
 # refuses rather than deferring because there is no durable record to defer to;
@@ -822,18 +823,26 @@ fm_send_executes_as_command() {  # <pre-marker-text>
 }
 
 # The resolved target's busy verdict, on the same ladder the fleet already runs
-# in bin/fm-pending-reply-lib.sh and bin/fm-supervise-daemon.sh: the backend's
-# native agent-state where it has one, then the rendered busy footer read from
-# a captured tail. One rule governs the whole rail: a target is classified busy
-# only when its RECORDED harness is one whose busy signature firstmate has
-# registered and verified - claude, codex, opencode, pi/pi-signed, omp, grok,
-# kimi, cursor (bin/fm-composer-lib.sh) - and every other target sends.
-# So a target this home holds no harness for is not classified here at all,
-# rather than being matched against the union of every vendor's busy token: a
-# foreign pane whose tail merely carries some other harness's token must keep
-# taking a typed send, because there is no override flag to get past a refusal.
-# A recorded harness with no registered signature is not classified busy
-# either; registering its verified signature in that table is how it joins.
+# in bin/fm-pending-reply-lib.sh and bin/fm-supervise-daemon.sh. Its two rungs
+# prove different things, so the rule differs between them.
+# Before either rung: a target this home records no harness for is not
+# classified at all. A foreign pane must keep taking a typed send, because
+# there is no override flag to get past a refusal, and without a recorded
+# harness its tail could only be matched against the union of every vendor's
+# busy token, which is evidence about no target in particular.
+# Rung one, where the backend exposes native agent-state (herdr today): a
+# `busy` verdict is the backend's own reading of that exact pane, so it is
+# taken as it comes and never consults the signature table.
+# Rung two, everywhere else: the rendered busy footer from a captured tail,
+# matched only against the recorded harness's own registered and verified
+# signature - claude, codex, opencode, pi/pi-signed, omp, grok, kimi, cursor
+# (bin/fm-composer-lib.sh). A recorded harness outside that set is not
+# classified busy here; registering its verified signature in that table is how
+# it joins. That table is a delivery guard rather than a worker-state source
+# (its own header draws that boundary and names bin/fm-busy-lib.sh as the
+# semantic owner), so what this rung proves is that the pane is rendering its
+# harness's turn-in-flight signal, not what firstmate records that worker to be
+# doing.
 # Only a PROVEN busy verdict succeeds. A native verdict that is not `busy`
 # settles nothing and falls through to the tail: herdr's own adapter records
 # that live Claude keeps agent_status idle through a whole landed turn, which
@@ -1208,9 +1217,10 @@ else
   # The composer condition covers all of it - typing on top of a composer that
   # already holds content garbles that content regardless of what is being
   # typed - and is the same single reading the ring uses.
-  # The mid-turn condition refuses on four facts and nothing else: these bytes
-  # will EXECUTE as a command, the send is not marked, the target's recorded
-  # harness has a registered busy signature, and that signature matches the
+  # The mid-turn condition refuses on three facts and nothing else: these bytes
+  # will EXECUTE as a command, the send is not marked, and the target reads busy
+  # on the ladder above - the backend's own agent-state where it has one,
+  # otherwise the recorded harness's registered busy signature matching the
   # captured tail. Each is something known to be true, never a heuristic and
   # never an absence of evidence, because this refusal has no override flag.
   # The hazard behind it is that a command starts something, so letting one
@@ -1237,7 +1247,7 @@ else
     TYPED_REFUSAL='the composer visibly holds pending text, so the text would land on top of what is already pending there'
   elif [ "$MARK_FROM_FIRSTMATE" != 1 ] && fm_send_executes_as_command "$RESOLVE_ANSWER_TEXT" \
     && fm_send_target_is_busy; then
-    TYPED_REFUSAL='the agent there is mid-turn and these bytes would execute as a command rather than queue as text'
+    TYPED_REFUSAL='the target reads busy and these bytes would execute as a command rather than queue as text'
   fi
   if [ -n "$TYPED_REFUSAL" ]; then
     fm_send_known_undelivered_cleanup || \
