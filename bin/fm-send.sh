@@ -10,6 +10,9 @@
 # Special keys instead of text: fm-send.sh <target> --key Enter
 # Key support is backend-specific: tmux/herdr support Escape, Enter, and C-c;
 # Orca currently supports Enter and C-c only, and rejects Escape.
+# Like the typed plane, every key-plane outcome prints one line on stderr
+# naming the target, so a delivered key is never reported with the same
+# silence as a command that did nothing.
 #
 # Two data planes:
 #
@@ -781,10 +784,18 @@ if [ "${1:-}" = "--key" ]; then
       echo "error: key '$key' not sent to remote secondmate $TARGET_REMOTE_ID; completion may be unknown" >&2
       exit 1
     fi
+    key_target="remote secondmate $TARGET_REMOTE_ID"
   elif ! fm_backend_send_key "$TARGET_BACKEND" "$T" "$key" "$EXPECTED_LABEL"; then
     echo "error: key '$key' not sent to $T ($TARGET_BACKEND send failed; tried $RESOLUTION_TRIED)" >&2
     exit 1
+  else
+    key_target=$T
   fi
+  # A failed key send is loud, so a silent success is the only outcome a caller
+  # could mistake for a no-op. Report the confirmed delivery here, before the
+  # clear/record bookkeeping below, so a later warning cannot obscure it - the
+  # same ordering the typed plane uses for its confirmation.
+  echo "fm-send: key '$key' sent to $key_target" >&2
   fm_send_clear_after_interrupt "$semantic_key" || exit 1
   fm_send_record_interrupt "$semantic_key" || exit 1
 else
