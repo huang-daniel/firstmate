@@ -426,7 +426,7 @@ STUB
     || fail "promotion should succeed"
 
   # Extract the fm-send.sh command from the output
-  local send_command next_line
+  local next_line
   next_line=$(printf '%s\n' "$out" | sed -n 's/^next: //p' | grep 'fm-send\.sh')
   [ -n "$next_line" ] || fail "promotion did not print a next: fm-send.sh command"
 
