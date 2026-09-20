@@ -1,0 +1,15 @@
+Regression test: tests/fm-task-delivery.test.sh
+  test_promote_prints_next_step_command_with_task_id
+
+=== BEFORE the fix (next-step line reverted to the branch-name form) ===
+  bin/fm-promote.sh:217  echo "next: FM_HOME=$HOME_Q bin/fm-send.sh fm-$ID \"\$(cat $INSTRUCTIONS_Q)\""
+$ bash tests/fm-task-delivery.test.sh
+  not ok - fm-send.sh was called with 'fm-promote-next-step-test' but expected 'promote-next-step-test' (the task id, not the branch name fm-promote-next-step-test)
+  exit status: 1
+
+=== AFTER the fix (as shipped) ===
+  bin/fm-promote.sh:217  echo "next: FM_HOME=$HOME_Q bin/fm-send.sh $ID \"\$(cat $INSTRUCTIONS_Q)\""
+$ bash tests/fm-task-delivery.test.sh
+  ok - fm-promote: next-step command names the task id for fm-send.sh
+  # all fm-task-delivery tests passed
+  exit status: 0
