@@ -80,6 +80,13 @@
 # prints one line on stderr naming the target; a confirmed submit's line says
 # the text reached the terminal itself and that no durable record backs it, so
 # it cannot be read as the inbox plane's queued-but-unhandled receipt.
+# Before typing anything, this plane reads the SAME composer pre-check the
+# doorbell uses (fm_backend_composer_state, proven `pending` only) and REFUSES
+# when the composer visibly holds pending text, naming the condition and the
+# target. It refuses rather than deferring because typed text is an instruction
+# to start something rather than queueable work, and there is no durable record
+# to defer to; an operator who means to send anyway can inspect the pane and
+# re-run. There is no override flag.
 # Typed-plane exit contract: 0 = submit confirmed;
 # 3 = the text was typed into the live endpoint and
 # Enter was sent, but the submit read-back stayed unconfirmed (verify the pane
@@ -1110,6 +1117,24 @@ else
       3) echo "fm-send: doorbell not typed because the agent in $T has exited; the steer is durably recorded at $INBOX_RECORD for recovery (stuck-crewmate-recovery), and the watcher will not re-ring a dead pane" >&2 ;;
     esac
     exit 0
+  fi
+  # Typed text goes into the terminal itself, so what this plane carries is an
+  # instruction to START something, not queueable work: typing it on top of a
+  # composer that already holds something both garbles that content and risks
+  # starting a second run of whatever is already under way. The inbox plane
+  # reads this exact condition before its doorbell and defers to its durable
+  # record; here there is nothing to defer to, so refuse instead and let the
+  # operator look at the pane and decide. Reuse fm_backend_composer_state - the
+  # same single reading the ring uses - including its deliberately narrow
+  # proven-`pending` verdict: an ambiguous composer still types here, exactly as
+  # it still rings there.
+  TYPED_COMPOSER_STATE=$(fm_backend_composer_state "$TARGET_BACKEND" "$T" "$EXPECTED_LABEL" 2>/dev/null) \
+    || TYPED_COMPOSER_STATE=unknown
+  if [ "$TYPED_COMPOSER_STATE" = pending ]; then
+    fm_send_known_undelivered_cleanup || \
+      echo "error: known-undelivered pending-reply state could not be reset for $TARGET_TASK_ID" >&2
+    echo "error: text not typed into $T (the composer visibly holds pending text); this plane types straight into the terminal with no durable record behind it, so the text would land on top of what is already pending there. Nothing was sent. Inspect $T (fm-peek.sh) and send again only if you still mean to." >&2
+    exit 1
   fi
   # Slash commands open a completion popup in some TUIs (verified on codex);
   # submitting too fast selects nothing, so give the popup time to settle before

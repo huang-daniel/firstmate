@@ -8,7 +8,9 @@
 # They also verify that a key send reports whether delivery actually succeeded,
 # and that the typed plane accounts for both of its submit verdicts out loud:
 # the confirmed one it once reported with silence, and the unconfirmed one whose
-# existing text and exit 3 must survive that addition.
+# existing text and exit 3 must survive that addition. They also verify that the
+# typed plane refuses, rather than types, when the composer already holds
+# pending text.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -60,14 +62,25 @@ case "${1:-}" in
     printf '%%1\n'
     exit 0 ;;
   capture-pane)
-    # FM_FAKE_TMUX_COMPOSER_TEXT leaves draft text inside the composer box, so
-    # one stub can drive the typed plane to either submit verdict: an empty box
-    # classifies as "empty" (submit confirmed) and a box still holding text as
-    # "pending" (delivered, submission unconfirmed).
+    # Two independent ways to put draft text in the composer box, because the
+    # typed plane now reads that box at two different moments and they mean
+    # opposite things. FM_FAKE_TMUX_COMPOSER_TEXT appears only AFTER the message
+    # has been typed (a literal send-keys is in the log), modelling a harness
+    # that keeps rendering the steer: the pre-typing read is empty, so the send
+    # proceeds and the read-back classifies as "pending" (delivered, submission
+    # unconfirmed). FM_FAKE_TMUX_COMPOSER_PREFILL is there from the start,
+    # modelling a composer that already holds someone's content before this
+    # send ever ran. With neither set the box is always empty, so a submit
+    # classifies as "empty" (confirmed).
     # The box's inner width must match its borders, or the classifier reads the
     # geometry as ambiguous and downgrades the verdict to pending-unproven.
-    if [ -n "${FM_FAKE_TMUX_COMPOSER_TEXT:-}" ]; then
-      printf '╭─────────────╮\n│ %-11.11s │\n╰─────────────╯\n' "$FM_FAKE_TMUX_COMPOSER_TEXT"
+    composer_text=${FM_FAKE_TMUX_COMPOSER_PREFILL:-}
+    if [ -z "$composer_text" ] && [ -n "${FM_FAKE_TMUX_COMPOSER_TEXT:-}" ] \
+      && grep -q 'literal=1' "$FM_TMUX_LOG" 2>/dev/null; then
+      composer_text=$FM_FAKE_TMUX_COMPOSER_TEXT
+    fi
+    if [ -n "$composer_text" ]; then
+      printf '╭─────────────╮\n│ %-11.11s │\n╰─────────────╯\n' "$composer_text"
     else
       printf '╭────╮\n│    │\n╰────╯\n'
     fi
@@ -304,8 +317,46 @@ test_typed_submit_reports_confirmed_and_unconfirmed() {
   pass "fm-send typed plane: a confirmed submit is reported, and the unconfirmed path keeps its text and exit 3"
 }
 
+# Typed text reaches the terminal's own parser, so a typed "/no-mistakes" is an
+# instruction to START something rather than queueable work, and typing it onto
+# a composer that already holds content is how a second pipeline run gets
+# started against a branch the first already owns. The inbox plane reads this
+# same condition before its doorbell and defers to its durable record; the typed
+# plane has no record to defer to, so it must refuse and type nothing at all.
+# The refusal is asserted beside an unchanged ordinary send, so a later change
+# cannot buy the guard by blocking sends whose composer is merely unreadable.
+test_typed_send_refuses_a_busy_composer() {
+  local dir fb home err log rc got
+  dir="$TMP_ROOT/typed-busy"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); home=$(setup_home typedbusy); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
+
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    FM_FAKE_TMUX_COMPOSER_PREFILL="half typed" \
+    "$SEND" sess:win "/no-mistakes" >"$dir/send.out" 2>"$err"; rc=$?
+  expect_code 1 "$rc" "a typed send onto a busy composer must fail, not report a submit"
+  got=$(cat "$err")
+  assert_contains "$got" "sess:win" "the refusal must name the target it declined to type into"
+  assert_contains "$got" "composer visibly holds pending text" \
+    "the refusal must name the condition that caused it"
+  assert_contains "$got" "Nothing was sent" "the refusal must say nothing was sent"
+  assert_no_grep 'literal=1' "$log" "a refused typed send must type nothing at all"
+  assert_no_grep 'literal=0 arg=Enter' "$log" "a refused typed send must not submit"
+  [ ! -s "$dir/send.out" ] || fail "the refusal belongs on stderr, not stdout"$'\n'"$(cat "$dir/send.out")"
+
+  # Same command, same stub, empty composer: the guard must not have made the
+  # ordinary typed send conditional on anything else.
+  : > "$log"
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    "$SEND" sess:win "/no-mistakes" >/dev/null 2>"$err"; rc=$?
+  expect_code 0 "$rc" "an idle composer must still take the typed send"
+  assert_contains "$(cat "$log")" "literal=1 arg=/no-mistakes" \
+    "an idle composer must still receive the typed text"
+  pass "fm-send typed plane: a busy composer is refused untyped, while an idle one still sends"
+}
+
 test_exact_lane_id_send_still_works
 test_key_send_exit_status_follows_delivery
+test_typed_send_refuses_a_busy_composer
 test_key_send_reports_confirmed_delivery
 test_typed_submit_reports_confirmed_and_unconfirmed
 test_unset_fm_home_fails
