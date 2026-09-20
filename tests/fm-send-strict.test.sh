@@ -244,9 +244,31 @@ test_key_send_exit_status_follows_delivery() {
   pass "fm-send --key: exit status follows delivery, and an undelivered key never reports success"
 }
 
+# The key plane's failure is loud, so a silent success was the one key-send
+# outcome a caller could not tell apart from a command that did nothing. It
+# writes no durable record either, so what it prints is its only account of the
+# delivery, and the confirmation is asserted beside the untouched failure text
+# so a later change cannot trade one report for the other.
+test_key_send_reports_confirmed_delivery() {
+  local dir fb home err log rc got
+  dir="$TMP_ROOT/key-report"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); home=$(setup_home keyreport); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
+  fm_write_meta "$home/state/lane-key.meta" "window=sess:fm-lane-key" "kind=ship"
+
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    "$SEND" lane-key --key Enter >"$dir/send.out" 2>"$err"; rc=$?
+  expect_code 0 "$rc" "a delivered --key send should still exit 0"
+  got=$(cat "$err")
+  assert_contains "$got" "key 'Enter' sent to" "the delivered key must be named in its own report"
+  assert_contains "$got" "sess:fm-lane-key" "the delivered key must name the target it reached"
+  assert_no_grep "not sent" "$err" "a delivered key must never print the failure text"
+  [ ! -s "$dir/send.out" ] || fail "the key confirmation belongs on stderr, not stdout"$'\n'"$(cat "$dir/send.out")"
+  pass "fm-send --key: a confirmed key send reports the key and the target it reached"
+}
+
 # The typed plane writes no durable record, so its only account of what
 # happened is what it prints. A confirmed submit was once the single silent
-# outcome of this whole command, and silence there is indistinguishable from a
+# outcome of the typed plane, and silence there is indistinguishable from a
 # command that did nothing - which invites a duplicate send onto exactly the
 # plane that must never carry one. Both verdicts are driven from the same stub
 # so a later change cannot trade the confirmation for the already-loud
@@ -284,6 +306,7 @@ test_typed_submit_reports_confirmed_and_unconfirmed() {
 
 test_exact_lane_id_send_still_works
 test_key_send_exit_status_follows_delivery
+test_key_send_reports_confirmed_delivery
 test_typed_submit_reports_confirmed_and_unconfirmed
 test_unset_fm_home_fails
 test_unresolvable_target_does_not_tmux_fallback
