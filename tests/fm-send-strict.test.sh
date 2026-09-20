@@ -10,7 +10,7 @@
 # the confirmed one it once reported with silence, and the unconfirmed one whose
 # existing text and exit 3 must survive that addition. They also verify that the
 # typed plane refuses, rather than types, when the composer already holds
-# pending text.
+# pending text and when the target's agent is mid-turn.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -83,6 +83,14 @@ case "${1:-}" in
       printf '╭─────────────╮\n│ %-11.11s │\n╰─────────────╯\n' "$composer_text"
     else
       printf '╭────╮\n│    │\n╰────╯\n'
+    fi
+    # FM_FAKE_TMUX_BUSY renders a harness's mid-turn footer on the row below
+    # the composer box - the row the pane-tail busy detector reads. It is
+    # independent of the box's contents on purpose, so the pane can be busy
+    # with an EMPTY composer, which is the state a worker already driving its
+    # own run is actually in.
+    if [ -n "${FM_FAKE_TMUX_BUSY:-}" ]; then
+      printf '%s\n' '✻ Baking… (esc to interrupt)'
     fi
     exit 0 ;;
   list-windows)
@@ -318,14 +326,18 @@ test_typed_submit_reports_confirmed_and_unconfirmed() {
 }
 
 # Typed text reaches the terminal's own parser, so a typed "/no-mistakes" is an
-# instruction to START something rather than queueable work, and typing it onto
-# a composer that already holds content is how a second pipeline run gets
-# started against a branch the first already owns. The inbox plane reads this
-# same condition before its doorbell and defers to its durable record; the typed
-# plane has no record to defer to, so it must refuse and type nothing at all.
-# The refusal is asserted beside an unchanged ordinary send, so a later change
-# cannot buy the guard by blocking sends whose composer is merely unreadable.
-test_typed_send_refuses_a_busy_composer() {
+# instruction to START something rather than queueable work, and landing it on a
+# target that is already occupied is how a second pipeline run gets started
+# against a branch the first already owns. Two states occupy a target and both
+# must refuse: a composer that already holds content, and a pane whose agent is
+# mid-turn with NOTHING typed - the reported incident, which the composer read
+# alone cannot see because an empty composer is exactly what it classifies. The
+# inbox plane reads the composer condition before its doorbell and defers to its
+# durable record; the typed plane has no record to defer to, so it must refuse
+# and type nothing at all. Both refusals are asserted beside an unchanged
+# ordinary send, so a later change cannot buy the guard by blocking sends whose
+# target is merely unreadable.
+test_typed_send_refuses_an_occupied_target() {
   local dir fb home err log rc got
   dir="$TMP_ROOT/typed-busy"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); home=$(setup_home typedbusy); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
@@ -343,20 +355,38 @@ test_typed_send_refuses_a_busy_composer() {
   assert_no_grep 'literal=0 arg=Enter' "$log" "a refused typed send must not submit"
   [ ! -s "$dir/send.out" ] || fail "the refusal belongs on stderr, not stdout"$'\n'"$(cat "$dir/send.out")"
 
-  # Same command, same stub, empty composer: the guard must not have made the
-  # ordinary typed send conditional on anything else.
+  # The reported incident: the worker is mid-turn driving its own validation
+  # run and has typed nothing, so the composer reads empty and only the pane's
+  # busy footer can tell. Typing here queues the invocation behind the running
+  # turn and starts the second run.
+  : > "$log"
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    FM_FAKE_TMUX_BUSY=1 \
+    "$SEND" sess:win "/no-mistakes" >"$dir/send.out" 2>"$err"; rc=$?
+  expect_code 1 "$rc" "a typed send onto a mid-turn pane must fail, not report a submit"
+  got=$(cat "$err")
+  assert_contains "$got" "sess:win" "the mid-turn refusal must name the target it declined to type into"
+  assert_contains "$got" "mid-turn" \
+    "the mid-turn refusal must name its own condition, not the pending-text one"
+  assert_contains "$got" "Nothing was sent" "the mid-turn refusal must say nothing was sent"
+  assert_no_grep 'literal=1' "$log" "a refused mid-turn send must type nothing at all"
+  assert_no_grep 'literal=0 arg=Enter' "$log" "a refused mid-turn send must not submit"
+  [ ! -s "$dir/send.out" ] || fail "the refusal belongs on stderr, not stdout"$'\n'"$(cat "$dir/send.out")"
+
+  # Same command, same stub, empty composer and an idle pane: the guard must
+  # not have made the ordinary typed send conditional on anything else.
   : > "$log"
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
     "$SEND" sess:win "/no-mistakes" >/dev/null 2>"$err"; rc=$?
   expect_code 0 "$rc" "an idle composer must still take the typed send"
   assert_contains "$(cat "$log")" "literal=1 arg=/no-mistakes" \
     "an idle composer must still receive the typed text"
-  pass "fm-send typed plane: a busy composer is refused untyped, while an idle one still sends"
+  pass "fm-send typed plane: a prefilled composer and a mid-turn pane are each refused untyped, while an idle target still sends"
 }
 
 test_exact_lane_id_send_still_works
 test_key_send_exit_status_follows_delivery
-test_typed_send_refuses_a_busy_composer
+test_typed_send_refuses_an_occupied_target
 test_key_send_reports_confirmed_delivery
 test_typed_submit_reports_confirmed_and_unconfirmed
 test_unset_fm_home_fails

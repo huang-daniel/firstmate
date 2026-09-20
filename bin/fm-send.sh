@@ -80,9 +80,13 @@
 # prints one line on stderr naming the target; a confirmed submit's line says
 # the text reached the terminal itself and that no durable record backs it, so
 # it cannot be read as the inbox plane's queued-but-unhandled receipt.
-# Before typing anything, this plane reads the SAME composer pre-check the
-# doorbell uses (fm_backend_composer_state, proven `pending` only) and REFUSES
-# when the composer visibly holds pending text, naming the condition and the
+# Before typing anything, this plane runs two pre-checks and REFUSES, rather
+# than typing, when either one PROVES the target cannot take typed text: the
+# SAME composer read the doorbell uses (fm_backend_composer_state, proven
+# `pending` only) when the composer visibly holds pending text, and a proven
+# busy verdict - the backend's native agent-state where it has one, the
+# harness-scoped rendered busy footer otherwise - when the agent there is
+# mid-turn. Each refusal names which of the two conditions fired and the
 # target. It refuses rather than deferring because typed text is an instruction
 # to start something rather than queueable work, and there is no durable record
 # to defer to; an operator who means to send anyway can inspect the pane and
@@ -1120,20 +1124,42 @@ else
   fi
   # Typed text goes into the terminal itself, so what this plane carries is an
   # instruction to START something, not queueable work: typing it on top of a
-  # composer that already holds something both garbles that content and risks
-  # starting a second run of whatever is already under way. The inbox plane
-  # reads this exact condition before its doorbell and defers to its durable
-  # record; here there is nothing to defer to, so refuse instead and let the
-  # operator look at the pane and decide. Reuse fm_backend_composer_state - the
-  # same single reading the ring uses - including its deliberately narrow
-  # proven-`pending` verdict: an ambiguous composer still types here, exactly as
-  # it still rings there.
+  # composer that already holds something garbles that content, and typing it
+  # into a pane whose agent is mid-turn queues it behind the turn already
+  # running - which is how a second pipeline run gets started against a branch
+  # the first already owns. The inbox plane reads the composer condition before
+  # its doorbell and defers to its durable record; here there is nothing to
+  # defer to, so refuse instead and let the operator look at the pane and
+  # decide.
+  # Both reads keep the ring's deliberately narrow posture - only a PROVEN
+  # verdict refuses, so an ambiguous composer and an unreadable pane still type
+  # here, exactly as they still ring there. The composer read is the same
+  # single reading the ring uses. The busy read is needed alongside it because
+  # the composer cannot see this half of the hazard: a worker driving its own
+  # run with nothing typed reads `empty`. It follows the fleet's usual ladder -
+  # the backend's native agent-state where it has one, and the harness-scoped
+  # rendered footer that tmux (always `unknown` natively) falls back to. A
+  # backend with neither signal reads unknown and types, as before.
   TYPED_COMPOSER_STATE=$(fm_backend_composer_state "$TARGET_BACKEND" "$T" "$EXPECTED_LABEL" 2>/dev/null) \
     || TYPED_COMPOSER_STATE=unknown
+  TYPED_REFUSAL=
   if [ "$TYPED_COMPOSER_STATE" = pending ]; then
+    TYPED_REFUSAL='the composer visibly holds pending text, so the text would land on top of what is already pending there'
+  else
+    TYPED_BUSY_STATE=$(fm_backend_busy_state "$TARGET_BACKEND" "$T" 2>/dev/null) \
+      || TYPED_BUSY_STATE=unknown
+    if [ "$TYPED_BUSY_STATE" = unknown ] && [ "$TARGET_BACKEND" = tmux ]; then
+      TYPED_BUSY_STATE=$(fm_pane_busy_state "$T" "$TARGET_HARNESS" 2>/dev/null) \
+        || TYPED_BUSY_STATE=unknown
+    fi
+    if [ "$TYPED_BUSY_STATE" = busy ]; then
+      TYPED_REFUSAL='the agent there is mid-turn, so the text would queue behind the run already under way'
+    fi
+  fi
+  if [ -n "$TYPED_REFUSAL" ]; then
     fm_send_known_undelivered_cleanup || \
       echo "error: known-undelivered pending-reply state could not be reset for $TARGET_TASK_ID" >&2
-    echo "error: text not typed into $T (the composer visibly holds pending text); this plane types straight into the terminal with no durable record behind it, so the text would land on top of what is already pending there. Nothing was sent. Inspect $T (fm-peek.sh) and send again only if you still mean to." >&2
+    echo "error: text not typed into $T ($TYPED_REFUSAL); this plane types straight into the terminal with no durable record behind it. Nothing was sent. Inspect $T (fm-peek.sh) and send again only if you still mean to." >&2
     exit 1
   fi
   # Slash commands open a completion popup in some TUIs (verified on codex);
