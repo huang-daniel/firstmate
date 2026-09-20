@@ -1,78 +1,64 @@
-================================================================================
- fm-promote hand-off, driven against a real firstmate home + live tmux crewmates
- commit f1ac43d  (fix: print task id instead of branch name in promote next-step)
-================================================================================
+### this firstmate home holds two tasks: the scout 'rudder-trim' and an unrelated task 'fm-rudder-trim'
+fm-rudder-trim.meta
+rudder-trim.meta
+### both have a live agent pane:
+    fm-rudder-trim  agent-state=alive
+    fm-fm-rudder-trim  agent-state=alive
 
-This home holds TWO live scout tasks:
-  * oas-maint-rail-claim-audit        <- the one being promoted
-  * fm-oas-maint-rail-claim-audit   <- a sibling task whose id begins with "fm-"
-  tmux window 0: fm-oas-maint-rail-claim-audit* (1 panes) [118x14] [layout b8bd,118x14,0,0,0] @0 (active)
-  tmux window 1: fm-fm-oas-maint-rail-claim-audit (1 panes) [118x14] [layout b8be,118x14,0,0,1] @1
+=== 1. operator promotes the scout ===============================================
+$ bin/fm-promote.sh rudder-trim --mode direct-PR --yolo off
+promoted rudder-trim to ship mode=direct-PR yolo=off (teardown protection restored)
+wrote ship instructions for mode=direct-PR: /tmp/fm-promote-live.Tzn6xt/fmhome/data/rudder-trim/ship-instructions.md
+next: FM_HOME=/tmp/fm-promote-live.Tzn6xt/fmhome bin/fm-send.sh rudder-trim "$(cat /tmp/fm-promote-live.Tzn6xt/fmhome/data/rudder-trim/ship-instructions.md)"
 
---------------------------------------------------------------------------------
-STEP 1  the operator promotes the scout
---------------------------------------------------------------------------------
-$ FM_HOME=<FM_HOME> bin/fm-promote.sh oas-maint-rail-claim-audit --mode direct-PR --yolo off
-promoted oas-maint-rail-claim-audit to ship mode=direct-PR yolo=off (teardown protection restored)
-wrote ship instructions for mode=direct-PR: <FM_HOME>/data/oas-maint-rail-claim-audit/ship-instructions.md
-next: FM_HOME=<FM_HOME> bin/fm-send.sh oas-maint-rail-claim-audit "$(cat <FM_HOME>/data/oas-maint-rail-claim-audit/ship-instructions.md)"
+the hand-off command the operator copies:
+  FM_HOME=/tmp/fm-promote-live.Tzn6xt/fmhome bin/fm-send.sh rudder-trim "$(cat /tmp/fm-promote-live.Tzn6xt/fmhome/data/rudder-trim/ship-instructions.md)"
+  -> names the task id 'rudder-trim'
 
---------------------------------------------------------------------------------
-STEP 2  the operator copies that 'next:' line and runs it, unmodified
---------------------------------------------------------------------------------
-$ FM_HOME=<FM_HOME> bin/fm-send.sh oas-maint-rail-claim-audit "$(cat <FM_HOME>/data/oas-maint-rail-claim-audit/ship-instructions.md)"
-fm-send: steer queued for oas-maint-rail-claim-audit at <FM_HOME>/state/oas-maint-rail-claim-audit.inbox/001.msg
-  exit status: 0
+=== 2. operator pastes it verbatim and runs it ===================================
+  WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  fm-send: steer queued for rudder-trim at /tmp/fm-promote-live.Tzn6xt/fmhome/state/rudder-trim.inbox/001.msg
+  (exit status: 0)
 
---------------------------------------------------------------------------------
-STEP 3  the promoted worker's own terminal
---------------------------------------------------------------------------------
-  | : Firstmate instruction waiting: list '<FM_HOME>/state/oas-maint-rail-claim-audit.inbox'/*.msg an
-  | d, in numeric order, read and act on each, then mv each handled file to '<FM_HOME>/state/oas-main
-  | t-rail-claim-audit.inbox'/handled/.
-  |   [PROMOTED worker received] : Firstmate instruction waiting: list '<FM_HOME>/state/oas-maint-rai
-  | l-claim-audit.inbox'/*.msg and, in numeric order, read and act on each, then mv each handled file to '/tmp/fm-handoff-
-  | ev.98FXb3/home/state/oas-maint-rail-claim-audit.inbox'/handled/.
+=== 3. where the ship instructions landed ========================================
+durable steering inbox of the promoted task 'rudder-trim':
+  <FM_HOME>/state/rudder-trim.inbox/001.msg
+  --- recorded steer (head) ---
+  schema=fm-task-inbox.v1
+  at=2026-09-20T04:23:16Z
+  --
+  Your scout task has been promoted to a ship task, mode=direct-PR. Your window, worktree, and context stay as they are; only the contract below changes.
+  
+  # Task
+  ## Captain's intent
+  Trim the rudder: the promote hand-off must be runnable as printed.
+  
+  ## Firstmate spec
+inbox of the unrelated task 'fm-rudder-trim':
+  (no inbox exists - nothing was delivered here)
 
-  The doorbell reached the RIGHT worker and points at its own inbox.
+=== 4. what the promoted worker sees in its own pane =============================
+pane promolive:fm-rudder-trim:
+  claude (stand-in harness pane for rudder-trim)
+  ❯ : Firstmate instruction waiting: list '/tmp/fm-promote-live.Tzn6xt/fmhome/state/rudder-trim.inbox'/*.msg and, in numeric order, read and act on each, then mv each handled file to '/tmp/fm-
+  promote-live.Tzn6xt/fmhome/state/rudder-trim.inbox'/handled/.
+  [pane received] : Firstmate instruction waiting: list '/tmp/fm-promote-live.Tzn6xt/fmhome/state/rudder-trim.inbox'/*.msg and, in numeric order, read and act on each, then mv each handled fil
+  e to '/tmp/fm-promote-live.Tzn6xt/fmhome/state/rudder-trim.inbox'/handled/.
+  ❯
+pane promolive:fm-fm-rudder-trim (the unrelated task):
+  claude (stand-in harness pane for fm-rudder-trim)
+  ❯
 
---------------------------------------------------------------------------------
-STEP 4  what the pre-fix output did instead (branch name fm-<task-id>)
---------------------------------------------------------------------------------
-$ FM_HOME=<FM_HOME> bin/fm-send.sh fm-oas-maint-rail-claim-audit "$(cat <FM_HOME>/data/oas-maint-rail-claim-audit/ship-instructions.md)"
-fm-send: steer queued for fm-oas-maint-rail-claim-audit at <FM_HOME>/state/fm-oas-maint-rail-claim-audit.inbox/001.msg
+=== 5. adversarial: the pre-fix label 'fm-rudder-trim' in the same home ==================
+$ bin/fm-send.sh fm-rudder-trim "...ship instructions..."
+  fm-send: steer queued for fm-rudder-trim at /tmp/fm-promote-live.Tzn6xt/fmhome/state/fm-rudder-trim.inbox/001.msg
+inbox of the unrelated task 'fm-rudder-trim' afterwards:
+  <FM_HOME>/state/fm-rudder-trim.inbox/001.msg
+pane promolive:fm-fm-rudder-trim afterwards:
+  fm-promote-live.Tzn6xt/fmhome/state/fm-rudder-trim.inbox'/handled/.
+  [pane received] : Firstmate instruction waiting: list '/tmp/fm-promote-live.Tzn6xt/fmhome/state/fm-rudder-trim.inbox'/*.msg and, in numeric order, read and act on each, then mv each handled
+  file to '/tmp/fm-promote-live.Tzn6xt/fmhome/state/fm-rudder-trim.inbox'/handled/.
+  ❯
 
-  the DECOY worker's terminal:
-  | : Firstmate instruction waiting: list '<FM_HOME>/state/fm-oas-maint-rail-claim-audit.inbox'/*.msg
-  |  and, in numeric order, read and act on each, then mv each handled file to '<FM_HOME>/state/fm-oa
-  | s-maint-rail-claim-audit.inbox'/handled/.
-  |   [DECOY worker received] : Firstmate instruction waiting: list '<FM_HOME>/state/fm-oas-maint-rai
-  | l-claim-audit.inbox'/*.msg and, in numeric order, read and act on each, then mv each handled file to '/tmp/fm-handoff-
-  | ev.98FXb3/home/state/fm-oas-maint-rail-claim-audit.inbox'/handled/.
-
-  The promoted worker's ship contract was delivered to the WRONG crewmate.
-
---------------------------------------------------------------------------------
-STEP 5  where each contract came to rest
---------------------------------------------------------------------------------
-  fm-oas-maint-rail-claim-audit                  1 record(s)
-  oas-maint-rail-claim-audit                     1 record(s)
-
---------------------------------------------------------------------------------
-STEP 6  the delivered payload IS the ship contract
---------------------------------------------------------------------------------
-  the record body matches data/oas-maint-rail-claim-audit/ship-instructions.md exactly
-
-  | Your scout task has been promoted to a ship task, mode=direct-PR. Your window, worktree, and context stay as they are; only the contract below changes.
-  | 
-  | # Task
-  | ## Captain's intent
-  | Audit the maintenance rail claim path and report what breaks.
-  | 
-  | ## Firstmate spec
-  | 1. **Verify isolation before anything else.** Run `pwd -P` and `git rev-parse --show-toplevel`; both must resolve to the disposable task worktree you were launched in, such as a treehouse pool path or an Orca-managed worktree, not the primary checkout firstmate operates from. If either does not resolve to the worktree you were launched in, stop and escalate to firstmate.
-  | 2. Inventory this worktree's scratch state with `git status` and `git log` before changing anything.
-  | 3. Return to a clean default-branch base, then create your branch: `git checkout -b fm/oas-maint-rail-claim-audit`.
-  | 4. Carry over only the intended fix changes. Leave scratch commits, debug edits, and experiment files behind.
-  | 5. If you reproduced a bug, turn that reproduction into a regression test.
-  | ...
+(the pre-fix label delivered the promoted task's contract to the WRONG task;
+ the shipped hand-off line names the task id and cannot do that.)

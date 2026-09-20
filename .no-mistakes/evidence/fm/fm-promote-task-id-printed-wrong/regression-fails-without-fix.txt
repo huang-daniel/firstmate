@@ -1,0 +1,18 @@
+$ git diff bin/fm-promote.sh   # reintroduce the pre-fix branch-shaped label
+ INSTRUCTIONS_Q=$(printf '%q' "$INSTRUCTIONS")
+ echo "promoted $ID to ship mode=$MODE yolo=$YOLO (teardown protection restored)"
+ echo "wrote ship instructions for mode=$MODE: $INSTRUCTIONS"
+-echo "next: FM_HOME=$HOME_Q bin/fm-send.sh $ID \"\$(cat $INSTRUCTIONS_Q)\""
++echo "next: FM_HOME=$HOME_Q bin/fm-send.sh fm-$ID \"\$(cat $INSTRUCTIONS_Q)\""
+ 
+ promote_print_rechain_hint() {
+   local consent_home=$1 work_home=$2 task_id=$3 id prefix
+
+$ bash tests/fm-task-delivery.test.sh
+ok - fm-spawn: a rigor downgrade against the registered posture is announced, never blocked
+ok - fm-spawn: a scout spawn resolves no delivery posture from the registry
+ok - fm-promote: promotion requires the delivery contract and records it exactly once
+ok - fm-promote: a symlinked task record is refused and its target is left untouched
+ok - fm-promote: a promoted worker receives the same mode-specific delivery contract a briefed one does
+not ok - fm-send.sh was called with 'fm-promote-next-step-test' but expected 'promote-next-step-test' (the task id, not the branch name fm-promote-next-step-test)
+(exit: 1)
