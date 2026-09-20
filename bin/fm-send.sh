@@ -87,11 +87,13 @@
 # (fm_backend_composer_state, proven `pending` only) refuses when the composer
 # visibly holds pending text, because typing on top of someone's half-written
 # text garbles it whatever is being sent.
-# The MID-TURN check refuses on four facts and nothing else, each one a
+# The MID-TURN check refuses on three facts and nothing else, each one a
 # property of the message or evidence actually held: these bytes will EXECUTE
 # as a command (a leading "/", the only form that proves it), the send is not
-# marked, the target's recorded harness has a registered busy signature, and
-# that signature matches the captured tail. A command STARTS something, so
+# marked, and the target is PROVEN busy by the ladder below - either the
+# backend's own native agent-state verdict, or, where there is none, a
+# registered and verified busy signature matching the captured tail.
+# A command STARTS something, so
 # letting one queue behind a run already under way is how a second run gets
 # started against a branch the first already owns. Text that merely queues is
 # not refused: plain prose ("when you finish this, do X") still types into a
