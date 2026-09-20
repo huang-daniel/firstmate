@@ -10,11 +10,12 @@
 # the confirmed one it once reported with silence, and the unconfirmed one whose
 # existing text and exit 3 must survive that addition. They also verify that the
 # typed plane refuses, rather than types, when the composer already holds
-# pending text, and when a harness-native invocation is aimed at a worker whose
-# agent is mid-turn - on tmux and on a non-tmux backend alike, and whatever the
-# backend's native agent-state claims - while plain prose to a mid-turn target,
-# and anything at all to a target this home records no harness for, still goes
-# through.
+# pending text, and when bytes that will execute as a harness command are aimed
+# at a worker whose agent is mid-turn - on tmux and on a non-tmux backend alike,
+# and whatever the backend's native agent-state claims - while text that merely
+# queues goes through: plain prose to a mid-turn worker, a marked secondmate
+# request whose marker makes it chat, and anything at all to a target this home
+# records no harness for.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -404,17 +405,19 @@ test_typed_send_refuses_an_occupied_target() {
   assert_no_grep 'literal=0 arg=Enter' "$log" "a refused mid-turn send must not submit"
   [ ! -s "$dir/send.out" ] || fail "the refusal belongs on stderr, not stdout"$'\n'"$(cat "$dir/send.out")"
 
-  # Same mid-turn pane, plain prose instead of an invocation: this is not an
-  # instruction to start anything, so it must still be typed and queued behind
-  # the running turn. Without this the guard would have removed the only way to
-  # steer a busy foreign pane, which has no durable inbox plane to fall back to.
+  # Same mid-turn worker, plain prose instead of an invocation: this starts
+  # nothing, so it must still be typed and queued behind the running turn.
+  # Addressed by endpoint rather than by task id so it stays typed instead of
+  # riding the inbox, but at the endpoint busy-lane.meta records - so the
+  # recorded harness IS read and the busy tail IS matched, and this leg fails
+  # if the guard ever stops distinguishing prose from an invocation.
   : > "$log"
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
     FM_FAKE_TMUX_BUSY=1 \
-    "$SEND" sess:win "when you finish this, rerun the linter" >/dev/null 2>"$err"; rc=$?
-  expect_code 0 "$rc" "plain prose to a mid-turn pane must still be delivered"
+    "$SEND" sess:fm-busy-lane "when you finish this, rerun the linter" >/dev/null 2>"$err"; rc=$?
+  expect_code 0 "$rc" "plain prose to a mid-turn worker must still be delivered"
   assert_contains "$(cat "$log")" "literal=1 arg=when you finish this, rerun the linter" \
-    "plain prose to a mid-turn pane must still be typed"
+    "plain prose to a mid-turn worker must still be typed"
 
   # Same busy footer, same invocation, but an explicit address this home holds
   # no task record for, so no harness is recorded for it. A busy token we
@@ -438,6 +441,36 @@ test_typed_send_refuses_an_occupied_target() {
   assert_contains "$(cat "$log")" "literal=1 arg=/no-mistakes" \
     "an idle worker must still receive the typed text"
   pass "fm-send typed plane: a prefilled composer and a mid-turn invocation are each refused untyped, while plain prose, an unattributable tail and an idle worker still send"
+}
+
+# A secondmate request is typed with the from-firstmate marker ahead of it, so
+# what the harness receives is chat, not a parser command - the Stage-1
+# compatibility boundary fm-send.sh documents and deliberately keeps. The
+# operator's text still begins with "/", so classification calls it
+# harness-native and it stays typed rather than enqueued; but nothing is
+# started by it, so the mid-turn refusal must not fire. Refusing here would
+# block a legitimate steer outright, since there is no override flag and the
+# refusal also discards the request's pending-reply expectation.
+test_marked_secondmate_invocation_still_sends_into_a_mid_turn_pane() {
+  local dir fb home err log rc got
+  dir="$TMP_ROOT/typed-busy-marked"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); home=$(setup_home typedbusymarked); err="$dir/send.err"
+  log="$dir/tmux.log"; : > "$log"
+  mkdir -p "$home/sm"
+  fm_write_meta "$home/state/lsm.meta" \
+    "window=sess:fm-lsm" "harness=claude" "kind=secondmate" "mode=secondmate" "home=$home/sm"
+
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    FM_FAKE_TMUX_BUSY=1 \
+    "$SEND" lsm "/audit the ledger" >/dev/null 2>"$err"; rc=$?
+  [ "$rc" != 1 ] \
+    || fail "a marked secondmate request must not be refused as mid-turn"$'\n'"$(cat "$err")"
+  got=$(cat "$log")
+  assert_contains "$got" "literal=1" "a marked secondmate request must still be typed"
+  assert_contains "$got" "/audit the ledger" "the operator's text must still reach the pane"
+  assert_contains "$got" "target=sess:fm-lsm literal=0 arg=Enter" \
+    "a marked secondmate request must still be submitted"
+  pass "fm-send typed plane: a marked secondmate request starts nothing, so a mid-turn pane still takes it"
 }
 
 # The mid-turn rail is not a tmux rail: every spawn-supported backend reaches
@@ -497,6 +530,7 @@ test_typed_send_refuses_a_mid_turn_non_tmux_target() {
 test_exact_lane_id_send_still_works
 test_key_send_exit_status_follows_delivery
 test_typed_send_refuses_an_occupied_target
+test_marked_secondmate_invocation_still_sends_into_a_mid_turn_pane
 test_typed_send_refuses_a_mid_turn_non_tmux_target
 test_key_send_reports_confirmed_delivery
 test_typed_submit_reports_confirmed_and_unconfirmed

@@ -87,11 +87,17 @@
 # (fm_backend_composer_state, proven `pending` only) refuses when the composer
 # visibly holds pending text, because typing on top of someone's half-written
 # text garbles it whatever is being sent.
-# The MID-TURN check covers harness-native invocations ONLY (the same
-# classification that keeps them off the inbox plane): an invocation STARTS
-# something, so a proven busy target refuses rather than queueing a second run
-# behind the one already under way. Plain prose to an explicit endpoint still
-# types into a busy pane, which is the normal way to steer one. The busy
+# The MID-TURN check refuses exactly one thing, and every clause of it is a
+# property of the message or of evidence actually held: bytes that will EXECUTE
+# as a harness command, aimed at a target whose recorded harness has a
+# registered busy signature that its tail matches. A command STARTS something,
+# so letting one queue behind a run already under way is how a second run gets
+# started against a branch the first already owns. Text that merely queues is
+# not refused: plain prose ("when you finish this, do X") still types into a
+# busy pane, which is the normal way to steer one, and so does a marked
+# secondmate request, which the from-firstmate marker turns into chat rather
+# than a parser command (see the Stage-1 compatibility boundary below), so it
+# starts nothing either. The busy
 # verdict comes from the fleet's usual ladder - the backend's native
 # agent-state where it has one, then the rendered busy footer read from a
 # captured tail - under one rule: a target is classified busy only when its
@@ -1184,15 +1190,18 @@ else
   # The composer condition covers all of it - typing on top of a composer that
   # already holds content garbles that content regardless of what is being
   # typed - and is the same single reading the ring uses.
-  # The mid-turn condition covers harness-native invocations only. Those START
-  # something, so queueing one behind a run already under way is how a second
-  # pipeline run gets started against a branch the first already owns. The
-  # other half of this plane is plain prose to an explicit backend target, and
-  # there queueing "when you finish this, do X" behind a running turn is the
-  # normal and useful outcome: an explicit endpoint names no task, so it has no
-  # durable inbox plane to fall back to, and there is no override flag, so
-  # refusing it would leave an operator unable to steer a busy foreign pane
-  # through fm-send at all.
+  # The mid-turn condition refuses exactly one thing: bytes that will EXECUTE
+  # as a harness command, on a target whose recorded harness has a registered
+  # busy signature that its tail matches. A command starts something, so
+  # letting one queue behind a run already under way is how a second pipeline
+  # run gets started against a branch the first already owns.
+  # Text that merely queues is never refused, because queueing "when you finish
+  # this, do X" behind a running turn is the normal and useful outcome and
+  # there is no override flag to get past a refusal. Plain prose queues. So
+  # does a marked secondmate request: the from-firstmate marker is typed ahead
+  # of it, so the harness receives chat rather than a parser command (the
+  # Stage-1 compatibility boundary in the header), and nothing is started even
+  # though the text the operator wrote begins with a "/".
   # Both reads keep the ring's deliberately narrow posture: only a PROVEN
   # verdict refuses, so an ambiguous composer and an unreadable target still
   # type here, exactly as they still ring there.
@@ -1201,8 +1210,9 @@ else
   TYPED_REFUSAL=
   if [ "$TYPED_COMPOSER_STATE" = pending ]; then
     TYPED_REFUSAL='the composer visibly holds pending text, so the text would land on top of what is already pending there'
-  elif fm_send_is_harness_native "$RESOLVE_ANSWER_TEXT" && fm_send_target_is_busy; then
-    TYPED_REFUSAL='the agent there is mid-turn, so this invocation would queue behind the run already under way'
+  elif [ "$MARK_FROM_FIRSTMATE" != 1 ] && fm_send_is_harness_native "$RESOLVE_ANSWER_TEXT" \
+    && fm_send_target_is_busy; then
+    TYPED_REFUSAL='the agent there is mid-turn and these bytes would execute as a harness command, starting a second run behind the one already under way'
   fi
   if [ -n "$TYPED_REFUSAL" ]; then
     fm_send_known_undelivered_cleanup || \
