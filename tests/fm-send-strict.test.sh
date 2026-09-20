@@ -268,7 +268,7 @@ test_key_send_reports_confirmed_delivery() {
 
 # The typed plane writes no durable record, so its only account of what
 # happened is what it prints. A confirmed submit was once the single silent
-# outcome of this whole command, and silence there is indistinguishable from a
+# outcome of the typed plane, and silence there is indistinguishable from a
 # command that did nothing - which invites a duplicate send onto exactly the
 # plane that must never carry one. Both verdicts are driven from the same stub
 # so a later change cannot trade the confirmation for the already-loud
