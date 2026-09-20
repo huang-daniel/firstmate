@@ -4,17 +4,22 @@
 # state/<task-id>.meta so fm-teardown.sh applies the full ship-task teardown protection
 # again. Promotion also writes the crewmate's ship instructions to
 # data/<task-id>/ship-instructions.md and prints the fm-send.sh command that
-# delivers them. Those instructions carry the scratch-state inventory, the clean
-# default-branch base, the fm/<task-id> branch, and - rendered from
-# bin/fm-dod-lib.sh, the single owner an ordinary ship brief also uses - the
-# mode-specific Definition of done, so a promoted worker receives exactly the same
-# delivery contract as a briefed one, including the no-mistakes mode's ask-user
-# escalation rule and --yes ban. The instructions also carry `# Task` with
-# `## Captain's intent` preserved from the scout brief and promotion's ship-time
-# instructions under `## Firstmate spec`; the scout-time spec remains context but
-# is not relabeled as the ship spec. Promotion refuses leftover `{TASK}` /
-# `{FIRSTMATE_SPEC}` placeholders (bin/fm-dod-lib.sh). A pre-subsection scout
-# brief contributes only Task lines explicitly marked as captain words to intent.
+# delivers them. That hand-off line names the task id, never the fm-<task-id>
+# window label or the flattened fm/<task-id> branch name, so the operator can
+# run it as printed instead of repairing an identifier by hand while the
+# promoted worker waits for its contract (regression coverage lives in
+# tests/fm-task-delivery.test.sh). Those instructions carry the scratch-state
+# inventory, the clean default-branch base, the fm/<task-id> branch, and -
+# rendered from bin/fm-dod-lib.sh, the single owner an ordinary ship brief also
+# uses - the mode-specific Definition of done, so a promoted worker receives
+# exactly the same delivery contract as a briefed one, including the
+# no-mistakes mode's ask-user escalation rule and --yes ban. The instructions
+# also carry `# Task` with `## Captain's intent` preserved from the scout brief
+# and promotion's ship-time instructions under `## Firstmate spec`; the
+# scout-time spec remains context but is not relabeled as the ship spec.
+# Promotion refuses leftover `{TASK}` / `{FIRSTMATE_SPEC}` placeholders
+# (bin/fm-dod-lib.sh). A pre-subsection scout brief contributes only Task lines
+# explicitly marked as captain words to intent.
 # A scout records no delivery posture, so promotion is where this task's delivery
 # contract is decided: --mode and --yolo are REQUIRED and written into the meta
 # alongside the kind= flip. Firstmate resolves both at promotion time, having just
@@ -214,7 +219,7 @@ HOME_Q=$(printf '%q' "$FM_HOME")
 INSTRUCTIONS_Q=$(printf '%q' "$INSTRUCTIONS")
 echo "promoted $ID to ship mode=$MODE yolo=$YOLO (teardown protection restored)"
 echo "wrote ship instructions for mode=$MODE: $INSTRUCTIONS"
-echo "next: FM_HOME=$HOME_Q bin/fm-send.sh fm-$ID \"\$(cat $INSTRUCTIONS_Q)\""
+echo "next: FM_HOME=$HOME_Q bin/fm-send.sh $ID \"\$(cat $INSTRUCTIONS_Q)\""
 
 promote_print_rechain_hint() {
   local consent_home=$1 work_home=$2 task_id=$3 id prefix
