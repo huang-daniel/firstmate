@@ -2,7 +2,7 @@
 name: board-orchestration
 description: >-
   Agent-only policy for bridging a configured project board and firstmate's existing backlog.
-  Load on a session-start or heartbeat cycle when a project board is configured, before judging whether a filed card is one task, a programme, or a persistent lane, before importing, promoting, decomposing, declaring or reversing a lane, or placing a board item, before reflecting a dispatch, PR, blocker, or merge onto a board, and whenever a card's status or classification disagrees with firstmate's own records or a cycle reports a card unclassified.
+  Load on a session-start or heartbeat cycle when a project board is configured, before judging whether a filed card is one task, a programme, or a persistent lane, before importing, promoting, decomposing, declaring or reversing a lane, or placing a board item, before reflecting a dispatch, PR, blocker, or merge onto a board, before dispatching a task whose issue is a campaign child, and whenever a card's status or classification disagrees with firstmate's own records or a cycle reports a card unclassified.
 user-invocable: false
 metadata:
   internal: true
@@ -211,6 +211,29 @@ That is a judgement they may disagree with, so it is reported rather than filed 
 Use GitHub's own sub-issue relationship and nothing else: the board already surfaces `Parent issue` and `Sub-issues progress`, so invent no parallel taxonomy, label scheme, or naming convention to express it.
 
 Container reconciliation follows the PARENT STATUS contract in [`bin/fm-board.sh`](../../../bin/fm-board.sh); a failed child read must be surfaced rather than treated as a settled card.
+
+### Campaigns
+
+A campaign is a container nested as a native sub-issue of a programme: a bounded finish line whose children are the executable tasks, so the shape is programme, then campaign, then tasks.
+It is filed as an ordinary labelled issue with that finish line, attached to the programme as a sub-issue, carded in Todo, and then promoted with the procedure above.
+It is never created through `child-add`, which always binds a task and makes the one-way container door refuse it afterwards.
+Its tasks are filed with `child-add` for new work, or nested natively under the campaign and imported when the issues were pre-filed.
+The programme card follows its campaigns through their derived state; the PARENT STATUS contract in [`bin/fm-board.sh`](../../../bin/fm-board.sh) owns how a nested container contributes to its parent and nothing here restates it.
+
+The dispatch gate is a check firstmate performs before every spawn of a task whose issue is a campaign child: the card sits in the configured `queued` column AND its campaign is executing.
+Executing means the campaign issue does not carry the home's parked label and the campaign is within the home's executing-campaign ceiling.
+A parked campaign remains authorized but is non-executing, frees one of the executing slots, and none of its tasks may dispatch until it is unparked.
+Parking is judgement: park only when no admitted child can make useful progress toward the finish line, never merely because one external dependency is waiting.
+This gate composes with "Board-sourced work is captain-gated" above and does not replace it; a queued campaign child has already passed that gate, and this one only asks whether its campaign is executing right now.
+
+The accepted exception: work of a declared persistent lane, and work the home's captain preferences explicitly authorize outside campaigns (for example firstmate infrastructure during a pilot), executes outside any campaign under the WIP limits those preferences record.
+This skill names the classes; the home's `data/captain.md` names the concrete items, the label, the ceiling, and each limit.
+
+The ceiling, the parked label's name, and the exempt classes are the home's own captain preferences, never a `config/boards` key and never read by the adapter.
+The bridge stays blind to the label: a parked campaign's card stays wherever the bridge put it, and the label is never a divergence.
+Nothing counts executing campaigns for firstmate; the count is read from the board and the labels at each dispatch.
+
+The dispatch note the backlog item already carries (mode, yolo, one-line reason) also names the campaign URL and the executing count at dispatch, for example `campaign <url>, executing 1 of 2`, so the gate is auditable after the fact.
 
 ## Persistent lanes
 
