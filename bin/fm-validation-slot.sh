@@ -9,7 +9,11 @@
 #
 # The primary firstmate runs `admit` for every pipeline start on a project
 # with a validation ceiling, whichever home owns the crew, immediately before
-# the worker is sent the pipeline trigger; a worker never runs it.
+# the worker is sent the pipeline trigger; a worker never runs it. `admit`
+# reads and writes the owning task's home ($FM_HOME/state), so for a
+# secondmate's crew the primary runs it with FM_HOME set to that home, as
+# fm-send requires; it refuses without writing when state/<task-id>.meta is
+# absent there.
 #
 # Occupancy is derived, never stored. The pipeline daemon keys runs to a clone
 # path, not to a repository, so one repository can own several `repos` rows
@@ -49,7 +53,7 @@
 # A granted run's row appears only after the worker pushes through the gate,
 # which happens after this command returns and the caller sends the trigger.
 # So a grant hands the mutex to a detached holder process that keeps it until
-# a pending or running row created at or after the grant is visible for the
+# a row of any status created at or after the grant is visible for the
 # task's branch under one of the matched repo ids, or the task's latest
 # status event is no longer its grant line, or --wait-secs (default 1800;
 # 0 releases at once) elapses. A hold that runs out unconsumed appends
@@ -60,8 +64,8 @@
 # dead-owner recovery.
 #
 # Exit codes: 0 read printed or slot granted; 1 refused (daemon not running,
-# database unreadable, no branch, mutex unusable); 2 usage; 3 no slot free,
-# retry later. Nothing here writes slot state, touches the daemon, or
+# no task meta in this home, database unreadable, no branch, mutex
+# unusable); 2 usage; 3 no slot free, retry later. Nothing here writes slot state, touches the daemon, or
 # changes any database row.
 set -u
 
@@ -99,7 +103,7 @@ nonneg_int() {
 
 # slot_db <mode> <upstream-url> [branch since-epoch]
 #   mode read: prints the occupancy report described in the header.
-#   mode seen: exits 0 when an active row for <branch> created at or after
+#   mode seen: exits 0 when a row of any status for <branch> created at or after
 #   <since-epoch> exists under the matched repo ids, 1 when none does.
 # Exits 2 when the database cannot be read.
 slot_db() {
@@ -138,7 +142,7 @@ try:
                 sys.exit(1)
             row = db.execute(
                 f"SELECT 1 FROM runs WHERE repo_id IN ({marks}) AND branch = ? "
-                "AND status IN ('pending','running') AND created_at >= ? LIMIT 1",
+                "AND created_at >= ? LIMIT 1",
                 (*ids, branch, since)).fetchone()
             sys.exit(0 if row else 1)
         rows = []
@@ -223,6 +227,7 @@ slot_admit() {
     esac
   done
   fm_pr_task_id_valid "$task" || die "invalid task id: $task"
+  [ -f "$STATE/$task.meta" ] || die "no $STATE/$task.meta: run admit with FM_HOME set to the home that owns $task"
   { nonneg_int "$hold" && nonneg_int "$poll"; } || usage
   { nonneg_int "$ceiling" && [ "$ceiling" -gt 0 ]; } || usage
   command -v python3 >/dev/null 2>&1 || die "python3 is required to read the pipeline state database"

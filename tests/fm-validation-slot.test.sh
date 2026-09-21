@@ -66,6 +66,11 @@ run_row() {
       VALUES ('$1', '$2', '$3', 'abc1234', '$4', ${5:-NULL}, $now, $now)"
 }
 
+# meta <task> [home]: record the task in a home so admit accepts it there.
+meta() {
+  printf 'window=fm:%s\n' "$1" > "${2:-$FM_HOME}/state/$1.meta"
+}
+
 reset_db() {
   rm -f "$NM_HOME/state.sqlite"
   db "INSERT INTO repos(id, working_path, upstream_url) VALUES
@@ -107,6 +112,7 @@ test_admit_grants_below_ceiling() {
   run_row run-a clone1 fm/a running
   touch "$FAKE_NM_DAEMON_UP"
   rm -f "$STATE/t1.status"
+  meta t1
   out=$("$SLOT" admit t1 "$OAS" --branch fm/t1 --wait-secs 0 2>&1); rc=$?
   expect_code 0 "$rc" "admit at 1 occupied"
   assert_contains "$out" "granted t1 (1 of 2 occupied)" "grant is reported"
@@ -127,6 +133,7 @@ test_admit_hold_releases_when_row_appears() {
   expect_code 0 "$rc" "admit at 0 occupied"
   [ -L "$NM_HOME/.validation-slot.lock" ] || [ -d "$NM_HOME/.validation-slot.lock" ] \
     || fail "grant keeps the mutex held until the admitted run is visible"
+  meta t3
   "$SLOT" admit t3 "$OAS" --branch fm/t3 --wait-secs 0 >/dev/null 2>&1 &
   local waiter=$!
   sleep 1
@@ -151,6 +158,7 @@ test_admit_waits_at_ceiling() {
   run_row run-b clone2 fm/b running "$(date +%s)"
   touch "$FAKE_NM_DAEMON_UP"
   rm -f "$STATE/t4.status"
+  meta t4
   out=$("$SLOT" admit t4 "$OAS" --branch fm/t4 2>&1); rc=$?
   expect_code 3 "$rc" "admit at 2 occupied"
   assert_contains "$out" "waiting t4 (2 of 2 occupied)" "wait is reported"
@@ -170,6 +178,7 @@ test_admit_refuses_when_daemon_down() {
   local out rc
   reset_db
   rm -f "$FAKE_NM_DAEMON_UP" "$STATE/t5.status"
+  meta t5
   out=$("$SLOT" admit t5 "$OAS" --branch fm/t5 2>&1); rc=$?
   expect_code 1 "$rc" "admit with the daemon down"
   assert_contains "$out" "daemon is not running" "refusal names the daemon"
@@ -193,8 +202,10 @@ test_admit_mutex_is_shared_across_homes() {
   run_row run-a clone1 fm/a running
   touch "$FAKE_NM_DAEMON_UP"
   mkdir -p "$other/state"
+  meta t6
   "$SLOT" admit t6 "$OAS" --branch fm/t6 --wait-secs 30 >/dev/null 2>&1; rc=$?
   expect_code 0 "$rc" "primary-home admit at 1 occupied"
+  meta t7 "$other"
   FM_HOME=$other "$SLOT" admit t7 "$OAS" --branch fm/t7 --wait-secs 0 >/dev/null 2>&1 &
   waiter=$!
   sleep 1
@@ -213,6 +224,7 @@ test_admit_hold_ends_when_task_leaves_granted_state() {
   reset_db
   touch "$FAKE_NM_DAEMON_UP"
   rm -f "$STATE/t8.status"
+  meta t8
   "$SLOT" admit t8 "$OAS" --branch fm/t8 --wait-secs 30 >/dev/null 2>&1; rc=$?
   expect_code 0 "$rc" "admit at 0 occupied"
   [ -L "$NM_HOME/.validation-slot.lock" ] || [ -d "$NM_HOME/.validation-slot.lock" ] \
@@ -228,6 +240,7 @@ test_admit_hold_lapses_unconsumed() {
   reset_db
   touch "$FAKE_NM_DAEMON_UP"
   rm -f "$STATE/t9.status"
+  meta t9
   "$SLOT" admit t9 "$OAS" --branch fm/t9 --wait-secs 2 >/dev/null 2>&1; rc=$?
   expect_code 0 "$rc" "admit at 0 occupied"
   wait_lock_gone 20 || fail "hold released at its bound"
@@ -236,6 +249,39 @@ test_admit_hold_lapses_unconsumed() {
   status_line_at_epoch "$line" >/dev/null || fail "lapse line carries a parseable at= stamp: $line"
   assert_contains "$line" "validation slot grant lapsed unconsumed after 2s" "lapse line text"
   pass "an unconsumed grant lapses at its bound with a note event"
+}
+
+test_admit_refuses_without_task_meta_in_home() {
+  local out rc other=$TMP_ROOT/owner-home
+  reset_db
+  touch "$FAKE_NM_DAEMON_UP"
+  mkdir -p "$other/state"
+  meta t10 "$other"
+  rm -f "$STATE/t10.status" "$STATE/t10.meta"
+  out=$("$SLOT" admit t10 "$OAS" --branch fm/t10 --wait-secs 0 2>&1); rc=$?
+  expect_code 1 "$rc" "admit from a home that does not own the task"
+  assert_contains "$out" "FM_HOME" "refusal names the owning-home requirement"
+  assert_absent "$STATE/t10.status" "a wrong-home admit writes no status event"
+  assert_absent "$NM_HOME/.validation-slot.lock" "a wrong-home admit takes no mutex"
+  FM_HOME=$other "$SLOT" admit t10 "$OAS" --branch fm/t10 --wait-secs 0 >/dev/null 2>&1; rc=$?
+  expect_code 0 "$rc" "admit with FM_HOME set to the owning home"
+  assert_contains "$(last_status_line "$other/state/t10.status")" "validation slot granted" \
+    "the grant lands in the owning home's status log"
+  pass "admit refuses without writing unless run in the task's owning home"
+}
+
+test_admit_hold_releases_on_fast_terminal_row() {
+  local rc
+  reset_db
+  touch "$FAKE_NM_DAEMON_UP"
+  meta t11
+  rm -f "$STATE/t11.status"
+  "$SLOT" admit t11 "$OAS" --branch fm/t11 --wait-secs 30 >/dev/null 2>&1; rc=$?
+  expect_code 0 "$rc" "admit at 0 occupied"
+  run_row run-t11 clone3 fm/t11 failed
+  wait_lock_gone 20 || fail "hold released once the admitted run's row exists, whatever its status"
+  assert_not_contains "$(cat "$STATE/t11.status")" "lapsed" "a consumed grant is not reported as lapsed"
+  pass "grant hold ends when the admitted run already reached a terminal status"
 }
 
 test_ci_monitor_interrupted_is_terminal() {
@@ -262,4 +308,6 @@ test_admit_refuses_when_daemon_down
 test_admit_mutex_is_shared_across_homes
 test_admit_hold_ends_when_task_leaves_granted_state
 test_admit_hold_lapses_unconsumed
+test_admit_refuses_without_task_meta_in_home
+test_admit_hold_releases_on_fast_terminal_row
 test_ci_monitor_interrupted_is_terminal
