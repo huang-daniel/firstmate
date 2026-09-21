@@ -951,6 +951,65 @@ test_scout_and_secondmate_scaffold() {
   pass "fm-brief: scout and secondmate code paths still scaffold well-formed briefs"
 }
 
+# Every ship mode renders the same closeout fields at its done report, with the
+# mode's implementation-complete convention: pipeline mode's done line is the
+# validation-slot request, while the faster paths record one fixed working line.
+# Scout and secondmate scaffolds never receive the closeout.
+closeout_section() {  # <brief>
+  awk '/^\*\*Closeout \(required at your done report\)\.\*\*$/ { emit=1 } emit && /^# / { exit } emit { print }' "$1"
+}
+
+test_ship_closeout_section() {
+  local home mode brief section first=""
+  home="$TMP_ROOT/closeout-home"
+  for mode in no-mistakes direct-PR local-only; do
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "closeout-$mode" some-proj --mode "$mode" >/dev/null 2>&1 \
+      || fail "fm-brief.sh --mode $mode failed"
+    brief="$home/data/closeout-$mode/brief.md"
+    section=$(closeout_section "$brief")
+    assert_contains "$section" "1. SEMANTIC SURFACES TOUCHED:" "$mode closeout missing semantic surfaces field"
+    assert_contains "$section" "2. PREFLIGHT DISPOSITION:" "$mode closeout missing preflight disposition field"
+    # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+    assert_contains "$section" '`VERIFIED`, `NOT_APPLICABLE`, `UNVERIFIABLE` with the reason and who or what can establish it, or `FAILED`' \
+      "$mode closeout must use the accepted preflight vocabulary"
+    # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+    assert_contains "$section" '`UNVERIFIABLE` never implies success where proof was unavailable' \
+      "$mode closeout must not let unverifiable read as a pass"
+    assert_contains "$section" "MERGE RELATIONSHIP: <LANDS_BEFORE | LANDS_AFTER | INDEPENDENT>" \
+      "$mode closeout missing the merge-relationship slot"
+    assert_contains "$section" "for the supervising home" "$mode closeout must leave the slot to the supervising home"
+    assert_contains "$section" "required at the done report for pipeline-mode work" \
+      "$mode closeout must require the slot for pipeline-mode work"
+    assert_contains "$section" "Do not repeat the branch, SHA, file list, or timestamps" \
+      "$mode closeout must not duplicate what git and the PR own"
+    assert_not_contains "$section" "\\\`" "$mode closeout rendered escaped backticks"
+    if [ -z "$first" ]; then first=$section
+    elif [ "$section" != "$first" ]; then fail "$mode closeout text differs from the no-mistakes rendering"
+    fi
+    case "$mode" in
+      no-mistakes)
+        assert_grep "That \`done:\` line is both the implementation-complete event and your validation-slot request" "$brief" \
+          "pipeline mode must name its done line as the implementation-complete event"
+        assert_no_grep "working [at=<epoch>]: implementation complete" "$brief" \
+          "pipeline mode must not record a separate implementation-complete line" ;;
+      *)
+        assert_grep "append \`working [at=<epoch>]: implementation complete\` to the status file as the implementation-complete event" "$brief" \
+          "$mode must record implementation-complete as its own working line" ;;
+    esac
+  done
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" closeout-scout some-proj --scout >/dev/null 2>&1 \
+    || fail "scout scaffold failed"
+  assert_no_grep "Closeout (required at your done report)" "$home/data/closeout-scout/brief.md" \
+    "scout scaffold must not carry the ship closeout"
+  FM_HOME="$home" FM_SECONDMATE_CHARTER='Supervise assigned work.' \
+    "$ROOT/bin/fm-brief.sh" closeout-sm --secondmate --no-projects >/dev/null 2>&1 \
+    || fail "secondmate scaffold failed"
+  assert_no_grep "Closeout (required at your done report)" "$home/data/closeout-sm/brief.md" \
+    "secondmate charter must not carry the ship closeout"
+  pass "fm-brief: every ship mode renders one closeout section with its implementation-complete convention"
+}
+
 test_worker_role_scope() {
   local kind home brief
   home="$TMP_ROOT/worker-role"
@@ -983,6 +1042,7 @@ test_ship_mode_is_explicit_not_registry
 test_delivery_flags_are_refused_where_they_do_not_apply
 test_faster_paths_use_configured_authority_without_stacked_review
 test_no_mistakes_dod_wording
+test_ship_closeout_section
 test_ask_user_escalation_format
 test_ship_project_memory_wording
 test_herdr_lab_contract_is_explicit_and_complete
