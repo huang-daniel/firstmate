@@ -967,12 +967,13 @@ test_ship_closeout_section() {
       || fail "fm-brief.sh --mode $mode failed"
     brief="$home/data/closeout-$mode/brief.md"
     section=$(closeout_section "$brief")
-    assert_contains "$section" "1. Semantic surfaces touched:" "$mode closeout missing semantic surfaces field"
-    assert_contains "$section" "2. Preflight disposition:" "$mode closeout missing preflight disposition field"
+    assert_contains "$section" "1. SEMANTIC SURFACES TOUCHED:" "$mode closeout missing semantic surfaces field"
+    assert_contains "$section" "2. PREFLIGHT DISPOSITION:" "$mode closeout missing preflight disposition field"
     # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
-    assert_contains "$section" '`verified`, `out-of-scope`, `unverifiable` with the reason and who or what can establish it, or `failed`' \
-      "$mode closeout must use the preflight contract vocabulary"
-    assert_contains "$section" "never implies success where proof was unavailable" \
+    assert_contains "$section" '`VERIFIED`, `NOT_APPLICABLE`, `UNVERIFIABLE` with the reason and who or what can establish it, or `FAILED`' \
+      "$mode closeout must use the accepted preflight vocabulary"
+    # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+    assert_contains "$section" '`UNVERIFIABLE` never implies success where proof was unavailable' \
       "$mode closeout must not let unverifiable read as a pass"
     assert_contains "$section" "MERGE RELATIONSHIP: <LANDS_BEFORE | LANDS_AFTER | INDEPENDENT>" \
       "$mode closeout missing the merge-relationship slot"

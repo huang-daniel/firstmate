@@ -316,9 +316,7 @@ EOF
 # and a promoted scout's ship instructions carry the same text, while scout and
 # secondmate scaffolds never receive it. The fields ride in report text the
 # worker already writes; there is deliberately no manifest, state record, or copy
-# of the branch, SHA, file list, or timestamps git and the PR already own. The
-# preflight words mirror a project preflight contract's verified, failed,
-# unverifiable, and out-of-scope rather than inventing a parallel vocabulary.
+# of the branch, SHA, file list, or timestamps git and the PR already own.
 fm_closeout_block() {
   cat <<'EOF'
 **Closeout (required at your done report).**
@@ -326,9 +324,9 @@ Fill these three fields into the report text you already write at your `done:` r
 For pipeline-mode work that is the implementation-complete `done:` that requests validation; restate the fields at the final `done:` only if they changed.
 Do not repeat the branch, SHA, file list, or timestamps; git and the PR already own them.
 A docs-only change can fill each field in one line.
-1. Semantic surfaces touched: the meaningful surfaces changed beyond the file list, such as notification semantics, consent behaviour, provider transport, production environment, public presentation, schema, or deployment assumptions; write `none` when no such surface changed.
-2. Preflight disposition: one line per applicable truth surface, classified as `verified`, `out-of-scope`, `unverifiable` with the reason and who or what can establish it, or `failed`, which blocks the work.
-   Spell `unverifiable` exactly as a repository's own full check does; that check treats it as a failed run, so this report records it with its reason and never implies success where proof was unavailable.
-3. Merge relationship: leave the slot `MERGE RELATIONSHIP: <LANDS_BEFORE | LANDS_AFTER | INDEPENDENT>` unfilled for the supervising home, which fills it provisionally until the primary grants the cross-home slot; it is required at the done report for pipeline-mode work.
+1. SEMANTIC SURFACES TOUCHED: the meaningful surfaces changed beyond the file list, such as notification semantics, consent behaviour, provider transport, production environment, public presentation, schema, or deployment assumptions; write `NONE` when no such surface changed.
+2. PREFLIGHT DISPOSITION: one line per applicable truth surface, classified as `VERIFIED`, `NOT_APPLICABLE`, `UNVERIFIABLE` with the reason and who or what can establish it, or `FAILED`, which blocks the work.
+   Use the word unverifiable exactly as the repository's own full check does; `UNVERIFIABLE` never implies success where proof was unavailable.
+3. MERGE RELATIONSHIP: leave the slot `MERGE RELATIONSHIP: <LANDS_BEFORE | LANDS_AFTER | INDEPENDENT>` unfilled for the supervising home, which fills it provisionally until the primary grants the cross-home slot; it is required at the done report for pipeline-mode work.
 EOF
 }
