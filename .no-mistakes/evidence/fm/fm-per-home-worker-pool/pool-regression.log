@@ -1,0 +1,5 @@
+ok - the primary, oas-ops and oas-web homes each resolve their own pool root outside every home
+ok - each home launches from a copy of its own clone, acquired from its own pool root
+ok - each home refuses a copy of another home's clone, with no record and no claim
+ok - the real treehouse (v2.3.0) gives each home a copy of its own clone, and a shared root does not
+# all fm-treehouse-home-pool tests passed

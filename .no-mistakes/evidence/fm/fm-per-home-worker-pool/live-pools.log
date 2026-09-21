@@ -1,0 +1,27 @@
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.firstmate-treehouse/primary-807a042da3b9/.treehouse/app-f54802/1/app. Run 'treehouse return ~/.firstmate-treehouse/primary-807a042da3b9/.treehouse/app-f54802/1/app' to release it.
+HOME=primary
+POOL=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/primary-807a042da3b9
+WORKER=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/primary-807a042da3b9/.treehouse/app-f54802/1/app
+GIT_COMMON_DIR=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/primary/projects/app/.git
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.firstmate-treehouse/oas-ops-b4589714396e/.treehouse/app-f54802/1/app. Run 'treehouse return ~/.firstmate-treehouse/oas-ops-b4589714396e/.treehouse/app-f54802/1/app' to release it.
+HOME=oas-ops
+POOL=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/oas-ops-b4589714396e
+WORKER=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/oas-ops-b4589714396e/.treehouse/app-f54802/1/app
+GIT_COMMON_DIR=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/oas-ops/projects/app/.git
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.firstmate-treehouse/oas-web-11313e4dee57/.treehouse/app-f54802/1/app. Run 'treehouse return ~/.firstmate-treehouse/oas-web-11313e4dee57/.treehouse/app-f54802/1/app' to release it.
+HOME=oas-web
+POOL=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/oas-web-11313e4dee57
+WORKER=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/oas-web-11313e4dee57/.treehouse/app-f54802/1/app
+GIT_COMMON_DIR=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/oas-web/projects/app/.git
+OWNERSHIP_REJECTED home=primary foreign_copy=oas-ops
+OWNERSHIP_REJECTED home=primary foreign_copy=oas-web
+OWNERSHIP_REJECTED home=oas-ops foreign_copy=primary
+OWNERSHIP_REJECTED home=oas-ops foreign_copy=oas-web
+OWNERSHIP_REJECTED home=oas-web foreign_copy=primary
+OWNERSHIP_REJECTED home=oas-web foreign_copy=oas-ops
+🌳 Worktree returned to pool.
+🌳 Worktree returned to pool.
+🌳 Worktree returned to pool.

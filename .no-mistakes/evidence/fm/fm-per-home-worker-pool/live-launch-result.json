@@ -1,0 +1,32 @@
+{
+  "verdict": "pass",
+  "tested_head_sha": "c0f773413c5dd7d839e2aea91a1b1279a04e332d",
+  "finding": "test-2",
+  "classification": "verification gap; no reproduced product failure",
+  "tests": [
+    {
+      "command": "bash tests/fm-treehouse-home-pool.test.sh",
+      "result": "pass",
+      "log": "focused-pool.log",
+      "environment": "filesystem namespace, supplied Treehouse v2.3.0 first on PATH"
+    },
+    {
+      "command": "bash .test-pool/live-launch.sh",
+      "result": "pass",
+      "log": "live-launch.log",
+      "driver": "live-launch-driver.sh",
+      "launcher": "live-launch-command.sh"
+    }
+  ],
+  "observations": [
+    "Primary, oas-ops, and oas-web each cloned one scratch upstream as projects/app.",
+    "Real tmux shells executed real fm-spawn.sh, Treehouse get --root, and fm-claude-trust.sh.",
+    "Each Claude stub executed in its own clone worktree after verifying both worktree and project trust entries.",
+    "Task metadata matched each executed stub cwd and slot claims named the launched tasks.",
+    "Injected Primary copy into oas-ops allocation: refused with no task metadata, unchanged slot claim, unchanged trust store, and unchanged launch log.",
+    "Focused regression passed its real shared-root counterfactual reproducing the original defect.",
+    "Only Claude executable stubbed for successful launches; no real agent sessions.",
+    "Real tmux used for backend-independent pool/trust scenario; Herdr-specific behavior not validated.",
+    "No source changes necessary; scratch lab removed after retaining evidence."
+  ]
+}

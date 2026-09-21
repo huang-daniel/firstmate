@@ -1,0 +1,303 @@
++ . /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/tests/fixtures.sh
++++ dirname /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/tests/fixtures.sh
+++ . /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/tests/lib.sh
++++ '[' -n '' ']'
++++ FM_TEST_LIB_SOURCED=1
++++ umask 022
+++++ dirname /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/tests/lib.sh
++++ . /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/tests/git-config-helpers.sh
+++++ export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+++++ GIT_CONFIG_GLOBAL=/dev/null
+++++ GIT_CONFIG_NOSYSTEM=1
++++ export FM_GATE_REFUSE_BYPASS=1
++++ FM_GATE_REFUSE_BYPASS=1
++++ unset FM_TASK_ID
++++ unset TASKS_AXI_FILE TASKS_AXI_BACKEND
++++++ dirname /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/tests/lib.sh
+++++ cd /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/tests/..
+++++ pwd
++++ ROOT=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7
++++ FM_TEST_CLEANUP_DIRS=()
+++++ mktemp /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/tmp/.fm-test-cleanup.2.XXXXXX
++++ FM_TEST_CLEANUP_REGISTRY=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/tmp/.fm-test-cleanup.2.nMs2VK
+++++ fm_test_pid_identity 2
+++++ local pid=2
+++++ FM_STATE_OVERRIDE=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/tmp
+++++ bash -c '. "$1"; fm_pid_identity "$2"' _ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/bin/fm-wake-lib.sh 2
++++ FM_TEST_OWNER_IDENTITY='linux-starttime=20145969 cmdline-hex=62617368002e746573742d706f6f6c2f6c6976652d6c61756e63682e736800'
+++++ mktemp /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/tmp/.fm-test-procevent.2.XXXXXX
++++ FM_TEST_PROCEVENT_REGISTRY=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/tmp/.fm-test-procevent.2.UlXbH3
++++ FM_TEST_STUB_MAX_BLOCK_SECONDS=120
++++ export FM_TEST_STUB_MAX_BLOCK_SECONDS
++++ trap fm_test_cleanup EXIT
++++ trap 'fm_test_cleanup; exit 130' INT
++++ trap 'fm_test_cleanup; exit 143' TERM
++++ trap 'fm_test_cleanup; exit 129' HUP
++++ trap 'fm_test_cleanup; exit 131' QUIT
++++ FM_TEST_ORPHAN_MAX_AGE_SECONDS=3600
++++ '[' 0 '!=' 1 ']'
++++ fm_test_reap_orphans
++++ local marker dir mtime now owner_pid owner_identity current_identity
+++++ date +%s
++++ now=1790030302
++++ for marker in "${TMPDIR:-/tmp}"/fm-*/.fm-test-fixture
++++ '[' -e '/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/tmp/fm-*/.fm-test-fixture' ']'
++++ continue
+++ '[' -n '' ']'
+++ FM_TEST_FIXTURES_SOURCED=1
+++ export FM_TEST_NO_MISTAKES_VERSION=1.46.0
+++ FM_TEST_NO_MISTAKES_VERSION=1.46.0
+++ export 'FM_TEST_NO_MISTAKES_FAKE_VERSION=no-mistakes version v1.46.0 (fake)'
+++ FM_TEST_NO_MISTAKES_FAKE_VERSION='no-mistakes version v1.46.0 (fake)'
+++ export 'FM_TEST_NO_MISTAKES_FAKE_VERSION_TS=no-mistakes version v1.46.0 (fake) 2026-06-27T00:02:18Z'
+++ FM_TEST_NO_MISTAKES_FAKE_VERSION_TS='no-mistakes version v1.46.0 (fake) 2026-06-27T00:02:18Z'
+++ export FM_TEST_GH_AXI_VERSION=0.1.29
+++ FM_TEST_GH_AXI_VERSION=0.1.29
++ LAB=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live
++ mkdir -p /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/bin /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/claude
++ export HOME=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user CLAUDE_CONFIG_DIR=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/claude
++ HOME=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user
++ CLAUDE_CONFIG_DIR=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/claude
++ export LAB_LOG=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches.jsonl
++ LAB_LOG=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches.jsonl
++ export PATH=/tmp/claude-1000/-home-dev--treehouse-firstmate-746777-1-firstmate/14efdcce-4fd7-43cc-9436-3795dab4c58a/scratchpad/th23:/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/bin:/home/dev/.codex/packages/standalone/releases/0.154.0-x86_64-unknown-linux-musl/codex-path:/home/dev/.local/bin:/home/dev/.codex/tmp/arg0/codex-arg0fPfiYu:/home/dev/.codex/packages/standalone/releases/0.154.0-x86_64-unknown-linux-musl/codex-path:/home/dev/.local/bin:/home/dev/.nvm/versions/node/v24.18.0/bin:/home/dev/.grok/bin:/home/dev/.local/bin:/home/dev/utils/devterm/devterm/bin:/home/dev/utils/repo-chat-relay/.venv/bin:/home/dev/.bun/bin:/home/dev/.local/bin:/home/dev/go/bin:/home/dev/.cargo/bin:/home/dev/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin:/snap/bin
++ PATH=/tmp/claude-1000/-home-dev--treehouse-firstmate-746777-1-firstmate/14efdcce-4fd7-43cc-9436-3795dab4c58a/scratchpad/th23:/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/bin:/home/dev/.codex/packages/standalone/releases/0.154.0-x86_64-unknown-linux-musl/codex-path:/home/dev/.local/bin:/home/dev/.codex/tmp/arg0/codex-arg0fPfiYu:/home/dev/.codex/packages/standalone/releases/0.154.0-x86_64-unknown-linux-musl/codex-path:/home/dev/.local/bin:/home/dev/.nvm/versions/node/v24.18.0/bin:/home/dev/.grok/bin:/home/dev/.local/bin:/home/dev/utils/devterm/devterm/bin:/home/dev/utils/repo-chat-relay/.venv/bin:/home/dev/.bun/bin:/home/dev/.local/bin:/home/dev/go/bin:/home/dev/.cargo/bin:/home/dev/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin:/snap/bin
++ export SHELL=/bin/bash TERM=xterm-256color TREEHOUSE_NO_UPDATE_CHECK=1
++ SHELL=/bin/bash
++ TERM=xterm-256color
++ TREEHOUSE_NO_UPDATE_CHECK=1
++ export FM_SPAWN_NO_GUARD=1
++ FM_SPAWN_NO_GUARD=1
++ unset TMUX TMUX_PANE
++ cat
++ chmod +x /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/bin/claude
++ treehouse --version
+v2.3.0
++ git init -q -b main /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/seed
++ printf 'scratch upstream\n'
++ git -C /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/seed add README.md
++ git -C /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/seed -c user.name=Tests -c user.email=tests@example.invalid commit -qm initial
++ git clone -q --bare /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/seed /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/upstream.git
++ tmux -f /dev/null new-session -d -s firstmate
++ trap 'tmux kill-server || true' EXIT
++ tmux set-option -g default-shell /bin/bash
++ tmux set-option -g default-command '/bin/bash --noprofile --norc -i'
++ for name in primary oas-ops oas-web
++ home=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/primary
++ fm_test_spawn_home /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/primary claude
++ local home=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/primary harness=claude
++ mkdir -p /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/primary/data /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/primary/projects /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/primary/state /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/primary/config
++ touch /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/primary/state/.last-watcher-beat
++ '[' -n claude ']'
++ printf '%s\n' claude
++ printf 'manual\n'
++ git clone -q file:///home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/upstream.git /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/primary/projects/app
++ id=live-primary
++ fm_test_spawn_brief /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/primary live-primary
++ local home=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/primary id=live-primary 'intent=brief for live-primary'
++ mkdir -p /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/primary/data/live-primary
++ cat
++ FM_HOME=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/primary
++ bash bin/fm-spawn.sh live-primary /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/primary/projects/app --scout --harness claude --backend tmux
+spawned live-primary harness=claude kind=scout window=firstmate:fm-live-primary worktree=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/primary-240b1cecf7e6/.treehouse/app-ef594e/1/app
++ for attempt in {1..30}
++ test -f /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches.jsonl
++ sleep 0.2
++ for attempt in {1..30}
++ test -f /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches.jsonl
++ grep -q '"task":"live-primary"' /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches.jsonl
++ break
++ node - /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches.jsonl live-primary /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/primary
+PASS_OWN_LAUNCH {"task":"live-primary","cwd":"/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/primary-240b1cecf7e6/.treehouse/app-ef594e/1/app","project":"/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/primary/projects/app","trust":true}
++ tmux capture-pane -p -t firstmate:fm-live-primary -S -100
+bash-5.3$ treehouse get --root '/home/dev/.no-mistakes/worktrees/222d8f0053d8/01
+M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/primary-240b1
+cecf7e6'
+warning: failed to update git exclude: open /home/dev/.no-mistakes/repos/222d8f0
+053d8.git/info/exclude: read-only file system
+🌳 Setting up worktree...
+🌳 Entered worktree at ~/.firstmate-treehouse/primary-240b1cecf7e6/.treehouse/ap
+p-ef594e/1/app. Type 'exit' to return.
+dev@PC-DHUANG:~/.firstmate-treehouse/primary-240b1cecf7e6/.treehouse/app-ef594e/
+1/app$ export GOTMPDIR=/tmp/fm-live-primary/gotmp
+dev@PC-DHUANG:~/.firstmate-treehouse/primary-240b1cecf7e6/.treehouse/app-ef594e/
+1/app$ export COMPACT_ADVISER_DISABLE=1
+dev@PC-DHUANG:~/.firstmate-treehouse/primary-240b1cecf7e6/.treehouse/app-ef594e/
+1/app$ export FM_TASK_ID=live-primary
+dev@PC-DHUANG:~/.firstmate-treehouse/primary-240b1cecf7e6/.treehouse/app-ef594e/
+1/app$ . '/tmp/fm-live-primary+191534506ac5f0c3b06afddb6dd092fb760bd3e469a968251
+d1cb6e02f26328a/launch.s1790030305.84.6441.sh'
+HARMLESS_CLAUDE_STUB: trust verified; no agent started
+dev@PC-DHUANG:~/.firstmate-treehouse/primary-240b1cecf7e6/.treehouse/app-ef594e/
+1/app$
+
+
+
+
++ for name in primary oas-ops oas-web
++ home=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops
++ fm_test_spawn_home /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops claude
++ local home=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops harness=claude
++ mkdir -p /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops/data /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops/projects /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops/state /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops/config
++ touch /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops/state/.last-watcher-beat
++ '[' -n claude ']'
++ printf '%s\n' claude
++ printf 'manual\n'
++ git clone -q file:///home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/upstream.git /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops/projects/app
++ id=live-oas-ops
++ fm_test_spawn_brief /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops live-oas-ops
++ local home=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops id=live-oas-ops 'intent=brief for live-oas-ops'
++ mkdir -p /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops/data/live-oas-ops
++ cat
++ FM_HOME=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops
++ bash bin/fm-spawn.sh live-oas-ops /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops/projects/app --scout --harness claude --backend tmux
+spawned live-oas-ops harness=claude kind=scout window=firstmate:fm-live-oas-ops worktree=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/oas-ops-acfc574204c5/.treehouse/app-ef594e/1/app
++ for attempt in {1..30}
++ test -f /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches.jsonl
++ grep -q '"task":"live-oas-ops"' /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches.jsonl
++ sleep 0.2
++ for attempt in {1..30}
++ test -f /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches.jsonl
++ grep -q '"task":"live-oas-ops"' /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches.jsonl
++ break
++ node - /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches.jsonl live-oas-ops /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops
+PASS_OWN_LAUNCH {"task":"live-oas-ops","cwd":"/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/oas-ops-acfc574204c5/.treehouse/app-ef594e/1/app","project":"/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops/projects/app","trust":true}
++ tmux capture-pane -p -t firstmate:fm-live-oas-ops -S -100
+bash-5.3$ treehouse get --root '/home/dev/.no-mistakes/worktrees/222d8f0053d8/01
+M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/oas-ops-acfc5
+74204c5'
+warning: failed to update git exclude: open /home/dev/.no-mistakes/repos/222d8f0
+053d8.git/info/exclude: read-only file system
+🌳 Setting up worktree...
+🌳 Entered worktree at ~/.firstmate-treehouse/oas-ops-acfc574204c5/.treehouse/ap
+p-ef594e/1/app. Type 'exit' to return.
+dev@PC-DHUANG:~/.firstmate-treehouse/oas-ops-acfc574204c5/.treehouse/app-ef594e/
+1/app$ export GOTMPDIR=/tmp/fm-live-oas-ops/gotmp
+dev@PC-DHUANG:~/.firstmate-treehouse/oas-ops-acfc574204c5/.treehouse/app-ef594e/
+1/app$ export COMPACT_ADVISER_DISABLE=1
+dev@PC-DHUANG:~/.firstmate-treehouse/oas-ops-acfc574204c5/.treehouse/app-ef594e/
+1/app$ export FM_TASK_ID=live-oas-ops
+dev@PC-DHUANG:~/.firstmate-treehouse/oas-ops-acfc574204c5/.treehouse/app-ef594e/
+1/app$ . '/tmp/fm-live-oas-ops+7763f715113552953bda3d3aaba49e6cab6f5f8230ff44ff2
+68726050c346c69/launch.s1790030309.894.6668.sh'
+HARMLESS_CLAUDE_STUB: trust verified; no agent started
+dev@PC-DHUANG:~/.firstmate-treehouse/oas-ops-acfc574204c5/.treehouse/app-ef594e/
+1/app$
+
+
+
+
++ for name in primary oas-ops oas-web
++ home=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-web
++ fm_test_spawn_home /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-web claude
++ local home=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-web harness=claude
++ mkdir -p /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-web/data /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-web/projects /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-web/state /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-web/config
++ touch /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-web/state/.last-watcher-beat
++ '[' -n claude ']'
++ printf '%s\n' claude
++ printf 'manual\n'
++ git clone -q file:///home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/upstream.git /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-web/projects/app
++ id=live-oas-web
++ fm_test_spawn_brief /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-web live-oas-web
++ local home=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-web id=live-oas-web 'intent=brief for live-oas-web'
++ mkdir -p /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-web/data/live-oas-web
++ cat
++ FM_HOME=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-web
++ bash bin/fm-spawn.sh live-oas-web /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-web/projects/app --scout --harness claude --backend tmux
+spawned live-oas-web harness=claude kind=scout window=firstmate:fm-live-oas-web worktree=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/oas-web-f58d56aaf708/.treehouse/app-ef594e/1/app
++ for attempt in {1..30}
++ test -f /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches.jsonl
++ grep -q '"task":"live-oas-web"' /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches.jsonl
++ sleep 0.2
++ for attempt in {1..30}
++ test -f /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches.jsonl
++ grep -q '"task":"live-oas-web"' /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches.jsonl
++ break
++ node - /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches.jsonl live-oas-web /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-web
+PASS_OWN_LAUNCH {"task":"live-oas-web","cwd":"/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/oas-web-f58d56aaf708/.treehouse/app-ef594e/1/app","project":"/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-web/projects/app","trust":true}
++ tmux capture-pane -p -t firstmate:fm-live-oas-web -S -100
+bash-5.3$ treehouse get --root '/home/dev/.no-mistakes/worktrees/222d8f0053d8/01
+M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/oas-web-f58d5
+6aaf708'
+warning: failed to update git exclude: open /home/dev/.no-mistakes/repos/222d8f0
+053d8.git/info/exclude: read-only file system
+🌳 Setting up worktree...
+🌳 Entered worktree at ~/.firstmate-treehouse/oas-web-f58d56aaf708/.treehouse/ap
+p-ef594e/1/app. Type 'exit' to return.
+dev@PC-DHUANG:~/.firstmate-treehouse/oas-web-f58d56aaf708/.treehouse/app-ef594e/
+1/app$ export GOTMPDIR=/tmp/fm-live-oas-web/gotmp
+dev@PC-DHUANG:~/.firstmate-treehouse/oas-web-f58d56aaf708/.treehouse/app-ef594e/
+1/app$ export COMPACT_ADVISER_DISABLE=1
+dev@PC-DHUANG:~/.firstmate-treehouse/oas-web-f58d56aaf708/.treehouse/app-ef594e/
+1/app$ export FM_TASK_ID=live-oas-web
+dev@PC-DHUANG:~/.firstmate-treehouse/oas-web-f58d56aaf708/.treehouse/app-ef594e/
+1/app$ . '/tmp/fm-live-oas-web+bb82508b84b2f2b717977a8c868908e19ab21e9ce19afd1c8
+8872b21b60fcec3/launch.s1790030313.1684.16250.sh'
+HARMLESS_CLAUDE_STUB: trust verified; no agent started
+dev@PC-DHUANG:~/.firstmate-treehouse/oas-web-f58d56aaf708/.treehouse/app-ef594e/
+1/app$
+
+
+
+
+++ node -e 'console.log(JSON.parse(require('\''fs'\'').readFileSync(process.env.LAB_LOG,'\''utf8'\'').split('\''\n'\'')[0]).cwd)'
++ foreign=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/primary-240b1cecf7e6/.treehouse/app-ef594e/1/app
+++ dirname /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/primary-240b1cecf7e6/.treehouse/app-ef594e/1/app
++ claim=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/primary-240b1cecf7e6/.treehouse/app-ef594e/1/.fm-slot-owner
++ cp /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/primary-240b1cecf7e6/.treehouse/app-ef594e/1/.fm-slot-owner /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/claim-before
++ cp /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/claude/.claude.json /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/trust-before
++ cp /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches.jsonl /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches-before
++ printf 'treehouse() { printf "INJECTED_FOREIGN_COPY\\n"; cd %q; }\n' /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/primary-240b1cecf7e6/.treehouse/app-ef594e/1/app
++ tmux set-option -g default-command '/bin/bash --noprofile --rcfile '\''/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/foreign.rc'\'' -i'
++ home=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops
++ id=foreign-oas-ops-from-primary
++ fm_test_spawn_brief /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops foreign-oas-ops-from-primary
++ local home=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops id=foreign-oas-ops-from-primary 'intent=brief for foreign-oas-ops-from-primary'
++ mkdir -p /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops/data/foreign-oas-ops-from-primary
++ cat
++ set +e
++ FM_HOME=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops
++ bash bin/fm-spawn.sh foreign-oas-ops-from-primary /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops/projects/app --scout --harness claude --backend tmux
++ status=1
++ set -e
++ cat /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/foreign-output
+error: treehouse get yielded '/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/primary-240b1cecf7e6/.treehouse/app-ef594e/1/app', which is not a copy of this home's clone '/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops/projects/app' (another clone's pool slot); refusing to launch in another home's worker copy. Inspect target firstmate:fm-foreign-oas-ops-from-primary
++ test 1 -ne 0
++ grep -F 'not a copy of this home'\''s clone' /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/foreign-output
+error: treehouse get yielded '/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/primary-240b1cecf7e6/.treehouse/app-ef594e/1/app', which is not a copy of this home's clone '/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops/projects/app' (another clone's pool slot); refusing to launch in another home's worker copy. Inspect target firstmate:fm-foreign-oas-ops-from-primary
++ test '!' -e /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops/state/foreign-oas-ops-from-primary.meta
++ cmp /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/primary-240b1cecf7e6/.treehouse/app-ef594e/1/.fm-slot-owner /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/claim-before
++ cmp /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/claude/.claude.json /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/trust-before
++ cmp /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches.jsonl /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches-before
++ printf 'PASS_FOREIGN_REFUSAL status=%s no-task-record unchanged-slot-claim unchanged-trust no-launch\n' 1
+PASS_FOREIGN_REFUSAL status=1 no-task-record unchanged-slot-claim unchanged-trust no-launch
++ cat /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/launches.jsonl
+{"task":"live-primary","cwd":"/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/primary-240b1cecf7e6/.treehouse/app-ef594e/1/app","project":"/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/primary/projects/app","trust":true}
+{"task":"live-oas-ops","cwd":"/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/oas-ops-acfc574204c5/.treehouse/app-ef594e/1/app","project":"/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops/projects/app","trust":true}
+{"task":"live-oas-web","cwd":"/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/oas-web-f58d56aaf708/.treehouse/app-ef594e/1/app","project":"/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-web/projects/app","trust":true}
++ cat /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/claude/.claude.json
+{
+  "projects": {
+    "/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/primary-240b1cecf7e6/.treehouse/app-ef594e/1/app": {
+      "hasTrustDialogAccepted": true
+    },
+    "/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/primary/projects/app": {
+      "hasTrustDialogAccepted": true
+    },
+    "/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/oas-ops-acfc574204c5/.treehouse/app-ef594e/1/app": {
+      "hasTrustDialogAccepted": true
+    },
+    "/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-ops/projects/app": {
+      "hasTrustDialogAccepted": true
+    },
+    "/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/user/.firstmate-treehouse/oas-web-f58d56aaf708/.treehouse/app-ef594e/1/app": {
+      "hasTrustDialogAccepted": true
+    },
+    "/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M331E76FPZNGEM33C3XNZGC7/.test-pool/live/homes/oas-web/projects/app": {
+      "hasTrustDialogAccepted": true
+    }
+  }
+}
++ printf 'PASS: three real spawn launches and foreign-copy refusal; no real agent sessions\n'
+PASS: three real spawn launches and foreign-copy refusal; no real agent sessions
++ tmux kill-server
