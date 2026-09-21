@@ -221,12 +221,10 @@ Its tasks are filed with `child-add` for new work, or nested natively under the 
 The programme card follows its campaigns through their derived state; the PARENT STATUS contract in [`bin/fm-board.sh`](../../../bin/fm-board.sh) owns how a nested container contributes to its parent and nothing here restates it.
 
 The dispatch gate is a check firstmate performs before every spawn of a task whose issue is a campaign child: the card sits in the configured `queued` column AND its campaign is executing.
-Executing means the campaign issue does not carry the home's parked label and the campaign holds one of the slots under the home's executing-campaign ceiling.
-Slots go to unparked campaigns in the order they were admitted (promoted and decomposed) or unparked, and a campaign holds its slot until it is parked or its record reaches `done`.
-A campaign admitted or unparked while every slot is held is authorized but waiting: none of its children dispatch, and firstmate reports it to the captain rather than choosing which campaign to park.
-When a slot frees, the earliest-waiting campaign by admission or unpark order takes it, because it was already authorized; firstmate reports the handoff to the captain and never chooses a different order.
-The captain re-authorizes nothing at a handoff and changes the order only by parking or unparking.
-Momentary idleness never frees a slot; only parking or completion does.
+An executing campaign is an unparked campaign: its issue does not carry the home's parked label and its card has not reached Done through its derived state under PARENT STATUS, so a completed campaign no longer counts.
+At most the home's executing-campaign ceiling (two in the pilot) may be unparked at once; never admit or unpark a campaign while the ceiling is full.
+If firstmate ever observes more unparked campaigns than the ceiling allows, it dispatches none of their children and asks the captain which campaign to park.
+There is no waiting-campaign queue and no admission or handoff ordering; nothing about slots is recorded anywhere.
 A parked campaign remains authorized but is non-executing, frees one of the executing slots, and none of its tasks may dispatch until it is unparked.
 Parking is judgement: park only when no admitted child can make useful progress toward the finish line, never merely because one external dependency is waiting.
 This gate composes with "Board-sourced work is captain-gated" above and does not replace it; a queued campaign child has already passed that gate, and this one only asks whether its campaign is executing right now.
@@ -237,9 +235,9 @@ An authorized lane is one the home's captain preferences name with its WIP limit
 
 The ceiling, the parked label's name, and the exempt classes are the home's own captain preferences, never a `config/boards` key and never read by the adapter.
 The bridge stays blind to the label: a parked campaign's card stays wherever the bridge put it, and the label is never a divergence.
-Nothing counts executing campaigns for firstmate; the count at each dispatch is the number of unparked campaigns holding slots, read from the board and the labels, never a count of children in progress.
+Nothing counts executing campaigns for firstmate; the count at each dispatch is simply the number of unparked campaigns, read from the labels and the board at dispatch, never a count of children in progress.
 
-The dispatch note the backlog item already carries (mode, yolo, one-line reason) also names the campaign URL and the executing count at dispatch, for example `campaign <url>, executing 1 of 2`, so the gate is auditable after the fact.
+The dispatch note the backlog item already carries (mode, yolo, one-line reason) also names the campaign URL and the executing count at dispatch, for example `campaign <url>, executing n of c`, so the gate is auditable after the fact.
 
 ## Persistent lanes
 
