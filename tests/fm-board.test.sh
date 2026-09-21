@@ -1978,6 +1978,133 @@ test_a_container_follows_every_sub_issue_github_records() {
   pass "a container is finished by every sub-issue GitHub records under it, not by the ones firstmate created"
 }
 
+# THE DEFECT THIS PINS. A programme derived its state from a campaign nested
+# under it by the campaign issue's open/closed bit alone, because a campaign is
+# a container and holds no task link. So the programme stayed in the container
+# Todo column through the whole campaign and reached Done only when someone
+# closed the campaign issue by hand. The parent must read the child container's
+# own derived record instead, and must read it after the child derived it in
+# this same cycle, which is why the campaign card sits after the programme card
+# on the board here: a single pass in board order would read a stale record.
+test_a_programme_follows_a_nested_campaign_record_not_its_issue() {
+  local home programme campaign flat out
+  home=$(new_home a_programme_follows_a_nested_campaign_record_not_its_issue)
+  big_picture_board "$home"
+  programme=https://github.com/harbour-collective/app/issues/500
+  campaign=https://github.com/harbour-collective/app/issues/501
+  flat=https://github.com/harbour-collective/app/issues/510
+  item "$home" PVTI_p Issue "$programme" 'Big Picture Todo' firstmate - 'Roadmap' -
+  # The campaign is a native sub-issue of the programme and a filed card of its
+  # own, promoted to a container; it holds no task and never will.
+  sub_issue "$home" "$campaign" "$programme" open
+  item "$home" PVTI_c Issue "$campaign" Todo firstmate - 'Campaign: template pack' -
+  board "$home" promote harbourlight "$campaign" >/dev/null
+  board "$home" child-add harbourlight "$campaign" 'Task one' 'body' fm-camp-one >/dev/null
+  board "$home" child-add harbourlight "$campaign" 'Task two' 'body' fm-camp-two >/dev/null
+  board "$home" decomposed harbourlight "$campaign" >/dev/null
+  board "$home" decomposed harbourlight "$programme" >/dev/null
+  # A flat programme beside them, derived exactly as before.
+  item "$home" PVTI_f Issue "$flat" 'Big Picture Todo' firstmate - 'Flat programme' -
+  sub_issue "$home" https://github.com/harbour-collective/app/issues/511 "$flat" closed
+  sub_issue "$home" https://github.com/harbour-collective/app/issues/512 "$flat" open
+  board "$home" decomposed harbourlight "$flat" >/dev/null
+
+  # Nothing has started: the campaign's record is todo, so the programme is too.
+  : > "$home/gh.log"
+  : > "$home/calls"
+  out=$(board "$home" poll)
+  assert_not_contains "$out" "$programme" "an unstarted nested programme reported something"
+  assert_not_contains "$out" "$campaign" "an unstarted campaign reported something"
+  assert_contains "$out" "synced harbourlight $flat - in-progress" \
+    "a flat programme with one closed and one open child no longer derives in-progress"
+  [ "$(grep -c 'sub_issues' "$home/calls" || true)" = 3 ] || fail \
+    "three containers did not cost exactly three sub-issue reads: $(cat "$home/calls")"
+
+  # One campaign task starts. The campaign issue stays open throughout.
+  board "$home" mark fm-camp-one in-progress >/dev/null
+  : > "$home/gh.log"
+  out=$(board "$home" poll)
+  assert_contains "$out" "synced harbourlight $campaign - in-progress" \
+    "a task in progress did not move its campaign"
+  assert_contains "$out" "synced harbourlight $programme - in-progress" \
+    "an active campaign did not move its programme in the same cycle"
+  assert_contains "$(board "$home" decompositions)" "$programme	done	in-progress	in-progress" \
+    "the programme's record did not follow the campaign's record"
+
+  # Every campaign task finishes; the campaign issue is still open.
+  board "$home" mark fm-camp-one 'done' >/dev/null
+  board "$home" mark fm-camp-two 'done' >/dev/null
+  : > "$home/gh.log"
+  out=$(board "$home" poll)
+  assert_contains "$out" "synced harbourlight $campaign - done" "all tasks done did not finish the campaign"
+  assert_contains "$out" "synced harbourlight $programme - done" \
+    "a finished campaign with its issue still open did not finish its programme"
+  [ "$(awk -F'\t' -v u="$campaign" '$2 == u { print $7 }' "$home/issues")" = open ] \
+    || fail "the fixture closed the campaign issue, so it proves nothing"
+
+  # Settled, and silent; the flat programme still reads its open child as open.
+  out=$(board "$home" poll)
+  assert_not_contains "$out" "$programme" "a settled nested programme kept reporting"
+  assert_not_contains "$out" "$campaign" "a settled campaign kept reporting"
+  assert_not_contains "$out" "$flat" "a settled flat programme kept reporting"
+  close_sub_issue "$home" https://github.com/harbour-collective/app/issues/512
+  out=$(board "$home" poll)
+  assert_contains "$out" "synced harbourlight $flat - done" \
+    "a flat programme's closed children no longer finish it"
+  pass "a programme follows a nested campaign's derived record in the same cycle, never its open/closed bit"
+}
+
+# A record that has derived nothing says nothing about the work, so the child's
+# open/closed bit still decides: an ordinary issue once marked decomposed and
+# later closed must not hold its programme short of done forever.
+test_a_closed_child_with_an_underived_record_still_finishes_its_parent() {
+  local home programme child out
+  home=$(new_home a_closed_child_with_an_underived_record_still_finishes_its_parent)
+  big_picture_board "$home"
+  programme=https://github.com/harbour-collective/app/issues/520
+  child=https://github.com/harbour-collective/app/issues/521
+  item "$home" PVTI_p Issue "$programme" 'Big Picture Todo' firstmate - 'Roadmap' -
+  sub_issue "$home" "$child" "$programme" closed
+  board "$home" decomposed harbourlight "$child" >/dev/null
+  board "$home" decomposed harbourlight "$programme" >/dev/null
+  assert_contains "$(board "$home" decompositions)" "$child	done	-	" \
+    "the fixture's child record derived a state, so it proves nothing"
+
+  out=$(board "$home" poll)
+  assert_contains "$out" "synced harbourlight $programme - done" \
+    "a closed child whose record derived nothing held its programme short of done"
+  pass "a closed child whose record has derived nothing still counts as done"
+}
+
+# A container another project records is reported foreign and never derived
+# here, so reading its sub-issues would spend a call on nothing.
+test_a_foreign_container_costs_no_sub_issue_read() {
+  local home parent out
+  home=$(new_home a_foreign_container_costs_no_sub_issue_read)
+  big_picture_board "$home"
+  cat >> "$home/config/boards" <<'EOF2'
+
+project = tidewheel
+owner = personal-account
+number = 91
+big-picture-todo = Big Picture Todo
+big-picture-in-progress = Big Picture In Progress
+big-picture-done = Big Picture Done
+EOF2
+  parent=https://github.com/harbour-collective/app/issues/530
+  item "$home" PVTI_p Issue "$parent" 'Big Picture Todo' firstmate - 'Roadmap' -
+  sub_issue "$home" https://github.com/harbour-collective/app/issues/531 "$parent" open
+  board "$home" decomposed harbourlight "$parent" >/dev/null
+
+  : > "$home/calls"
+  out=$(board "$home" poll)
+  assert_contains "$out" "foreign tidewheel $parent harbourlight -" \
+    "a container another project records was not reported foreign"
+  assert_equals 1 "$(grep -c 'sub_issues' "$home/calls" || true)" \
+    "a foreign container cost a sub-issue read"
+  pass "a container another project records costs no sub-issue read"
+}
+
 test_a_container_with_no_sub_issues_derives_nothing() {
   local home parent out
   home=$(new_home a_container_with_no_sub_issues_derives_nothing)
@@ -2773,6 +2900,9 @@ test_a_child_is_created_linked_and_never_re_imported
 test_child_add_converges_instead_of_filing_a_second_issue
 test_a_container_card_follows_its_children
 test_a_container_follows_every_sub_issue_github_records
+test_a_programme_follows_a_nested_campaign_record_not_its_issue
+test_a_closed_child_with_an_underived_record_still_finishes_its_parent
+test_a_foreign_container_costs_no_sub_issue_read
 test_a_container_with_no_sub_issues_derives_nothing
 test_children_that_cannot_be_read_derive_nothing_and_say_so
 test_a_container_costs_one_flat_read_and_never_a_board_read

@@ -470,7 +470,14 @@
 # A child with an issue-to-task link contributes LINK_DESIRED, regardless of who
 # created it. Linked states outside todo/processed/queued, in-progress, and done
 # are excluded, so withdrawn work does not prevent completion. An unlinked child
-# contributes done when GitHub says closed, otherwise todo.
+# holding a decomposition record of its own under this project that has derived
+# a state is a nested container and contributes that derived state, so a
+# programme follows its campaigns without anyone closing a campaign issue by
+# hand. Any other unlinked child, including one whose record has derived nothing
+# yet, contributes done when GitHub says closed, otherwise todo. Containers are
+# derived after every ordinary card in the cycle, and a container that is itself
+# a sub-issue of another is derived before that parent, so a parent never reads
+# a one-cycle-stale child record.
 #
 # Among contributing children, any in-progress child or a mixture of open and
 # done children derives in-progress; all done derives done; otherwise derive todo.
@@ -3308,7 +3315,7 @@ poll_board() {
   local bp_todo bp_in_progress bp_done queued processed classify_field
   local id type url status labels assignees title body class state
   local canonical task desired synced pr pr_synced board_state count=0
-  local seen_file trigger column container
+  local seen_file deferred trigger column container
   local area area_synced board_area area_owed
   local l_project l_issue l_task l_desired
 
@@ -3331,6 +3338,7 @@ poll_board() {
   classify_field=$(printf '%s' "$board" | cut -f17)
 
   seen_file=$(mktemp) || return 1
+  deferred=$(mktemp) || { rm -f "$seen_file"; return 1; }
   while IFS=$TAB read -r id type url status labels assignees title body class state; do
     [ -n "$id" ] || continue
     count=$((count + 1))
@@ -3517,7 +3525,10 @@ poll_board() {
       container=$(bp_column_state "$status" "$bp_todo" "$bp_in_progress" "$bp_done") \
         || container=-
       if [ "$container" != - ] || decomps_find "$canonical" >/dev/null; then
-        poll_container "$board" "$id" "$canonical" "$container" "$status" "$labels"
+        # Deferred to poll_containers below, so every ordinary card's state is
+        # recorded before any container derives from it.
+        printf '%s\t%s\t%s\t%s\t%s\n' \
+          "$id" "$canonical" "$container" "$status" "$labels" >> "$deferred"
         continue
       fi
     fi
@@ -3541,6 +3552,9 @@ poll_board() {
     [ -n "$trigger" ] || continue
     printf 'new %s %s %s %s\n' "$project" "$canonical" "$trigger" "$title"
   done < "$items"
+
+  poll_containers "$board" "$deferred"
+  rm -f "$deferred"
 
   # A card that vanished from the board while firstmate was still executing it.
   # Two reads cannot tell absence apart from something else and so reconcile
@@ -3616,7 +3630,84 @@ poll_lane() {
   printf 'divergence %s %s - lane %s %s\n' "$project" "$issue" "$board_state" "$raw"
 }
 
-# poll_container <board-row> <card-id> <parent-issue> <container-state> <raw-status> <labels>
+# poll_containers <board-row> <deferred-file>
+# The cycle's second pass, over every container card the first pass set aside
+# as `card-id<TAB>issue<TAB>container-state<TAB>raw-status<TAB>labels`. Each
+# of this project's containers has its sub-issues read exactly once, up front,
+# and a container another project records is read not at all. They are
+# then derived children before parents under PARENT STATUS above: a container
+# that is itself a sub-issue of another container in this pass is derived
+# first, so the parent reads the child's record as this cycle derived it. Any
+# order GitHub could not have produced (it refuses sub-issue cycles) falls back
+# to board order rather than deriving nothing.
+poll_containers() {
+  local board=$1 deferred=$2 dir n i pending remaining progressed
+  local d_id d_issue d_container d_raw d_labels kids
+  local c_url c_canonical j project
+  [ -s "$deferred" ] || return 0
+  project=$(printf '%s' "$board" | cut -f1)
+  dir=$(mktemp -d) || return 0
+  n=0
+  while IFS=$TAB read -r d_id d_issue d_container d_raw d_labels; do
+    [ -n "$d_id" ] || continue
+    n=$((n + 1))
+    printf '%s\t%s\t%s\t%s\t%s\n' \
+      "$d_id" "$d_issue" "$d_container" "$d_raw" "$d_labels" > "$dir/$n.row"
+    # The one read this container costs; a failure is remembered by the absence
+    # of its file so the derivation reports it exactly where it always did.
+    # A container another project records is reported foreign without it.
+    if decomps_find "$d_issue" >/dev/null && [ "$DECOMP_PROJECT" != "$project" ]; then
+      continue
+    fi
+    kids="$dir/$n.kids"
+    if ! issue_sub_issues "$d_issue" "$kids"; then
+      rm -f "$kids"
+      continue
+    fi
+    # The canonical children this container depends on, for ordering only.
+    while IFS=$TAB read -r c_url _; do
+      [ -n "$c_url" ] || continue
+      c_canonical=$(issue_canonical "$c_url") || continue
+      printf '%s\n' "$c_canonical"
+    done < "$kids" > "$dir/$n.deps"
+  done < "$deferred"
+
+  pending=$(seq 1 "$n")
+  while [ -n "$pending" ]; do
+    remaining='' progressed=''
+    for i in $pending; do
+      # Deferred while any child of this container is still pending itself.
+      for j in $pending; do
+        [ "$j" != "$i" ] || continue
+        if [ -f "$dir/$i.deps" ] \
+          && grep -Fqx -- "$(cut -f2 "$dir/$j.row")" "$dir/$i.deps"; then
+          remaining="$remaining $i"
+          continue 2
+        fi
+      done
+      progressed=1
+      IFS=$TAB read -r d_id d_issue d_container d_raw d_labels < "$dir/$i.row"
+      kids="$dir/$i.kids"
+      [ -f "$kids" ] || kids=-
+      poll_container "$board" "$d_id" "$d_issue" "$d_container" "$d_raw" "$d_labels" "$kids"
+    done
+    if [ -z "$progressed" ]; then
+      for i in $pending; do
+        IFS=$TAB read -r d_id d_issue d_container d_raw d_labels < "$dir/$i.row"
+        kids="$dir/$i.kids"
+        [ -f "$kids" ] || kids=-
+        poll_container "$board" "$d_id" "$d_issue" "$d_container" "$d_raw" "$d_labels" "$kids"
+      done
+      break
+    fi
+    pending=${remaining# }
+  done
+  rm -rf "$dir"
+}
+
+# poll_container <board-row> <card-id> <parent-issue> <container-state> <raw-status> <labels> <kids-file>
+# <kids-file> holds this cycle's sub-issue read for the container, one
+# `url<TAB>state` line per child, or `-` when that read did not land.
 # A container is offered for decomposition until it is recorded as decomposed,
 # and its card is reconciled under PARENT STATUS above. A parent
 # whose card already shows what firstmate recorded prints nothing at all, so a
@@ -3624,9 +3715,9 @@ poll_lane() {
 # outside the container lane, which is what a promoted container looks like
 # while the move that puts it there is still outstanding.
 poll_container() {
-  local board=$1 id=$2 parent=$3 container=$4 raw=$5 labels=$6
+  local board=$1 id=$2 parent=$3 container=$4 raw=$5 labels=$6 kids=$7
   local project owner number label status_field bp_todo bp_in_progress bp_done
-  local state desired synced children now column child_state kids
+  local state desired synced children now column child_state
   local child_url child_issue
   local any_in_progress='' any_open='' any_closed='' any_driven=''
 
@@ -3672,13 +3763,18 @@ poll_container() {
   fi
 
   # Apply PARENT STATUS above; membership must come from this cycle's read.
-  kids=$(mktemp) || return 0
-  if issue_sub_issues "$parent" "$kids"; then
+  if [ "$kids" != - ]; then
     while IFS=$TAB read -r child_url child_issue; do
       [ -n "$child_url" ] || continue
       child_url=$(issue_canonical "$child_url") || continue
       if links_find issue "$child_url" >/dev/null; then
         child_state=$LINK_DESIRED
+      elif decomps_find "$child_url" >/dev/null && [ "$DECOMP_PROJECT" = "$project" ] \
+        && [ "$DECOMP_DESIRED" != - ]; then
+        # A nested container: its own derived state stands in for the
+        # open/closed bit, which never changes until someone closes the issue by
+        # hand.
+        child_state=$DECOMP_DESIRED
       elif [ "$child_issue" = closed ]; then
         child_state='done'
       else
@@ -3700,7 +3796,6 @@ poll_container() {
         *) ;;
       esac
     done < "$kids"
-    rm -f "$kids"
     if [ -n "$any_driven" ]; then
       if [ -n "$any_open" ]; then
         # Only every child being finished finishes the container. Between those
@@ -3724,7 +3819,6 @@ poll_container() {
       fi
     fi
   else
-    rm -f "$kids"
     printf 'error %s could not read the children of %s\n' "$project" "$parent"
     return 0
   fi
