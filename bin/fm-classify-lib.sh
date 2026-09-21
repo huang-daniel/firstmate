@@ -998,6 +998,9 @@ _fm_open_decisions_cursor_path() {  # <status-file>
 # and closes.
 # 5: status_line_verb now also reads through an UNBRACKETED correlation token,
 # so lines that previously folded as ordinary status become opens and closes.
+# Version 4 was already spent on the bracketed-tag parser change above, and a
+# cursor persisted under that reading predates this one, so it must still be
+# discarded and rebuilt from byte 0 under the new reading.
 # 6: a done/failed line on a ship or scout closes every open decision, and the
 # persisted version now carries the task kind, so cursors folded without that
 # terminal rule are discarded.
@@ -1014,9 +1017,6 @@ _fm_open_decisions_cursor_path() {  # <status-file>
 # line-boundary paragraph in status_open_decisions_incremental's header), so a
 # cursor persisted under any earlier reading may already carry a decision a
 # half-folded closing line failed to retire and must be rebuilt from byte 0.
-# Version 4 was already spent on the bracketed-tag parser change above, and a
-# cursor persisted under that reading predates this one, so it must still be
-# discarded and rebuilt from byte 0 under the new reading.
 FM_OPEN_DECISIONS_FOLD_VERSION=10
 
 # Portable device:inode identity for the rotation/recreation check below.
