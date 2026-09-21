@@ -1,0 +1,37 @@
+30c30
+<    `echo "{state} [at=<epoch>]: {one short line}" >> '/tmp/tmp.dN6i8G6zYd/state/cl.status'`
+---
+>    `echo "{state} [at=<epoch>]: {one short line}" >> '/tmp/tmp.Q4i9xM6Hk8/state/cl.status'`
+49,50c49,50
+<    For a no-mistakes ask-user gate specifically, escalate all ask-user findings as one event plus one snapshot file, using that same shape even when the gate holds only a single ask-user finding: write only the ask-user findings, verbatim and unparaphrased (id, severity, file, line, description, authority), to `/tmp/tmp.dN6i8G6zYd/data/cl/nm-<run>-findings.txt`, then report the gate with
+<    `needs-decision [at=<epoch>] [key=nm-<run>-<step>]: ask-user findings=<id1>,<id2>,... file=/tmp/tmp.dN6i8G6zYd/data/cl/nm-<run>-findings.txt`
+---
+>    For a no-mistakes ask-user gate specifically, escalate all ask-user findings as one event plus one snapshot file, using that same shape even when the gate holds only a single ask-user finding: write only the ask-user findings, verbatim and unparaphrased (id, severity, file, line, description, authority), to `/tmp/tmp.Q4i9xM6Hk8/data/cl/nm-<run>-findings.txt`, then report the gate with
+>    `needs-decision [at=<epoch>] [key=nm-<run>-<step>]: ask-user findings=<id1>,<id2>,... file=/tmp/tmp.Q4i9xM6Hk8/data/cl/nm-<run>-findings.txt`
+68,69c68,69
+< Firstmate steers you through durable message files in '/tmp/tmp.dN6i8G6zYd/state/cl.inbox'.
+< When a terminal message says an instruction is waiting there - and at any natural checkpoint when you are unsure - list '/tmp/tmp.dN6i8G6zYd/state/cl.inbox'/*.msg, read and act on each message in numeric order, then acknowledge each handled message by moving it: `mv '/tmp/tmp.dN6i8G6zYd/state/cl.inbox'/NNN.msg '/tmp/tmp.dN6i8G6zYd/state/cl.inbox'/handled/`.
+---
+> Firstmate steers you through durable message files in '/tmp/tmp.Q4i9xM6Hk8/state/cl.inbox'.
+> When a terminal message says an instruction is waiting there - and at any natural checkpoint when you are unsure - list '/tmp/tmp.Q4i9xM6Hk8/state/cl.inbox'/*.msg, read and act on each message in numeric order, then acknowledge each handled message by moving it: `mv '/tmp/tmp.Q4i9xM6Hk8/state/cl.inbox'/NNN.msg '/tmp/tmp.Q4i9xM6Hk8/state/cl.inbox'/handled/`.
+73c73
+< If `AGENTS.md` or `CLAUDE.md` already exists, or if this task produced durable project-intrinsic knowledge, run `/tmp/tmp.3hx0GFMQ4i/bin/fm-ensure-agents-md.sh .` in the worktree.
+---
+> If `AGENTS.md` or `CLAUDE.md` already exists, or if this task produced durable project-intrinsic knowledge, run `/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31K61W2HVWQFPEFWGXNPVT5/bin/fm-ensure-agents-md.sh .` in the worktree.
+76c76
+< If you touch a project `AGENTS.md`, follow `/tmp/tmp.3hx0GFMQ4i/bin/fm-ensure-agents-md.sh`'s self-governance contract in the same pass.
+---
+> If you touch a project `AGENTS.md`, follow `/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31K61W2HVWQFPEFWGXNPVT5/bin/fm-ensure-agents-md.sh`'s self-governance contract in the same pass.
+82a83
+> That `done:` line is both the implementation-complete event and your validation-slot request, so do not append a separate implementation-complete line.
+110a112,121
+> 
+> **Closeout (required at your done report).**
+> Fill these three fields into the report text you already write at your `done:` report - your terminal summary, and the PR description where you write one - with no new file or record.
+> For pipeline-mode work that is the implementation-complete `done:` that requests validation; restate the fields at the final `done:` only if they changed.
+> Do not repeat the branch, SHA, file list, or timestamps; git and the PR already own them.
+> A docs-only change can fill each field in one line.
+> 1. SEMANTIC SURFACES TOUCHED: the meaningful surfaces changed beyond the file list, such as notification semantics, consent behaviour, provider transport, production environment, public presentation, schema, or deployment assumptions; write `NONE` when no such surface changed.
+> 2. PREFLIGHT DISPOSITION: one line per applicable truth surface, classified as `VERIFIED`, `NOT_APPLICABLE`, `UNVERIFIABLE` with the reason and who or what can establish it, or `FAILED`, which blocks the work.
+>    Use the word unverifiable exactly as the repository's own full check does; `UNVERIFIABLE` never implies success where proof was unavailable.
+> 3. MERGE RELATIONSHIP: leave the slot `MERGE RELATIONSHIP: <LANDS_BEFORE | LANDS_AFTER | INDEPENDENT>` unfilled for the supervising home, which fills it provisionally until the primary grants the cross-home slot; it is required at the done report for pipeline-mode work.
