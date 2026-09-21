@@ -1,0 +1,31 @@
+--- nothing started
+$ fm-board.sh poll
+programme card column: Big Picture Todo
+campaign card column:  Big Picture Todo
+campaign issue state:  open
+
+--- campaign task fm-t1 in progress
+$ fm-board.sh poll
+  synced harbourlight https://github.com/harbour-collective/app/issues/501 - in-progress
+  synced harbourlight https://github.com/harbour-collective/app/issues/500 - in-progress
+programme card column: Big Picture In Progress
+campaign card column:  Big Picture In Progress
+campaign issue state:  open
+
+--- every campaign task done, campaign issue still open
+$ fm-board.sh poll
+  synced harbourlight https://github.com/harbour-collective/app/issues/501 - done
+  synced harbourlight https://github.com/harbour-collective/app/issues/500 - done
+programme card column: Big Picture Done
+campaign card column:  Big Picture Done
+campaign issue state:  open
+
+--- next cycle (settled)
+$ fm-board.sh poll
+programme card column: Big Picture Done
+campaign card column:  Big Picture Done
+campaign issue state:  open
+
+$ fm-board.sh decompositions
+harbourlight	https://github.com/harbour-collective/app/issues/501	done	done	done	fm-t1=https://github.com/harbour-collective/app/issues/901,fm-t2=https://github.com/harbour-collective/app/issues/902
+harbourlight	https://github.com/harbour-collective/app/issues/500	done	done	done	-

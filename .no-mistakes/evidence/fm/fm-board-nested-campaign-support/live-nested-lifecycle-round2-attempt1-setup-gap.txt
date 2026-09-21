@@ -1,0 +1,146 @@
+
+### setup (nm-live-r2 20260921T100330Z)
+P=https://github.com/huang-daniel/oas-board-lab/issues/24 C=https://github.com/huang-daniel/oas-board-lab/issues/25 F=https://github.com/huang-daniel/oas-board-lab/issues/26 F1=https://github.com/huang-daniel/oas-board-lab/issues/27 F2=https://github.com/huang-daniel/oas-board-lab/issues/28 U=https://github.com/huang-daniel/oas-board-lab/issues/29 U1=https://github.com/huang-daniel/oas-board-lab/issues/30
+sub-issue 25 -> 24
+sub-issue 27 -> 26
+sub-issue 28 -> 26
+sub-issue 30 -> 29
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh promote lab https://github.com/huang-daniel/oas-board-lab/issues/24
+board: https://github.com/huang-daniel/oas-board-lab/issues/24 is not a card on project huang-daniel/3
+promoted-partial lab https://github.com/huang-daniel/oas-board-lab/issues/24
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh promote lab https://github.com/huang-daniel/oas-board-lab/issues/25
+board: https://github.com/huang-daniel/oas-board-lab/issues/25 is not a card on project huang-daniel/3
+promoted-partial lab https://github.com/huang-daniel/oas-board-lab/issues/25
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh promote lab https://github.com/huang-daniel/oas-board-lab/issues/26
+board: https://github.com/huang-daniel/oas-board-lab/issues/26 is not a card on project huang-daniel/3
+promoted-partial lab https://github.com/huang-daniel/oas-board-lab/issues/26
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh promote lab https://github.com/huang-daniel/oas-board-lab/issues/29
+board: https://github.com/huang-daniel/oas-board-lab/issues/29 is not a card on project huang-daniel/3
+promoted-partial lab https://github.com/huang-daniel/oas-board-lab/issues/29
+T1=https://github.com/huang-daniel/oas-board-lab/issues/31 T2=https://github.com/huang-daniel/oas-board-lab/issues/32
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/25
+decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/25
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/24
+decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/24
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/26
+decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/26
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/30
+decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/30
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/29
+decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/29
+closed #27
+closed #30 (record: done - - -)
+
+### columns from issue nodes: BEFORE first poll
+#24 [OPEN] Programme: nested (nm-live-r2 20260921T100330Z) -> (not on board)
+#25 [OPEN] Campaign: nested (nm-live-r2 20260921T100330Z) -> (not on board)
+#31 [OPEN] Campaign task one (nm-live-r2 20260921T100330Z) -> Processed
+#32 [OPEN] Campaign task two (nm-live-r2 20260921T100330Z) -> Processed
+#26 [OPEN] Flat programme guard (nm-live-r2 20260921T100330Z) -> (not on board)
+#27 [CLOSED] Flat child one (nm-live-r2 20260921T100330Z) -> (not on board)
+#28 [OPEN] Flat child two (nm-live-r2 20260921T100330Z) -> (not on board)
+#29 [OPEN] Programme with underived child (nm-live-r2 20260921T100330Z) -> (not on board)
+#30 [CLOSED] Ordinary child once marked decomposed (nm-live-r2 20260921T100330Z) -> (not on board)
+
+### poll 1 (nothing started) with NEW
+$ NEW poll lab
+(no lines about this run's cards)
+sub-issue reads this command: 0
+#24 [OPEN] Programme: nested (nm-live-r2 20260921T100330Z) -> (not on board)
+#25 [OPEN] Campaign: nested (nm-live-r2 20260921T100330Z) -> (not on board)
+#31 [OPEN] Campaign task one (nm-live-r2 20260921T100330Z) -> Processed
+#32 [OPEN] Campaign task two (nm-live-r2 20260921T100330Z) -> Processed
+#26 [OPEN] Flat programme guard (nm-live-r2 20260921T100330Z) -> (not on board)
+#27 [CLOSED] Flat child one (nm-live-r2 20260921T100330Z) -> (not on board)
+#28 [OPEN] Flat child two (nm-live-r2 20260921T100330Z) -> (not on board)
+#29 [OPEN] Programme with underived child (nm-live-r2 20260921T100330Z) -> (not on board)
+#30 [CLOSED] Ordinary child once marked decomposed (nm-live-r2 20260921T100330Z) -> (not on board)
+
+### campaign task one starts
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh mark fm-r2-one in-progress
+synced lab https://github.com/huang-daniel/oas-board-lab/issues/31 fm-r2-one in-progress
+
+### BEFORE (base 32b24f5) poll
+$ BASE poll lab
+(no lines about this run's cards)
+#24 [OPEN] Programme: nested (nm-live-r2 20260921T100330Z) -> (not on board)
+#25 [OPEN] Campaign: nested (nm-live-r2 20260921T100330Z) -> (not on board)
+
+### AFTER (target f88a81b) poll
+$ NEW poll lab
+(no lines about this run's cards)
+#24 [OPEN] Programme: nested (nm-live-r2 20260921T100330Z) -> (not on board)
+#25 [OPEN] Campaign: nested (nm-live-r2 20260921T100330Z) -> (not on board)
+
+### every campaign task done; campaign issue left open
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh mark fm-r2-one done
+synced lab https://github.com/huang-daniel/oas-board-lab/issues/31 fm-r2-one done
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh mark fm-r2-two done
+synced lab https://github.com/huang-daniel/oas-board-lab/issues/32 fm-r2-two done
+
+### BEFORE (base 32b24f5) poll
+$ BASE poll lab
+(no lines about this run's cards)
+#24 [OPEN] Programme: nested (nm-live-r2 20260921T100330Z) -> (not on board)
+#25 [OPEN] Campaign: nested (nm-live-r2 20260921T100330Z) -> (not on board)
+
+### AFTER (target f88a81b) poll
+$ NEW poll lab
+(no lines about this run's cards)
+#24 [OPEN] Programme: nested (nm-live-r2 20260921T100330Z) -> (not on board)
+#25 [OPEN] Campaign: nested (nm-live-r2 20260921T100330Z) -> (not on board)
+#31 [OPEN] Campaign task one (nm-live-r2 20260921T100330Z) -> Done
+#32 [OPEN] Campaign task two (nm-live-r2 20260921T100330Z) -> Done
+#26 [OPEN] Flat programme guard (nm-live-r2 20260921T100330Z) -> (not on board)
+#27 [CLOSED] Flat child one (nm-live-r2 20260921T100330Z) -> (not on board)
+#28 [OPEN] Flat child two (nm-live-r2 20260921T100330Z) -> (not on board)
+#29 [OPEN] Programme with underived child (nm-live-r2 20260921T100330Z) -> (not on board)
+#30 [CLOSED] Ordinary child once marked decomposed (nm-live-r2 20260921T100330Z) -> (not on board)
+
+### settled: next NEW poll
+$ NEW poll lab
+(no lines about this run's cards)
+
+### flat guard: close remaining flat child
+closed #28
+$ NEW poll lab
+(no lines about this run's cards)
+#26 [OPEN] Flat programme guard (nm-live-r2 20260921T100330Z) -> (not on board)
+
+### foreign: poll labalias over the same board
+sub-issue reads this command: 0
+
+### decomposition records
+lab	https://github.com/huang-daniel/oas-board-lab/issues/25	done	todo	-	fm-r2-one=https://github.com/huang-daniel/oas-board-lab/issues/31,fm-r2-two=https://github.com/huang-daniel/oas-board-lab/issues/32
+lab	https://github.com/huang-daniel/oas-board-lab/issues/24	done	todo	-	-
+lab	https://github.com/huang-daniel/oas-board-lab/issues/26	done	todo	-	-
+lab	https://github.com/huang-daniel/oas-board-lab/issues/30	done	-	-	-
+lab	https://github.com/huang-daniel/oas-board-lab/issues/29	done	todo	-	-
+
+### full board status after run (all cards)
+#1 Umbrella Programme In Progress
+#2 Umbrella Programme Done
+#3 Done
+#4 Done
+#5 Done
+#6 Lanes
+#7 Todo
+#8 Processed
+#9 Done
+#10 Deferred
+#11 Umbrella Programme Done
+#12 Done
+#13 Done
+#14 (no status)
+#15 Umbrella Programme Done
+#16 Umbrella Programme Done
+#17 Umbrella Programme Done
+#18 (no status)
+#19 (no status)
+#20 Umbrella Programme Done
+#21 (no status)
+#22 Done
+#23 Done
+#31 Done
+#32 Done
+scratch: /tmp/nmlive/run.PYou

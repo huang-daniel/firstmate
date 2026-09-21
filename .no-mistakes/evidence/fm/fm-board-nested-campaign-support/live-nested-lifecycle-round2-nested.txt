@@ -1,0 +1,58 @@
+
+### campaign tasks via child-add (fresh task ids)
+T1=https://github.com/huang-daniel/oas-board-lab/issues/40 T2=https://github.com/huang-daniel/oas-board-lab/issues/41
+
+### columns from issue nodes: BEFORE (tasks carded, nothing started)
+$ NEW poll lab   (lines about #33/#34/tasks only)
+cancelled lab https://github.com/huang-daniel/oas-board-lab/issues/41 fm-r2n-two processed
+#33 [OPEN] Programme: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme
+#34 [OPEN] Campaign: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme
+#40 [OPEN] Campaign task one (nm-live-r2 20260921T100523Z) -> Processed
+#41 [OPEN] Campaign task two (nm-live-r2 20260921T100523Z) -> Processed
+
+### campaign task one starts
+$ fm-board.sh mark fm-r2n-one in-progress
+synced lab https://github.com/huang-daniel/oas-board-lab/issues/40 fm-r2n-one in-progress
+
+### BEFORE (base 32b24f5) poll
+$ BASE poll lab   (lines about #33/#34/tasks only)
+synced lab https://github.com/huang-daniel/oas-board-lab/issues/34 - in-progress
+#33 [OPEN] Programme: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme
+#34 [OPEN] Campaign: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme In Progress
+
+### AFTER (target f88a81b) poll
+$ NEW poll lab   (lines about #33/#34/tasks only)
+synced lab https://github.com/huang-daniel/oas-board-lab/issues/33 - in-progress
+#33 [OPEN] Programme: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme In Progress
+#34 [OPEN] Campaign: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme In Progress
+#40 [OPEN] Campaign task one (nm-live-r2 20260921T100523Z) -> In Progress
+#41 [OPEN] Campaign task two (nm-live-r2 20260921T100523Z) -> Processed
+
+### every campaign task done; campaign issue #34 left open
+$ fm-board.sh mark fm-r2n-one done
+synced lab https://github.com/huang-daniel/oas-board-lab/issues/40 fm-r2n-one done
+$ fm-board.sh mark fm-r2n-two done
+synced lab https://github.com/huang-daniel/oas-board-lab/issues/41 fm-r2n-two done
+
+### BEFORE (base 32b24f5) poll
+$ BASE poll lab   (lines about #33/#34/tasks only)
+synced lab https://github.com/huang-daniel/oas-board-lab/issues/33 - todo
+synced lab https://github.com/huang-daniel/oas-board-lab/issues/34 - done
+#33 [OPEN] Programme: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme
+#34 [OPEN] Campaign: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme Done
+
+### AFTER (target f88a81b) poll
+$ NEW poll lab   (lines about #33/#34/tasks only)
+synced lab https://github.com/huang-daniel/oas-board-lab/issues/33 - done
+#33 [OPEN] Programme: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme Done
+#34 [OPEN] Campaign: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme Done
+#40 [OPEN] Campaign task one (nm-live-r2 20260921T100523Z) -> Done
+#41 [OPEN] Campaign task two (nm-live-r2 20260921T100523Z) -> Done
+
+### settled: next NEW poll
+$ NEW poll lab   (lines about #33/#34/tasks only)
+(no lines about these cards)
+
+### decomposition records
+lab	https://github.com/huang-daniel/oas-board-lab/issues/34	done	done	done	fm-r2n-one=https://github.com/huang-daniel/oas-board-lab/issues/40,fm-r2n-two=https://github.com/huang-daniel/oas-board-lab/issues/41
+lab	https://github.com/huang-daniel/oas-board-lab/issues/33	done	done	done	-

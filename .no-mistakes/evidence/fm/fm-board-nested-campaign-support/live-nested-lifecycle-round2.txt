@@ -1,0 +1,201 @@
+
+### setup (nm-live-r2 20260921T100523Z)
+P=https://github.com/huang-daniel/oas-board-lab/issues/33 C=https://github.com/huang-daniel/oas-board-lab/issues/34 F=https://github.com/huang-daniel/oas-board-lab/issues/35 F1=https://github.com/huang-daniel/oas-board-lab/issues/36 F2=https://github.com/huang-daniel/oas-board-lab/issues/37 U=https://github.com/huang-daniel/oas-board-lab/issues/38 U1=https://github.com/huang-daniel/oas-board-lab/issues/39
+sub-issue 34 -> 33
+sub-issue 36 -> 35
+sub-issue 37 -> 35
+sub-issue 39 -> 38
+added #33 to project 3
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh promote lab https://github.com/huang-daniel/oas-board-lab/issues/33
+promoted lab https://github.com/huang-daniel/oas-board-lab/issues/33
+added #34 to project 3
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh promote lab https://github.com/huang-daniel/oas-board-lab/issues/34
+promoted lab https://github.com/huang-daniel/oas-board-lab/issues/34
+added #35 to project 3
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh promote lab https://github.com/huang-daniel/oas-board-lab/issues/35
+promoted lab https://github.com/huang-daniel/oas-board-lab/issues/35
+added #38 to project 3
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh promote lab https://github.com/huang-daniel/oas-board-lab/issues/38
+promoted lab https://github.com/huang-daniel/oas-board-lab/issues/38
+T1= T2=
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/34
+decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/34
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/33
+decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/33
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/35
+decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/35
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/39
+decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/39
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/38
+decomposed lab https://github.com/huang-daniel/oas-board-lab/issues/38
+closed #36
+closed #39 (record: done - - -)
+
+### columns from issue nodes: BEFORE first poll
+#33 [OPEN] Programme: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme
+#34 [OPEN] Campaign: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme
+#35 [OPEN] Flat programme guard (nm-live-r2 20260921T100523Z) -> Umbrella Programme
+#36 [CLOSED] Flat child one (nm-live-r2 20260921T100523Z) -> (no status)
+#37 [OPEN] Flat child two (nm-live-r2 20260921T100523Z) -> (no status)
+#38 [OPEN] Programme with underived child (nm-live-r2 20260921T100523Z) -> Umbrella Programme
+#39 [CLOSED] Ordinary child once marked decomposed (nm-live-r2 20260921T100523Z) -> (no status)
+
+### poll 1 (nothing started) with NEW
+$ NEW poll lab
+new lab https://github.com/huang-daniel/oas-board-lab/issues/7 label Fix portal login page typo
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/1 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/2 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/11 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/15 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/16 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/17 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/20 other -
+synced lab https://github.com/huang-daniel/oas-board-lab/issues/35 - in-progress
+synced lab https://github.com/huang-daniel/oas-board-lab/issues/38 - done
+sub-issue reads this command: 5
+#33 [OPEN] Programme: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme
+#34 [OPEN] Campaign: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme
+#35 [OPEN] Flat programme guard (nm-live-r2 20260921T100523Z) -> Umbrella Programme In Progress
+#36 [CLOSED] Flat child one (nm-live-r2 20260921T100523Z) -> (no status)
+#37 [OPEN] Flat child two (nm-live-r2 20260921T100523Z) -> (no status)
+#38 [OPEN] Programme with underived child (nm-live-r2 20260921T100523Z) -> Umbrella Programme Done
+#39 [CLOSED] Ordinary child once marked decomposed (nm-live-r2 20260921T100523Z) -> (no status)
+
+### campaign task one starts
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh mark fm-r2-one in-progress
+error: task fm-r2-one is not linked to a board issue
+
+### BEFORE (base 32b24f5) poll
+$ BASE poll lab
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/1 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/2 other -
+new lab https://github.com/huang-daniel/oas-board-lab/issues/7 label Fix portal login page typo
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/11 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/15 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/16 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/17 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/20 other -
+#33 [OPEN] Programme: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme
+#34 [OPEN] Campaign: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme
+
+### AFTER (target f88a81b) poll
+$ NEW poll lab
+new lab https://github.com/huang-daniel/oas-board-lab/issues/7 label Fix portal login page typo
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/1 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/2 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/11 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/15 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/16 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/17 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/20 other -
+#33 [OPEN] Programme: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme
+#34 [OPEN] Campaign: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme
+
+### every campaign task done; campaign issue left open
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh mark fm-r2-one done
+error: task fm-r2-one is not linked to a board issue
+$ /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M31N45EVPPNT9H86YPTFKQZ9/bin/fm-board.sh mark fm-r2-two done
+error: task fm-r2-two is not linked to a board issue
+
+### BEFORE (base 32b24f5) poll
+$ BASE poll lab
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/1 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/2 other -
+new lab https://github.com/huang-daniel/oas-board-lab/issues/7 label Fix portal login page typo
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/11 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/15 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/16 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/17 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/20 other -
+#33 [OPEN] Programme: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme
+#34 [OPEN] Campaign: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme
+
+### AFTER (target f88a81b) poll
+$ NEW poll lab
+new lab https://github.com/huang-daniel/oas-board-lab/issues/7 label Fix portal login page typo
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/1 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/2 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/11 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/15 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/16 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/17 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/20 other -
+#33 [OPEN] Programme: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme
+#34 [OPEN] Campaign: nested (nm-live-r2 20260921T100523Z) -> Umbrella Programme
+#35 [OPEN] Flat programme guard (nm-live-r2 20260921T100523Z) -> Umbrella Programme In Progress
+#36 [CLOSED] Flat child one (nm-live-r2 20260921T100523Z) -> (no status)
+#37 [OPEN] Flat child two (nm-live-r2 20260921T100523Z) -> (no status)
+#38 [OPEN] Programme with underived child (nm-live-r2 20260921T100523Z) -> Umbrella Programme Done
+#39 [CLOSED] Ordinary child once marked decomposed (nm-live-r2 20260921T100523Z) -> (no status)
+
+### settled: next NEW poll
+$ NEW poll lab
+new lab https://github.com/huang-daniel/oas-board-lab/issues/7 label Fix portal login page typo
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/1 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/2 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/11 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/15 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/16 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/17 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/20 other -
+
+### flat guard: close remaining flat child
+closed #37
+$ NEW poll lab
+new lab https://github.com/huang-daniel/oas-board-lab/issues/7 label Fix portal login page typo
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/1 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/2 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/11 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/15 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/16 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/17 other -
+foreign lab https://github.com/huang-daniel/oas-board-lab/issues/20 other -
+synced lab https://github.com/huang-daniel/oas-board-lab/issues/35 - done
+#35 [OPEN] Flat programme guard (nm-live-r2 20260921T100523Z) -> Umbrella Programme Done
+
+### foreign: poll labalias over the same board
+foreign labalias https://github.com/huang-daniel/oas-board-lab/issues/33 lab -
+foreign labalias https://github.com/huang-daniel/oas-board-lab/issues/34 lab -
+foreign labalias https://github.com/huang-daniel/oas-board-lab/issues/35 lab -
+foreign labalias https://github.com/huang-daniel/oas-board-lab/issues/38 lab -
+sub-issue reads this command: 0
+
+### decomposition records
+lab	https://github.com/huang-daniel/oas-board-lab/issues/34	done	todo	todo	-
+lab	https://github.com/huang-daniel/oas-board-lab/issues/33	done	todo	todo	-
+lab	https://github.com/huang-daniel/oas-board-lab/issues/39	done	-	-	-
+lab	https://github.com/huang-daniel/oas-board-lab/issues/38	done	done	done	-
+lab	https://github.com/huang-daniel/oas-board-lab/issues/35	done	done	done	-
+
+### full board status after run (all cards)
+#1 Umbrella Programme In Progress
+#2 Umbrella Programme Done
+#3 Done
+#4 Done
+#5 Done
+#6 Lanes
+#7 Todo
+#8 Processed
+#9 Done
+#10 Deferred
+#11 Umbrella Programme Done
+#12 Done
+#13 Done
+#14 (no status)
+#15 Umbrella Programme Done
+#16 Umbrella Programme Done
+#17 Umbrella Programme Done
+#18 (no status)
+#19 (no status)
+#20 Umbrella Programme Done
+#21 (no status)
+#22 Done
+#23 Done
+#33 Umbrella Programme
+#34 Umbrella Programme
+#35 Umbrella Programme Done
+#36 (no status)
+#37 (no status)
+#38 Umbrella Programme Done
+#39 (no status)
+scratch: /tmp/nmlive/run.YZzN

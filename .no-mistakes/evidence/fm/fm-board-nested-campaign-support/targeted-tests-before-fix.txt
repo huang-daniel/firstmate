@@ -1,0 +1,8 @@
+== test_a_programme_follows_a_nested_campaign_record_not_its_issue
+not ok - an active campaign did not move its programme in the same cycle (missing: 'synced harbourlight https://github.com/harbour-collective/app/issues/500 - in-progress')
+--- output ---
+synced harbourlight https://github.com/harbour-collective/app/issues/501 - in-progress
+== test_a_foreign_container_costs_no_sub_issue_read
+ok - a container another project records costs no sub-issue read
+== test_a_closed_child_with_an_underived_record_still_finishes_its_parent
+ok - a closed child whose record has derived nothing still counts as done

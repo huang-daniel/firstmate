@@ -1,0 +1,11 @@
+ok - a programme follows a nested campaign's derived record in the same cycle, never its open/closed bit
+ok - a closed child whose record has derived nothing still counts as done
+ok - a container another project records costs no sub-issue read
+ok - a container card follows its children's recorded states, and is silent once it matches
+ok - a container is finished by every sub-issue GitHub records under it, not by the ones firstmate created
+ok - a container with no sub-issues derives no state at all, exactly as before
+simulated GitHub failure
+board: could not move https://github.com/harbour-collective/app/issues/290 to "Big Picture Done"
+simulated GitHub failure
+ok - children that cannot be read derive nothing, report it, and are reconciled next cycle
+ok - a container's children cost one flat read per container, never a board read, and ordinary cards pay nothing
