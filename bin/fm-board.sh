@@ -474,9 +474,10 @@
 # a state is a nested container and contributes that derived state, so a
 # programme follows its campaigns without anyone closing a campaign issue by
 # hand. Any other unlinked child, including one whose record has derived nothing
-# yet, contributes done when GitHub says closed, otherwise todo. Containers are derived after every ordinary card
-# in the cycle, and a container that is itself a sub-issue of another is derived
-# before that parent, so a parent never reads a one-cycle-stale child record.
+# yet, contributes done when GitHub says closed, otherwise todo. Containers are
+# derived after every ordinary card in the cycle, and a container that is itself
+# a sub-issue of another is derived before that parent, so a parent never reads
+# a one-cycle-stale child record.
 #
 # Among contributing children, any in-progress child or a mixture of open and
 # done children derives in-progress; all done derives done; otherwise derive todo.
