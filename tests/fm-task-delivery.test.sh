@@ -723,6 +723,14 @@ EOF
     "promotion copied the scout Setup/Rules contract into Firstmate spec"
   assert_no_grep "# Setup" "$brief" \
     "promotion copied a later brief section into a Task subsection"
+  # The promoted ship instructions carry the same closeout an ordinary ship brief does.
+  FM_HOME="$home" "$BRIEF" closeout-parity proj --mode no-mistakes >/dev/null 2>&1 \
+    || fail "closeout parity ship brief should scaffold"
+  closeout_awk='/^\*\*Closeout \(required at your done report\)\.\*\*$/ { emit=1 } emit && /^# / { exit } emit { print }'
+  promoted_closeout=$(awk "$closeout_awk" "$brief")
+  [ -n "$promoted_closeout" ] || fail "promotion dropped the ship closeout section"
+  [ "$promoted_closeout" = "$(awk "$closeout_awk" "$home/data/closeout-parity/brief.md")" ] \
+    || fail "promotion closeout differs from the ship brief closeout"
 
   id=promote-nested-spec
   meta="$home/state/$id.meta"
