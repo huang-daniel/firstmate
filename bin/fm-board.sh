@@ -3643,7 +3643,7 @@ poll_lane() {
 poll_containers() {
   local board=$1 deferred=$2 dir n i pending remaining progressed
   local d_id d_issue d_container d_raw d_labels kids
-  local c_url c_issue c_canonical j project
+  local c_url c_canonical j project
   [ -s "$deferred" ] || return 0
   project=$(printf '%s' "$board" | cut -f1)
   dir=$(mktemp -d) || return 0
@@ -3665,7 +3665,7 @@ poll_containers() {
       continue
     fi
     # The canonical children this container depends on, for ordering only.
-    while IFS=$TAB read -r c_url c_issue; do
+    while IFS=$TAB read -r c_url _; do
       [ -n "$c_url" ] || continue
       c_canonical=$(issue_canonical "$c_url") || continue
       printf '%s\n' "$c_canonical"
