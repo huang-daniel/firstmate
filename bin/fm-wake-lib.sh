@@ -1205,11 +1205,13 @@ fm_firstmate_root_home() {
 # The one lock serializing Treehouse slot allocation and return for a project.
 #
 # It is anchored in the local root home's state directory so that every home on
-# this machine that can reach the same pool - the root, and each secondmate home
-# below it, including a remote-seeded home and its own local descendants -
-# derives the identical path. Its identity is the project's resolved origin, so
-# separate clones of one origin share a single lock; an origin-less local-only
-# project falls back to its own worktree top instead of failing to resolve.
+# this machine - the root, and each secondmate home below it, including a
+# remote-seeded home and its own local descendants - derives the identical path.
+# Its identity is the project's resolved origin, so separate clones of one
+# origin share a single lock even though each home now draws from its own pool
+# (fm_treehouse_home_root); that only over-serializes, never mixes pools. An
+# origin-less local-only project falls back to its own worktree top instead of
+# failing to resolve.
 fm_treehouse_project_lock_path() {  # <project-dir>
   local project=$1 root origin identity hash top
   [ -d "$project" ] || return 1
@@ -1232,21 +1234,51 @@ fm_treehouse_project_lock_path() {  # <project-dir>
   printf '%s/.treehouse-project-%s.lock\n' "$root/state" "$hash"
 }
 
+# The Treehouse root a home's own pools live under, passed as `treehouse get
+# --root` on every acquisition this home makes (bin/fm-spawn.sh and
+# bin/fm-home-seed.sh).
+#
+# Treehouse names a pool <clone-basename>-<hash of the origin URL> under its
+# root, so with one shared root every same-named clone of one upstream - the
+# primary's and each secondmate home's - lands in a single pool whose slots are
+# worktrees of whichever clone created them first. A root per home makes each
+# home's pool be built from that home's own clone. The root is keyed by the
+# home's canonical path and sits outside every home, because a seeded
+# secondmate home is itself a slot of its parent's pool and homes must not
+# nest. Pools already under the default root are simply no longer drawn from:
+# their live slots keep working and are returned by path as before.
+fm_treehouse_home_root() {  # [home]
+  local home=${1:-$FM_HOME} hash
+  [ -n "${HOME:-}" ] || return 1
+  home=$(CDPATH='' cd -- "$home" 2>/dev/null && pwd -P) || return 1
+  hash=$(printf '%s' "$home" | git hash-object --stdin 2>/dev/null) || return 1
+  printf '%s/.firstmate-treehouse/%s-%s\n' "$HOME" "$(basename "$home")" "${hash:0:12}"
+}
+
+# True when <worktree> is a checkout of <project>'s own repository: both share
+# one Git common directory. A copy handed out from another clone - another
+# home's pool slot included - never passes, however alike the two clones are.
+fm_worktree_of_project() {  # <project-dir> <worktree>
+  local project=$1 worktree=$2 project_common worktree_common
+  [ -d "$project" ] && [ -d "$worktree" ] || return 1
+  project_common=$(git -C "$project" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
+  worktree_common=$(git -C "$worktree" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
+  project_common=$(CDPATH='' cd -- "$project_common" 2>/dev/null && pwd -P) || return 1
+  worktree_common=$(CDPATH='' cd -- "$worktree_common" 2>/dev/null && pwd -P) || return 1
+  [ "$project_common" = "$worktree_common" ]
+}
+
 # A Treehouse slot has the managed pool's fixed <pool>/<slot>/<repo> layout.
 # Require both its pool state and the same Git common directory as the recorded
 # project; an ordinary linked worktree is not evidence that Treehouse owns it.
 fm_treehouse_pool_slot() {  # <project-dir> <worktree>
-  local project=$1 worktree=$2 slot pool state project_common slot_common
+  local project=$1 worktree=$2 slot pool state
   [ -d "$project" ] && [ -d "$worktree" ] || return 1
   slot=$(CDPATH='' cd -- "$worktree" 2>/dev/null && pwd -P) || return 1
   pool=$(dirname "$(dirname "$slot")")
   state="$pool/treehouse-state.json"
   [ -f "$state" ] && [ ! -L "$state" ] || return 1
-  project_common=$(git -C "$project" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
-  slot_common=$(git -C "$slot" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
-  project_common=$(CDPATH='' cd -- "$project_common" 2>/dev/null && pwd -P) || return 1
-  slot_common=$(CDPATH='' cd -- "$slot_common" 2>/dev/null && pwd -P) || return 1
-  [ "$project_common" = "$slot_common" ]
+  fm_worktree_of_project "$project" "$slot"
 }
 
 # Slot-owner claim: which task a Treehouse pool slot currently belongs to.

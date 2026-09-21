@@ -3849,7 +3849,13 @@ if [ "$RELAUNCH" -eq 1 ]; then
   fi
   [ "$KIND" = secondmate ] || validate_spawn_worktree "relaunch" "$T"
 elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
-  spawn_send_text_line "$WT_TARGET" 'treehouse get'
+  # Draw from this home's own pool, never the pool another home's clone of the
+  # same upstream built (fm_treehouse_home_root owns why).
+  treehouse_root=$(fm_treehouse_home_root "$FM_HOME") || {
+    echo "error: could not resolve this home's Treehouse pool root for '$FM_HOME'; refusing to acquire a worktree from a pool another home may own" >&2
+    exit 1
+  }
+  spawn_send_text_line "$WT_TARGET" "treehouse get --root '${treehouse_root//\'/\'\\\'\'}'"
 
   # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
   # Target the stable window id, not the name: if the name is ever lost (e.g. an
@@ -3909,6 +3915,10 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   fi
 
   validate_spawn_worktree "treehouse get" "$T"
+  if ! fm_worktree_of_project "$PROJ_ABS" "$WT"; then
+    echo "error: treehouse get yielded '$WT', which is not a copy of this home's clone '$PROJ_ABS' (another clone's pool slot); refusing to launch in another home's worker copy. Inspect target $T" >&2
+    exit 1
+  fi
 
   # Claim the pool slot for this task. The interactive `treehouse get` sent to
   # the pane above records only a process lease (Treehouse's durable

@@ -4,7 +4,8 @@
 # Usage:
 #   fm-home-seed.sh <id> <home|-> {<project>...|--no-projects}
 #       Provision <home> as an isolated firstmate home. If <home> is "-", acquire
-#       a fresh firstmate worktree via "treehouse get --lease", which durably
+#       a fresh firstmate worktree from this home's own pool via
+#       "treehouse get --lease --root", which durably
 #       leases the worktree under the secondmate <id> so the home survives with
 #       no live process and is never recycled until the lease is released with
 #       "treehouse return". Projects are cloned
@@ -388,12 +389,17 @@ seeded_origin_url() {
 }
 
 acquire_treehouse_home() {
-  local id=$1 home
-  # Durably lease a firstmate worktree from the pool. The lease persists with no
-  # live process and is skipped by later get/prune, so the home survives restarts
-  # until teardown or rollback returns it. treehouse prints only the worktree path
-  # to stdout (banners go to stderr), so command substitution captures the path.
-  home=$(cd "$FM_ROOT" && treehouse get --lease --lease-holder "$id") || {
+  local id=$1 home root
+  # Durably lease a firstmate worktree from this home's own pool
+  # (fm_treehouse_home_root). The lease persists with no live process and is
+  # skipped by later get/prune, so the home survives restarts until teardown or
+  # rollback returns it. treehouse prints only the worktree path to stdout
+  # (banners go to stderr), so command substitution captures the path.
+  root=$(fm_treehouse_home_root "$FM_HOME") || {
+    echo "error: could not resolve the Treehouse pool root for home $FM_HOME" >&2
+    return 1
+  }
+  home=$(cd "$FM_ROOT" && treehouse get --lease --root "$root" --lease-holder "$id") || {
     echo "error: treehouse get --lease failed to lease a firstmate home" >&2
     return 1
   }
