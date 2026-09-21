@@ -470,11 +470,11 @@
 # A child with an issue-to-task link contributes LINK_DESIRED, regardless of who
 # created it. Linked states outside todo/processed/queued, in-progress, and done
 # are excluded, so withdrawn work does not prevent completion. An unlinked child
-# holding a decomposition record of its own under this project is a nested
-# container and contributes that record's derived state, todo until it has
-# derived one, so a programme follows its campaigns without anyone closing a
-# campaign issue by hand. Any other unlinked child contributes done when GitHub
-# says closed, otherwise todo. Containers are derived after every ordinary card
+# holding a decomposition record of its own under this project that has derived
+# a state is a nested container and contributes that derived state, so a
+# programme follows its campaigns without anyone closing a campaign issue by
+# hand. Any other unlinked child, including one whose record has derived nothing
+# yet, contributes done when GitHub says closed, otherwise todo. Containers are derived after every ordinary card
 # in the cycle, and a container that is itself a sub-issue of another is derived
 # before that parent, so a parent never reads a one-cycle-stale child record.
 #
@@ -3632,7 +3632,8 @@ poll_lane() {
 # poll_containers <board-row> <deferred-file>
 # The cycle's second pass, over every container card the first pass set aside
 # as `card-id<TAB>issue<TAB>container-state<TAB>raw-status<TAB>labels`. Each
-# container's sub-issues are read exactly once, up front, and the containers are
+# of this project's containers has its sub-issues read exactly once, up front,
+# and a container another project records is read not at all. They are
 # then derived children before parents under PARENT STATUS above: a container
 # that is itself a sub-issue of another container in this pass is derived
 # first, so the parent reads the child's record as this cycle derived it. Any
@@ -3641,8 +3642,9 @@ poll_lane() {
 poll_containers() {
   local board=$1 deferred=$2 dir n i pending remaining progressed
   local d_id d_issue d_container d_raw d_labels kids
-  local c_url c_issue c_canonical j
+  local c_url c_issue c_canonical j project
   [ -s "$deferred" ] || return 0
+  project=$(printf '%s' "$board" | cut -f1)
   dir=$(mktemp -d) || return 0
   n=0
   while IFS=$TAB read -r d_id d_issue d_container d_raw d_labels; do
@@ -3652,6 +3654,10 @@ poll_containers() {
       "$d_id" "$d_issue" "$d_container" "$d_raw" "$d_labels" > "$dir/$n.row"
     # The one read this container costs; a failure is remembered by the absence
     # of its file so the derivation reports it exactly where it always did.
+    # A container another project records is reported foreign without it.
+    if decomps_find "$d_issue" >/dev/null && [ "$DECOMP_PROJECT" != "$project" ]; then
+      continue
+    fi
     kids="$dir/$n.kids"
     if ! issue_sub_issues "$d_issue" "$kids"; then
       rm -f "$kids"
@@ -3762,12 +3768,12 @@ poll_container() {
       child_url=$(issue_canonical "$child_url") || continue
       if links_find issue "$child_url" >/dev/null; then
         child_state=$LINK_DESIRED
-      elif decomps_find "$child_url" >/dev/null && [ "$DECOMP_PROJECT" = "$project" ]; then
+      elif decomps_find "$child_url" >/dev/null && [ "$DECOMP_PROJECT" = "$project" ] \
+        && [ "$DECOMP_DESIRED" != - ]; then
         # A nested container: its own derived state stands in for the
         # open/closed bit, which never changes until someone closes the issue by
-        # hand. Not yet derived is not yet started.
+        # hand.
         child_state=$DECOMP_DESIRED
-        [ "$child_state" != - ] || child_state=todo
       elif [ "$child_issue" = closed ]; then
         child_state='done'
       else

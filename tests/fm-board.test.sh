@@ -2054,6 +2054,57 @@ test_a_programme_follows_a_nested_campaign_record_not_its_issue() {
   pass "a programme follows a nested campaign's derived record in the same cycle, never its open/closed bit"
 }
 
+# A record that has derived nothing says nothing about the work, so the child's
+# open/closed bit still decides: an ordinary issue once marked decomposed and
+# later closed must not hold its programme short of done forever.
+test_a_closed_child_with_an_underived_record_still_finishes_its_parent() {
+  local home programme child out
+  home=$(new_home a_closed_child_with_an_underived_record_still_finishes_its_parent)
+  big_picture_board "$home"
+  programme=https://github.com/harbour-collective/app/issues/520
+  child=https://github.com/harbour-collective/app/issues/521
+  item "$home" PVTI_p Issue "$programme" 'Big Picture Todo' firstmate - 'Roadmap' -
+  sub_issue "$home" "$child" "$programme" closed
+  board "$home" decomposed harbourlight "$child" >/dev/null
+  board "$home" decomposed harbourlight "$programme" >/dev/null
+  assert_contains "$(board "$home" decompositions)" "$child	done	-	" \
+    "the fixture's child record derived a state, so it proves nothing"
+
+  out=$(board "$home" poll)
+  assert_contains "$out" "synced harbourlight $programme - done" \
+    "a closed child whose record derived nothing held its programme short of done"
+  pass "a closed child whose record has derived nothing still counts as done"
+}
+
+# A container another project records is reported foreign and never derived
+# here, so reading its sub-issues would spend a call on nothing.
+test_a_foreign_container_costs_no_sub_issue_read() {
+  local home parent out
+  home=$(new_home a_foreign_container_costs_no_sub_issue_read)
+  big_picture_board "$home"
+  cat >> "$home/config/boards" <<'EOF2'
+
+project = tidewheel
+owner = personal-account
+number = 91
+big-picture-todo = Big Picture Todo
+big-picture-in-progress = Big Picture In Progress
+big-picture-done = Big Picture Done
+EOF2
+  parent=https://github.com/harbour-collective/app/issues/530
+  item "$home" PVTI_p Issue "$parent" 'Big Picture Todo' firstmate - 'Roadmap' -
+  sub_issue "$home" https://github.com/harbour-collective/app/issues/531 "$parent" open
+  board "$home" decomposed harbourlight "$parent" >/dev/null
+
+  : > "$home/calls"
+  out=$(board "$home" poll)
+  assert_contains "$out" "foreign tidewheel $parent harbourlight -" \
+    "a container another project records was not reported foreign"
+  assert_equals 1 "$(grep -c 'sub_issues' "$home/calls" || true)" \
+    "a foreign container cost a sub-issue read"
+  pass "a container another project records costs no sub-issue read"
+}
+
 test_a_container_with_no_sub_issues_derives_nothing() {
   local home parent out
   home=$(new_home a_container_with_no_sub_issues_derives_nothing)
@@ -2850,6 +2901,8 @@ test_child_add_converges_instead_of_filing_a_second_issue
 test_a_container_card_follows_its_children
 test_a_container_follows_every_sub_issue_github_records
 test_a_programme_follows_a_nested_campaign_record_not_its_issue
+test_a_closed_child_with_an_underived_record_still_finishes_its_parent
+test_a_foreign_container_costs_no_sub_issue_read
 test_a_container_with_no_sub_issues_derives_nothing
 test_children_that_cannot_be_read_derive_nothing_and_say_so
 test_a_container_costs_one_flat_read_and_never_a_board_read
