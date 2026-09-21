@@ -110,7 +110,7 @@ fm_nm_head_matches_worktree() {  # <worktree> <run_head>
 # field as well, which fm_nm_run_is_active below checks directly.
 fm_nm_run_status_class() {  # <status_word>
   case "${1:-}" in
-    completed|failed|cancelled) printf 'terminal' ;;
+    completed|failed|cancelled|ci_monitor_interrupted) printf 'terminal' ;;
     pending|running)            printf 'live' ;;
     *)                          printf 'unknown' ;;
   esac
@@ -193,7 +193,7 @@ fm_nm_select_run() {  # <branch> <axi-overview> <worktree>
       }
       if (first == "") { first = id; first_status = st }
       if (st == "running" || st == "pending") live++
-      if (st !~ /^(pending|running|completed|failed|cancelled)$/) unknown_status = 1
+      if (st !~ /^(pending|running|completed|failed|cancelled|ci_monitor_interrupted)$/) unknown_status = 1
       next
     }
     inrows { inrows = 0 }
@@ -349,9 +349,9 @@ fm_nm_run_is_parked() {  # <toon-output>
 # daemon-down probe for exactly that reason.
 # All four accepted words reach here on BOTH surfaces. The overview table
 # fm_nm_select_run validates carries a narrower column
-# (pending|running|completed|failed|cancelled, :196), but that column is not
-# what this predicate reads: the selected-run route re-reads the run by id and
-# passes that DETAIL object, whose own vocabulary check admits `fixing` and `ci`
+# (pending|running|completed|failed|cancelled|ci_monitor_interrupted, :196),
+# but that column is not what this predicate reads: the selected-run route
+# re-reads the run by id and passes that DETAIL object, whose own vocabulary check admits `fixing` and `ci`
 # as live, and the legacy bare-status route passes the same detail shape.
 # Dropping them would report a fix round or a ci wait as idle, which is the
 # misreport this predicate exists to prevent.
