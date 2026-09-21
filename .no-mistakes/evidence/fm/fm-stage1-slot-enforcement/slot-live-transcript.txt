@@ -1,0 +1,96 @@
+
+===== S1 read against the REAL shared database (read-only, default NM_HOME) =====
+$ fm-validation-slot.sh read https://github.com/overheadautomationsolutions/overhead-automation-solutions.git
+occupied 0
+$ fm-validation-slot.sh read git@github.com:OverheadAutomationSolutions/overhead-automation-solutions
+occupied 0
+$ fm-validation-slot.sh read https://github.com/huang-daniel/firstmate.git
+occupied 2
+01M31N45EVPPNT9H86YPTFKQZ9 222d8f0053d8 fm/fm-board-nested-campaign-support running parked_s=235 quiet_s=235
+01M31NR1WE926823DTCX3DYX05 222d8f0053d8 fm/fm-stage1-slot-enforcement running parked_s=0 quiet_s=0
+
+===== S2 admit refuses without writing when the real daemon reports not running (NM_HOME snapshot has no daemon) =====
+fm-validation-slot: the no-mistakes daemon is not running; active runs are unowned until it restarts, so nothing was admitted
+rc=1
+--- /tmp/fm-slot-live.L2EW/primary/state/t-down.status:
+(absent)
+real daemon:   ● daemon running (pid 4030798)
+
+===== S3 one OAS run active (oas-ops clone row) + 2 firstmate runs active: OAS admit grants 1 of 2 =====
+occupied 1
+run-oas-1 2fd9ba8e857e oas/feature-1 running parked_s=0 quiet_s=0
+occupied 2
+
+===== S4 simultaneous admits from two different homes (primary crew vs oas-ops crew): exactly one may grant =====
+[primary t-prim]
+waiting t-prim (admission in progress)
+rc=3
+[oas-ops t-ops]
+occupied 1
+run-oas-1 2fd9ba8e857e oas/feature-1 running parked_s=0 quiet_s=1
+granted t-ops (1 of 2 occupied)
+rc=0
+--- /tmp/fm-slot-live.L2EW/primary/state/t-prim.status:
+paused [at=1789984642]: waiting for a validation slot (admission in progress)
+--- /tmp/fm-slot-live.L2EW/oas-ops/state/t-ops.status:
+working [at=1789984632]: validation slot granted (1 of 2 occupied)
+shared lock present while grant unconsumed: /tmp/fm-slot-live.L2EW/nm/.validation-slot.lock
+granted: oas-ops/t-ops
+
+===== S5 while the grant is unconsumed, a third home (oas-web) cannot be admitted =====
+waiting t-web (admission in progress)
+rc=3
+--- /tmp/fm-slot-live.L2EW/oas-web/state/t-web.status:
+paused [at=1789984653]: waiting for a validation slot (admission in progress)
+
+===== S6 granted run's row appears (fails fast -> already terminal): hold releases; OAS now 2 active? count, third still blocked =====
+lock after row appeared: released
+occupied 2
+run-oas-1 2fd9ba8e857e oas/feature-1 running parked_s=0 quiet_s=23
+run-oas-2 70bbba7d8a04 oas/ops running parked_s=0 quiet_s=1
+occupied 2
+run-oas-1 2fd9ba8e857e oas/feature-1 running parked_s=0 quiet_s=24
+run-oas-2 70bbba7d8a04 oas/ops running parked_s=0 quiet_s=2
+waiting t-web (2 of 2 occupied)
+rc=3  (wait line not duplicated:)
+--- /tmp/fm-slot-live.L2EW/oas-web/state/t-web.status:
+paused [at=1789984653]: waiting for a validation slot (admission in progress)
+
+===== S7 firstmate-repository run coexists: firstmate admit is independent of the OAS ceiling =====
+occupied 2
+01M31N45EVPPNT9H86YPTFKQZ9 222d8f0053d8 fm/fm-board-nested-campaign-support running parked_s=262 quiet_s=262
+01M31NR1WE926823DTCX3DYX05 222d8f0053d8 fm/fm-stage1-slot-enforcement running parked_s=0 quiet_s=27
+granted t-fm (2 of 3 occupied)
+rc=0
+
+===== S8 one OAS run ends as ci_monitor_interrupted: slot frees and oas-web is granted; fast-terminal consumption releases hold =====
+occupied 1
+run-oas-2 70bbba7d8a04 oas/ops running parked_s=0 quiet_s=4
+granted t-web (1 of 2 occupied)
+rc=0
+--- /tmp/fm-slot-live.L2EW/oas-web/state/t-web.status:
+paused [at=1789984653]: waiting for a validation slot (admission in progress)
+working [at=1789984657]: validation slot granted (1 of 2 occupied)
+lock after fast-failed row: released
+fm_nm_run_status_class ci_monitor_interrupted -> terminal
+fm_nm_run_status_class running -> live
+fm_nm_run_status_class failed -> terminal
+fm_nm_run_status_class bogus -> unknown
+
+===== S9 primary runs admit for a secondmate task without FM_HOME of the owning home: refused, nothing written =====
+fm-validation-slot: no /tmp/fm-slot-live.L2EW/primary/state/t-ops.meta: run admit with FM_HOME set to the home that owns t-ops
+rc=1
+--- /tmp/fm-slot-live.L2EW/primary/state/t-ops.status:
+(absent)
+
+===== S10 lapse: grant never consumed within --wait-secs 3 -> note line, lock released =====
+occupied 0
+granted t-lapse (0 of 2 occupied)
+rc=0
+--- /tmp/fm-slot-live.L2EW/oas-web/state/t-lapse.status:
+working [at=1789984659]: validation slot granted (0 of 2 occupied)
+note [at=1789984662]: validation slot grant lapsed unconsumed after 3s
+lock: released
+
+===== real DB untouched check =====
+occupied 0
