@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Behavior tests for bin/fm-validation-slot.sh: per-repository occupancy read
-# from a temporary pipeline state database, and the admit grant, wait, and
-# dead-daemon refusal paths.
+# from a temporary pipeline state database, the admit grant, hold, lapse,
+# cross-home mutex, wait, and dead-daemon refusal paths, and the shared run
+# library's terminal classification of ci_monitor_interrupted.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -113,7 +114,7 @@ test_admit_grants_below_ceiling() {
   assert_equals "working" "$(status_line_verb "$line")" "grant line parses as working"
   status_line_at_epoch "$line" >/dev/null || fail "grant line carries a parseable at= stamp: $line"
   assert_contains "$line" "validation slot granted (1 of 2 occupied)" "grant line text"
-  assert_absent "$STATE/.validation-slot.lock" "mutex released when no hold is requested"
+  assert_absent "$NM_HOME/.validation-slot.lock" "mutex released when no hold is requested"
   pass "admit grants at 1 occupied and records a parseable working event"
 }
 
@@ -124,7 +125,7 @@ test_admit_hold_releases_when_row_appears() {
   printf 'branch=fm/t2\n' > "$STATE/t2.meta"
   "$SLOT" admit t2 "$OAS" --wait-secs 30 >/dev/null 2>&1; rc=$?
   expect_code 0 "$rc" "admit at 0 occupied"
-  [ -L "$STATE/.validation-slot.lock" ] || [ -d "$STATE/.validation-slot.lock" ] \
+  [ -L "$NM_HOME/.validation-slot.lock" ] || [ -d "$NM_HOME/.validation-slot.lock" ] \
     || fail "grant keeps the mutex held until the admitted run is visible"
   "$SLOT" admit t3 "$OAS" --branch fm/t3 --wait-secs 0 >/dev/null 2>&1 &
   local waiter=$!
@@ -132,7 +133,7 @@ test_admit_hold_releases_when_row_appears() {
   kill -0 "$waiter" 2>/dev/null || fail "a concurrent admission waits for the held mutex"
   run_row run-t2 clone2 fm/t2 pending
   for i in $(seq 1 20); do
-    [ -e "$STATE/.validation-slot.lock" ] || [ -L "$STATE/.validation-slot.lock" ] || break
+    [ -e "$NM_HOME/.validation-slot.lock" ] || [ -L "$NM_HOME/.validation-slot.lock" ] || break
     sleep 0.5
   done
   wait "$waiter"; rc=$?
@@ -161,7 +162,7 @@ test_admit_waits_at_ceiling() {
   expect_code 3 "$rc" "repeat admit at 2 occupied"
   assert_equals 1 "$(grep -c 'waiting for a validation slot' "$STATE/t4.status")" \
     "a repeated wait does not append a second wait event"
-  assert_absent "$STATE/.validation-slot.lock" "mutex released after a wait"
+  assert_absent "$NM_HOME/.validation-slot.lock" "mutex released after a wait"
   pass "admit waits at 2 occupied with a parseable paused event"
 }
 
@@ -173,8 +174,84 @@ test_admit_refuses_when_daemon_down() {
   expect_code 1 "$rc" "admit with the daemon down"
   assert_contains "$out" "daemon is not running" "refusal names the daemon"
   assert_absent "$STATE/t5.status" "refusal writes no status event"
-  assert_absent "$STATE/.validation-slot.lock" "refusal takes no mutex"
+  assert_absent "$NM_HOME/.validation-slot.lock" "refusal takes no mutex"
   pass "admit refuses without writing when the daemon is down"
+}
+
+wait_lock_gone() {  # <tries>
+  local i
+  for i in $(seq 1 "$1"); do
+    [ -e "$NM_HOME/.validation-slot.lock" ] || [ -L "$NM_HOME/.validation-slot.lock" ] || return 0
+    sleep 0.5
+  done
+  return 1
+}
+
+test_admit_mutex_is_shared_across_homes() {
+  local rc other=$TMP_ROOT/other-home waiter
+  reset_db
+  run_row run-a clone1 fm/a running
+  touch "$FAKE_NM_DAEMON_UP"
+  mkdir -p "$other/state"
+  "$SLOT" admit t6 "$OAS" --branch fm/t6 --wait-secs 30 >/dev/null 2>&1; rc=$?
+  expect_code 0 "$rc" "primary-home admit at 1 occupied"
+  FM_HOME=$other "$SLOT" admit t7 "$OAS" --branch fm/t7 --wait-secs 0 >/dev/null 2>&1 &
+  waiter=$!
+  sleep 1
+  kill -0 "$waiter" 2>/dev/null || fail "another home's admission waits for the shared mutex"
+  run_row run-t6 clone2 fm/t6 pending
+  wait_lock_gone 20 || fail "hold released after the admitted run's row appeared"
+  wait "$waiter"; rc=$?
+  expect_code 3 "$rc" "the other home's admission sees 2 occupied"
+  assert_contains "$(last_status_line "$other/state/t7.status")" "waiting for a validation slot (2 of 2 occupied)" \
+    "the other home's request waits instead of starting a third run"
+  pass "every home admits under one shared mutex beside the state database"
+}
+
+test_admit_hold_ends_when_task_leaves_granted_state() {
+  local rc
+  reset_db
+  touch "$FAKE_NM_DAEMON_UP"
+  rm -f "$STATE/t8.status"
+  "$SLOT" admit t8 "$OAS" --branch fm/t8 --wait-secs 30 >/dev/null 2>&1; rc=$?
+  expect_code 0 "$rc" "admit at 0 occupied"
+  [ -L "$NM_HOME/.validation-slot.lock" ] || [ -d "$NM_HOME/.validation-slot.lock" ] \
+    || fail "grant keeps the mutex held"
+  printf '%s\n' "$(status_stamp_line "failed: worker lost")" >> "$STATE/t8.status"
+  wait_lock_gone 20 || fail "hold released once the task left its granted state"
+  assert_not_contains "$(cat "$STATE/t8.status")" "lapsed" "a left grant is not reported as lapsed"
+  pass "grant hold ends when the task's latest event is no longer the grant"
+}
+
+test_admit_hold_lapses_unconsumed() {
+  local rc line
+  reset_db
+  touch "$FAKE_NM_DAEMON_UP"
+  rm -f "$STATE/t9.status"
+  "$SLOT" admit t9 "$OAS" --branch fm/t9 --wait-secs 2 >/dev/null 2>&1; rc=$?
+  expect_code 0 "$rc" "admit at 0 occupied"
+  wait_lock_gone 20 || fail "hold released at its bound"
+  line=$(last_status_line "$STATE/t9.status")
+  assert_equals "note" "$(status_line_verb "$line")" "lapse line parses as a note"
+  status_line_at_epoch "$line" >/dev/null || fail "lapse line carries a parseable at= stamp: $line"
+  assert_contains "$line" "validation slot grant lapsed unconsumed after 2s" "lapse line text"
+  pass "an unconsumed grant lapses at its bound with a note event"
+}
+
+test_ci_monitor_interrupted_is_terminal() {
+  local overview out
+  out=$(. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_run_status_class ci_monitor_interrupted)
+  assert_equals "terminal" "$out" "ci_monitor_interrupted classifies as terminal"
+  overview='count: 2 of 2 total
+runs[2]{id,branch,status,head,pr}:
+  01NEW,fm/x,ci_monitor_interrupted,abc1234,""
+  01OLD,fm/x,failed,abc1234,""'
+  out=$(. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_select_run fm/x "$overview" "$TMP_ROOT")
+  assert_equals "selected|01NEW|ci_monitor_interrupted|01NEW, 01OLD" "$out" \
+    "an overview row in ci_monitor_interrupted is selected, not flagged unknown"
+  out=$(. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_select_run fm/x "${overview/ci_monitor_interrupted/mystery}" "$TMP_ROOT")
+  assert_contains "$out" "unknown|unrecognized run status" "an unlisted status is still flagged unknown"
+  pass "ci_monitor_interrupted is a terminal run status in the shared run library"
 }
 
 test_read_unions_clones_and_counts_only_active
@@ -182,3 +259,7 @@ test_admit_grants_below_ceiling
 test_admit_hold_releases_when_row_appears
 test_admit_waits_at_ceiling
 test_admit_refuses_when_daemon_down
+test_admit_mutex_is_shared_across_homes
+test_admit_hold_ends_when_task_leaves_granted_state
+test_admit_hold_lapses_unconsumed
+test_ci_monitor_interrupted_is_terminal

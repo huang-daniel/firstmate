@@ -7,8 +7,9 @@
 #   fm-validation-slot.sh admit <task-id> <upstream-url> [--ceiling N]
 #       [--wait-secs N] [--poll-secs N] [--branch NAME]
 #
-# The SUPERVISING firstmate runs `admit` immediately before it sends a worker
-# the pipeline trigger; a worker never runs it.
+# The primary firstmate runs `admit` for every pipeline start on a project
+# with a validation ceiling, whichever home owns the crew, immediately before
+# the worker is sent the pipeline trigger; a worker never runs it.
 #
 # Occupancy is derived, never stored. The pipeline daemon keys runs to a clone
 # path, not to a repository, so one repository can own several `repos` rows
@@ -30,10 +31,13 @@
 # `admit` first requires `no-mistakes daemon status` to report the daemon
 # running: with the daemon down every active row is unowned until the next
 # daemon start reconciles it, so the helper refuses and writes nothing. It
-# then takes this home's admission mutex ($FM_HOME/state/.validation-slot.lock,
-# the portable lock from bin/fm-wake-lib.sh, since flock is absent on macOS)
-# so two simultaneous requests cannot both read one free slot, and runs the
-# read. Below the ceiling (default 2) it appends to state/<task-id>.status
+# then takes the admission mutex every home shares
+# (NM_HOME/.validation-slot.lock beside state.sqlite, the portable lock from
+# bin/fm-wake-lib.sh, since flock is absent on macOS) so two simultaneous
+# requests cannot both read one free slot, and runs the read. A mutex another
+# admission still holds after 10 seconds counts as a wait (the note reads
+# `admission in progress`). Below the ceiling (default 2) it appends to
+# state/<task-id>.status
 #   working [at=<epoch>]: validation slot granted (<n> of <ceiling> occupied)
 # and exits 0. At or above it, it appends
 #   paused [at=<epoch>]: waiting for a validation slot (<n> of <ceiling> occupied)
@@ -46,14 +50,18 @@
 # which happens after this command returns and the caller sends the trigger.
 # So a grant hands the mutex to a detached holder process that keeps it until
 # a pending or running row created at or after the grant is visible for the
-# task's branch under one of the matched repo ids, or --wait-secs (default
-# 60; 0 releases at once) elapses. The branch comes from --branch or the
-# task's state/<task-id>.meta `branch=` line. A holder that dies leaves a
-# lock the next admission reclaims through the lock's dead-owner recovery.
+# task's branch under one of the matched repo ids, or the task's latest
+# status event is no longer its grant line, or --wait-secs (default 1800;
+# 0 releases at once) elapses. A hold that runs out unconsumed appends
+#   note [at=<epoch>]: validation slot grant lapsed unconsumed after <n>s
+# and the task must be admitted again before its trigger. The branch comes
+# from --branch or the task's state/<task-id>.meta `branch=` line. A holder
+# that dies leaves a lock the next admission reclaims through the lock's
+# dead-owner recovery.
 #
 # Exit codes: 0 read printed or slot granted; 1 refused (daemon not running,
-# database unreadable, no branch, mutex unavailable); 2 usage; 3 no slot
-# free, retry later. Nothing here writes slot state, touches the daemon, or
+# database unreadable, no branch, mutex unusable); 2 usage; 3 no slot free,
+# retry later. Nothing here writes slot state, touches the daemon, or
 # changes any database row.
 set -u
 
@@ -66,7 +74,8 @@ export STATE
 # shellcheck source=bin/fm-nm-run-lib.sh
 . "$SCRIPT_DIR/fm-nm-run-lib.sh"
 
-SLOT_LOCK="$STATE/.validation-slot.lock"
+SLOT_LOCK="${NM_HOME:-$HOME/.no-mistakes}/.validation-slot.lock"
+SLOT_MUTEX_WAIT=10
 SLOT_WAIT_RC=3
 SLOT_POLL_INTERVAL=${FM_VALIDATION_SLOT_POLL_INTERVAL:-5}
 
@@ -168,14 +177,14 @@ append_status() {  # <task-id> <line>
 
 # Hand the held mutex to a detached holder process, which releases it once
 # the admitted run's row is visible or the hold bound passes.
-hand_off_hold() {  # <upstream-url> <branch> <since-epoch> <hold-secs>
+hand_off_hold() {  # <task-id> <upstream-url> <branch> <since-epoch> <hold-secs> <grant-line>
   local ownerdir holder
   if [ -L "$SLOT_LOCK" ]; then
     ownerdir=$(fm_lock_link_owner "$SLOT_LOCK") || return 1
   else
     ownerdir=$SLOT_LOCK
   fi
-  bash "$SCRIPT_DIR/fm-validation-slot.sh" _hold "$1" "$2" "$3" "$(( $(date +%s) + $4 ))" \
+  bash "$SCRIPT_DIR/fm-validation-slot.sh" _hold "$1" "$2" "$3" "$4" "$(( $4 + $5 ))" "$6" \
     </dev/null >/dev/null 2>&1 &
   holder=$!
   if ! printf '%s\n' "$holder" > "$ownerdir/pid" \
@@ -185,16 +194,23 @@ hand_off_hold() {  # <upstream-url> <branch> <since-epoch> <hold-secs>
   fi
 }
 
-slot_hold() {  # <upstream-url> <branch> <since-epoch> <deadline-epoch>
-  while [ "$(date +%s)" -lt "$4" ]; do
-    slot_db seen "$1" "$2" "$3" 2>/dev/null && break
+slot_hold() {  # <task-id> <upstream-url> <branch> <since-epoch> <deadline-epoch> <grant-line>
+  local settled=''
+  while [ "$(date +%s)" -lt "$5" ]; do
+    if slot_db seen "$2" "$3" "$4" 2>/dev/null \
+      || [ "$(last_status_line "$STATE/$1.status")" != "$6" ]; then
+      settled=1
+      break
+    fi
     sleep 1
   done
+  [ -n "$settled" ] || append_status "$1" "note: validation slot grant lapsed unconsumed after $(( $5 - $4 ))s"
   fm_lock_release "$SLOT_LOCK"
 }
 
 slot_admit() {
-  local task=${1:-} url=${2:-} ceiling=2 hold=60 poll=0 branch='' deadline report occupied waited=0 last
+  local task=${1:-} url=${2:-} ceiling=2 hold=1800 poll=0 branch='' deadline report occupied waited=0 last
+  local since grant why rc
   [ -n "$task" ] && [ -n "$url" ] || usage
   shift 2
   while [ "$#" -gt 0 ]; do
@@ -216,34 +232,40 @@ slot_admit() {
 
   deadline=$(( $(date +%s) + poll ))
   while :; do
-    if ! fm_lock_acquire_wait_bounded "$SLOT_LOCK" "$(( hold + 10 ))"; then
-      die "admission mutex $SLOT_LOCK is held${FM_LOCK_HELD_PID:+ by pid $FM_LOCK_HELD_PID}; retry later"
-    fi
-    if ! report=$(slot_db read "$url"); then
-      fm_lock_release "$SLOT_LOCK"
-      die "cannot read the pipeline state database"
-    fi
-    printf '%s\n' "$report"
-    occupied=$(printf '%s\n' "$report" | sed -n 's/^occupied //p' | head -n 1)
-    if [ "$occupied" -lt "$ceiling" ]; then
-      append_status "$task" "working: validation slot granted ($occupied of $ceiling occupied)"
-      if [ "$hold" -eq 0 ] || ! hand_off_hold "$url" "$branch" "$(date +%s)" "$hold"; then
+    if fm_lock_acquire_wait_bounded "$SLOT_LOCK" "$SLOT_MUTEX_WAIT"; then
+      if ! report=$(slot_db read "$url"); then
         fm_lock_release "$SLOT_LOCK"
+        die "cannot read the pipeline state database"
       fi
-      echo "granted $task ($occupied of $ceiling occupied)"
-      return 0
+      printf '%s\n' "$report"
+      occupied=$(printf '%s\n' "$report" | sed -n 's/^occupied //p' | head -n 1)
+      if [ "$occupied" -lt "$ceiling" ]; then
+        since=$(date +%s)
+        grant=$(status_stamp_line "working: validation slot granted ($occupied of $ceiling occupied)")
+        printf '%s\n' "$grant" >> "$STATE/$task.status"
+        if [ "$hold" -eq 0 ] || ! hand_off_hold "$task" "$url" "$branch" "$since" "$hold" "$grant"; then
+          fm_lock_release "$SLOT_LOCK"
+        fi
+        echo "granted $task ($occupied of $ceiling occupied)"
+        return 0
+      fi
+      fm_lock_release "$SLOT_LOCK"
+      why="$occupied of $ceiling occupied"
+    else
+      rc=$?
+      [ "$rc" -eq 124 ] || die "cannot take the admission mutex $SLOT_LOCK"
+      why="admission in progress"
     fi
     if [ "$waited" -eq 0 ]; then
       last=$(last_status_line "$STATE/$task.status")
       case "$last" in
         paused*:*"waiting for a validation slot"*) ;;
-        *) append_status "$task" "paused: waiting for a validation slot ($occupied of $ceiling occupied)" ;;
+        *) append_status "$task" "paused: waiting for a validation slot ($why)" ;;
       esac
       waited=1
     fi
-    fm_lock_release "$SLOT_LOCK"
     if [ "$(date +%s)" -ge "$deadline" ]; then
-      echo "waiting $task ($occupied of $ceiling occupied)"
+      echo "waiting $task ($why)"
       return "$SLOT_WAIT_RC"
     fi
     sleep "$SLOT_POLL_INTERVAL"
@@ -269,7 +291,7 @@ case "$verb" in
     if [ "$verb" = admit ]; then
       slot_admit "$@"
     else
-      [ "$#" -eq 4 ] || usage
+      [ "$#" -eq 6 ] || usage
       slot_hold "$@"
     fi
     ;;
