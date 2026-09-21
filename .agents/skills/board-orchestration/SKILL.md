@@ -221,17 +221,21 @@ Its tasks are filed with `child-add` for new work, or nested natively under the 
 The programme card follows its campaigns through their derived state; the PARENT STATUS contract in [`bin/fm-board.sh`](../../../bin/fm-board.sh) owns how a nested container contributes to its parent and nothing here restates it.
 
 The dispatch gate is a check firstmate performs before every spawn of a task whose issue is a campaign child: the card sits in the configured `queued` column AND its campaign is executing.
-Executing means the campaign issue does not carry the home's parked label and the campaign is within the home's executing-campaign ceiling.
+Executing means the campaign issue does not carry the home's parked label and the campaign holds one of the slots under the home's executing-campaign ceiling.
+A slot is held by an unparked campaign from the moment it is admitted (promoted and decomposed) or unparked, in that order, until it is parked or its record reaches `done`.
+A campaign admitted or unparked while every slot is held is authorized but waiting: none of its children dispatch, and firstmate reports it to the captain rather than choosing which campaign to park.
+Momentary idleness never frees a slot; only parking or completion does.
 A parked campaign remains authorized but is non-executing, frees one of the executing slots, and none of its tasks may dispatch until it is unparked.
 Parking is judgement: park only when no admitted child can make useful progress toward the finish line, never merely because one external dependency is waiting.
 This gate composes with "Board-sourced work is captain-gated" above and does not replace it; a queued campaign child has already passed that gate, and this one only asks whether its campaign is executing right now.
 
-The accepted exception: work of a declared persistent lane, and work the home's captain preferences explicitly authorize outside campaigns (for example firstmate infrastructure during a pilot), executes outside any campaign under the WIP limits those preferences record.
+The accepted exception: work of a persistent lane the home's captain preferences explicitly authorize to execute outside campaigns, each with its WIP limit named there, and other work those preferences explicitly authorize outside campaigns (for example firstmate infrastructure during a pilot), executes outside any campaign under the WIP limits those preferences record.
 This skill names the classes; the home's `data/captain.md` names the concrete items, the label, the ceiling, and each limit.
+A declared lane with no such entry and WIP limit there gets no exemption, and its work needs a campaign or an explicit authorization like any other.
 
 The ceiling, the parked label's name, and the exempt classes are the home's own captain preferences, never a `config/boards` key and never read by the adapter.
 The bridge stays blind to the label: a parked campaign's card stays wherever the bridge put it, and the label is never a divergence.
-Nothing counts executing campaigns for firstmate; the count is read from the board and the labels at each dispatch.
+Nothing counts executing campaigns for firstmate; the count at each dispatch is the number of unparked campaigns holding slots, read from the board and the labels, never a count of children in progress.
 
 The dispatch note the backlog item already carries (mode, yolo, one-line reason) also names the campaign URL and the executing count at dispatch, for example `campaign <url>, executing 1 of 2`, so the gate is auditable after the fact.
 
