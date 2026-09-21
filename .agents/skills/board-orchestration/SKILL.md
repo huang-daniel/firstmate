@@ -222,8 +222,10 @@ The programme card follows its campaigns through their derived state; the PARENT
 
 The dispatch gate is a check firstmate performs before every spawn of a task whose issue is a campaign child: the card sits in the configured `queued` column AND its campaign is executing.
 Executing means the campaign issue does not carry the home's parked label and the campaign holds one of the slots under the home's executing-campaign ceiling.
-A slot is held by an unparked campaign from the moment it is admitted (promoted and decomposed) or unparked, in that order, until it is parked or its record reaches `done`.
+Slots go to unparked campaigns in the order they were admitted (promoted and decomposed) or unparked, and a campaign holds its slot until it is parked or its record reaches `done`.
 A campaign admitted or unparked while every slot is held is authorized but waiting: none of its children dispatch, and firstmate reports it to the captain rather than choosing which campaign to park.
+When a slot frees, the earliest-waiting campaign by admission or unpark order takes it, because it was already authorized; firstmate reports the handoff to the captain and never chooses a different order.
+The captain re-authorizes nothing at a handoff and changes the order only by parking or unparking.
 Momentary idleness never frees a slot; only parking or completion does.
 A parked campaign remains authorized but is non-executing, frees one of the executing slots, and none of its tasks may dispatch until it is unparked.
 Parking is judgement: park only when no admitted child can make useful progress toward the finish line, never merely because one external dependency is waiting.
@@ -231,7 +233,7 @@ This gate composes with "Board-sourced work is captain-gated" above and does not
 
 The accepted exception: work of a persistent lane the home's captain preferences explicitly authorize to execute outside campaigns, each with its WIP limit named there, and other work those preferences explicitly authorize outside campaigns (for example firstmate infrastructure during a pilot), executes outside any campaign under the WIP limits those preferences record.
 This skill names the classes; the home's `data/captain.md` names the concrete items, the label, the ceiling, and each limit.
-A declared lane with no such entry and WIP limit there gets no exemption, and its work needs a campaign or an explicit authorization like any other.
+An authorized lane is one the home's captain preferences name with its WIP limit; work outside campaigns that no such entry covers is governed by the home's own captain preferences and, when board-sourced, by the captain gate above, which this skill does not restate or widen.
 
 The ceiling, the parked label's name, and the exempt classes are the home's own captain preferences, never a `config/boards` key and never read by the adapter.
 The bridge stays blind to the label: a parked campaign's card stays wherever the bridge put it, and the label is never a divergence.
