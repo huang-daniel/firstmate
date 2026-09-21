@@ -1,0 +1,427 @@
+FM_TEST_BEGIN 2026-09-21T08:04:39Z tests/fm-pr-merge.test.sh family=pr-forge expected_gate_skip=none
+FM_TEST_BEGIN 2026-09-21T08:04:39Z tests/fm-send-strict.test.sh family=backend-dispatch expected_gate_skip=none
+FM_TEST_BEGIN 2026-09-21T08:04:39Z tests/fm-spawn-batch.test.sh family=backend-dispatch expected_gate_skip=none
+ok - batch dispatch re-execs and reports every id=repo pair
+ok - batch detection: single pair batches, non-pair rejected, single-task and slash-id stay single
+ok - batch dispatch requires the shared ship delivery contract before any pair runs
+ok - scout batch refuses ship delivery flags instead of ignoring them
+ok - projects/ paths are scoped through the firstmate home for single-task spawn
+FM_TEST_END 2026-09-21T08:04:42Z tests/fm-spawn-batch.test.sh exit=0 duration_ms=3152 gate_skip=false
+ok - fm-send strict: exact task/lane ids resolve through home metadata
+ok - fm-send --key: exit status follows delivery, and an undelivered key never reports success
+ok - fm-send typed plane: a prefilled composer and a mid-turn invocation are each refused untyped, while plain prose, an unattributable tail and an idle worker still send
+ok - fm-send typed plane: $-prefixed prose executes nothing, so a mid-turn codex worker still takes it
+ok - fm-send typed plane: a marked secondmate request starts nothing, so a mid-turn pane still takes it
+ok - fm-send typed plane: the mid-turn refusal reaches non-tmux backends, and a native idle verdict never settles it
+ok - fm-send --key: a confirmed key send reports the key and the target it reached
+ok - fm-send typed plane: a confirmed submit is reported, and the unconfirmed path keeps its text and exit 3
+ok - fm-send strict: unset FM_HOME fails before target resolution
+ok - fm-send strict: unresolvable selectors do not fall back to tmux
+ok - fm-send strict: prefixless herdr pane ids are rejected before tmux fallback
+ok - fm-send strict: unmatched single-colon explicit targets must verify live before sending
+ok - fm-send strict: fm-prefixed Herdr sessions remain explicit backend targets
+ok - fm-send strict: healthy fm-<id> sends record the steer and ring once
+FM_TEST_END 2026-09-21T08:04:51Z tests/fm-send-strict.test.sh exit=0 duration_ms=12334 gate_skip=false
+ok - fm-pr-merge reports exact queue retry flags after a zero-exit false success
+ok - fm-pr-merge omits merge-queue retry guidance for a closed GitHub PR
+ok - fm-pr-merge aggregates agreeing merge-queue rules
+ok - fm-pr-merge reports ambiguity for conflicting merge-queue rules
+ok - fm-pr-merge records pr= and pr_head= for a verified GitHub merge
+ok - fm-pr-merge records pr= before the forge call can land the merge
+ok - fm-pr-merge propagates a real merge failure without silently succeeding
+ok - fm-pr-merge refuses a GitHub merge call that leaves the PR open and unqueued
+ok - fm-pr-merge keeps PR bookkeeping when it cannot read a successful merge call's outcome
+ok - fm-pr-merge refuses with the forge's own output quoted apart from its verdict
+ok - fm-pr-merge quotes the forge output when it cannot read the outcome either
+ok - fm-pr-merge does not echo back queue flags the caller already used
+ok - fm-pr-merge still names retry flags when the caller used a different method
+ok - fm-pr-merge names the queue requirement even when its method is unrecognised
+ok - fm-pr-merge distinguishes unreadable branch rules from a base with no merge queue
+ok - fm-pr-merge reads a plan-gated 403 on branch rules as no merge queue, not unreadable
+ok - fm-pr-merge says nothing about a merge queue when the base branch has no queue rule
+ok - fm-pr-merge accepts only a proved merge from the gh-axi fallback
+ok - fm-pr-merge explains an armed auto-merge that landed nothing on a queue-less base
+ok - fm-pr-merge never reports auto-merge as armed when the merge command failed
+ok - fm-pr-merge claims no acceptance for a failed merge command carrying queue flags
+ok - fm-pr-merge falls back to the gh-axi view when gh's read fails
+ok - fm-pr-merge names a landed state hiding behind a failed GitHub merge command
+ok - fm-pr-merge refuses a GitHub merge when gh is missing, before recording
+ok - fm-pr-merge refuses a GitHub merge when gh is missing rather than merging blind
+ok - fm-pr-merge verifies a genuinely merged GitHub pull request
+ok - fm-pr-merge refuses to claim a merge when poll recording fails
+ok - fm-pr-merge accepts and accurately reports a GitHub merge-queue entry
+ok - fm-pr-merge explains how to retry with the required GitHub merge queue method
+ok - fm-pr-merge refuses branch deletion unless --attended-override is passed
+ok - fm-pr-merge refuses before merging when task meta is missing
+ok - fm-pr-merge refuses malformed PR URLs before calling gh-axi
+ok - fm-pr-merge refuses unsafe PR URL segments before recording state
+ok - fm-pr-merge refuses repo override args before recording state
+ok - fm-pr-merge refuses a bundled short-option repo override and refuses -d unless attended
+ok - fm-pr-merge does not add default --squash when the caller passes an explicit merge method
+ok - fm-pr-merge respects --method=<value> as an explicit merge method
+ok - fm-pr-merge parses a GitHub PR URL into gh-axi number and --repo arguments
+ok - fm-pr-merge refuses a caller --sha on GitHub because the head comes from the live read
+ok - fm-pr-merge merges a GitLab merge request through glab instead of refusing it
+ok - fm-pr-merge takes the GitLab instance from the URL rather than assuming one
+ok - fm-pr-merge imposes no merge method on GitLab, leaving the project's own one
+ok - fm-pr-merge refuses GitLab source-branch deletion unless --attended-override is passed
+ok - fm-pr-merge propagates a real glab merge failure without silently succeeding
+ok - fm-pr-merge refuses on each GitLab pre-merge condition independently
+ok - fm-pr-merge reports every failing GitLab condition, not only the first
+ok - fm-pr-merge reports a stale recorded head and verifies the live one
+ok - fm-pr-merge refuses an unreadable GitLab merge request state rather than merging blind
+ok - fm-pr-merge refuses a GitLab head commit it cannot validate
+ok - fm-pr-merge refuses before recording anything when glab or jq is absent
+ok - fm-pr-merge refuses a GitLab head override before recording state
+ok - a merge a secondmate home performs itself is reported upward exactly once
+ok - a locally routed secondmate home reports the landed PR into its parent's own channel
+ok - a landed GitLab merge request is reported upward on the same channel
+ok - a queued GitLab merge stays silent and leaves confirmation to the armed poll
+ok - a refused or failed merge reports no outcome
+ok - a GitLab merge refused before the forge call reports no outcome
+ok - a merge a main home performs itself leaves one durable wake naming the PR
+ok - a queued GitHub merge stays silent and leaves confirmation to the armed poll
+ok - distinct merged PRs for one task retain distinct captain-facing wakes
+ok - an uncommitted marker retry preserves at least one durable outcome
+ok - a secondmate home that cannot report upward says so instead of merging in silence
+ok - fm-pr-merge proceeds when the home carries no backlog at all
+ok - fm-pr-merge refuses when the backlog exists but cannot be read
+ok - fm-pr-merge refuses when its configured backend cannot be read
+ok - fm-pr-merge refuses when its user backend configuration cannot be read
+ok - fm-pr-merge refuses when its user backend configuration directory cannot be traversed
+ok - fm-pr-merge proceeds once when its user configuration directory and backlog are genuinely absent
+ok - fm-pr-merge honors a backend override over an unreadable user configuration
+ok - fm-pr-merge refuses red GitHub checks and waives only a named --allow-red check
+ok - fm-pr-merge merges when a failed check run was replaced by a passing re-run
+ok - fm-pr-merge never lets a check run supersede a legacy status context
+ok - fm-pr-merge still refuses when a check's current run failed after an earlier pass
+ok - fm-pr-merge uses start order when the old success finishes last
+ok - fm-pr-merge supersedes an old cancellation that finishes last
+ok - fm-pr-merge keeps a check red while its re-run is still in flight
+ok - fm-pr-merge never lets one check's pass clear another check's failure
+ok - fm-pr-merge clears a failure only on a proven later pass of the same check
+ok - fm-pr-merge keeps --allow-red scoped to its named check beside a superseded failure
+ok - fm-pr-merge rechecks away presence before an attended red merge
+ok - fm-pr-merge accepts exactly one separately named red-check waiver
+ok - while the away-posture record exists any green merge lands under away authority, yolo or not, and attended merges stay untagged
+ok - under the away-posture record the branch merges a green task, is refused on a red check with or without --allow-red, and is refused at the partition while attended
+ok - a branch merge refuses under the lock when the away record is archived during preflight
+ok - away posture permits immediate merges but refuses every asynchronous path
+ok - away merge proceeds on a plan-gated 403 because that repository cannot have a merge queue
+ok - the away record does not bypass red checks, and a recorded pr= must match the URL
+ok - an unreadable away-posture record refuses the merge instead of skipping the record
+ok - no away-record archive or replacement lands between the authority read and the merge
+ok - a record made unreadable before the merge's own authority read refuses the merge
+ok - a merge that cannot lock the away record refuses instead of merging unlocked
+ok - fm-pr-merge refuses --allow-red on GitLab
+ok - a confirmed merge closes the originating card and attaches the PR that did it
+ok - a merge that did not land never closes the card
+ok - a task with no card reaches no board at all when its PR merges
+FM_TEST_END 2026-09-21T08:10:39Z tests/fm-pr-merge.test.sh exit=0 duration_ms=360716 gate_skip=false
+FM_TEST_BEGIN 2026-09-21T08:10:40Z tests/fm-board.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_BEGIN 2026-09-21T08:10:40Z tests/fm-ask-user-authority.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - primary workers and secondmates receive the authority rule through generated instructions
+FM_TEST_END 2026-09-21T08:10:40Z tests/fm-ask-user-authority.test.sh exit=0 duration_ms=252 gate_skip=false
+ok - boards come entirely from local configuration, and an unconfigured home has none
+ok - with no board configured the bridge reads nothing, writes nothing, and creates nothing
+ok - removing the configuration disables the bridge with no residue, and undoes nothing already done
+ok - malformed board configuration is refused with the reason, not guessed around
+ok - only a project with a configured board is mapped, and boards never cross
+ok - intake takes real issues, in the first column, carrying the configured trigger
+ok - the label is the authoritative trigger; mention and assignee stay off unless configured
+ok - one issue holds one task: repeat import is a no-op and a conflicting relink is refused
+ok - the linkage record lives with the durable fleet records and survives task cleanup
+ok - Todo, In Progress, and Done are driven by dispatch and merge, on the board's own column names
+ok - a column the adapter does not drive is reported by its own name, never adopted as a state
+ok - the working PR is attached to the issue that started the work, once
+ok - a blocker is recorded on the issue while the item stays visible where it is
+ok - a status firstmate did not write is reported and changes nothing on either side
+ok - the queued column is written from firstmate's records, and a card it did not place starts nothing
+ok - with no queued key configured the column does not exist in either direction
+ok - a withdrawn card is reported until reconciled, and never costs unlanded work
+ok - archiving a finished card is ordinary housekeeping, not a withdrawal
+ok - a closed issue withdraws work still open, and never costs unlanded work
+ok - a closed issue whose work already landed is the end of it, not a withdrawal
+ok - which way the captain withdrew the work is what the record says
+ok - board writes degrade to a stale board and reconcile on the next cycle
+ok - an unreadable board is reported and retried, never mistaken for withdrawn work
+ok - a board that answers with nothing while links are open is reported, not obeyed
+ok - a page boundary is never mistaken for absence
+ok - pagination bounds requests and preserves truncated withdrawal safety
+ok - an intake filter decides what is importable, never what is still on the board
+ok - an issue another board owns is named and left alone, never silently re-homed
+ok - an outstanding PR attachment is retried until the issue has it, then left alone
+ok - a single-card event resolves its card from the issue and never reads the board
+ok - a board with nothing to act on polls to no output, and --all still lists it
+ok - poll confirms a write the board already shows, without printing or writing
+ok - what an invocation costs is set by the work it does, never by the board's size
+ok - with no container columns configured nothing about decomposition exists
+ok - a half-configured or self-overlapping container lane is refused, never half-enabled
+ok - a labelled container is offered for decomposition, and container and task can never be the same issue
+ok - a container is decomposed once, ever, and the record outlives the work
+ok - a child is created labelled, linked to its parent, carded in Todo, and never re-imported
+simulated GitHub failure
+board: could not add https://github.com/harbour-collective/app/issues/900 to project harbour-collective/4
+ok - an interrupted child-add converges on the issue it already filed, never a second one
+ok - a container card follows its children's recorded states, and is silent once it matches
+ok - a container is finished by every sub-issue GitHub records under it, not by the ones firstmate created
+ok - a container with no sub-issues derives no state at all, exactly as before
+simulated GitHub failure
+board: could not move https://github.com/harbour-collective/app/issues/290 to "Big Picture Done"
+simulated GitHub failure
+ok - children that cannot be read derive nothing, report it, and are reconciled next cycle
+ok - a container's children cost one flat read per container, never a board read, and ordinary cards pay nothing
+simulated GitHub failure
+board: could not move https://github.com/harbour-collective/app/issues/260 to "Big Picture In Progress"
+ok - a container move that does not land leaves a stale card the next cycle reconciles
+ok - place is the inverse of import: one command, convergent, and ordinary afterwards
+ok - a card can state plainly that its change lands somewhere other than its own repository
+simulated GitHub failure
+board: could not add https://github.com/harbour-collective/app/issues/900 to project harbour-collective/4
+ok - an interrupted placement is finished on the next run, never filed twice
+ok - a check that cannot run stops the placement rather than risking a duplicate
+ok - with no processed key configured the column does not exist in either direction
+ok - internalizing a filed card moves it from the captain's inbox to firstmate's answer
+ok - a card in the inbox is left there until firstmate internalizes it, and never restatused early
+ok - work firstmate creates itself is filed already internalized, never into the captain's inbox
+ok - a card appearing in the go column unbidden is reported, never obeyed
+ok - firstmate promotes a filed card to a programme, and its children carry the work
+simulated GitHub failure
+board: could not add https://github.com/harbour-collective/app/issues/900 to project harbour-collective/4
+simulated GitHub failure
+board: could not add https://github.com/harbour-collective/app/issues/901 to project harbour-collective/4
+ok - the container-or-task judgement is made before anything binds, and cannot be reversed after
+ok - a promotion the board did not take is still a container, and the move is retried
+ok - promotion needs a configured container lane, and repeating it converges
+simulated GitHub failure
+board: could not add https://github.com/harbour-collective/app/issues/901 to project harbour-collective/4
+ok - work placed under a programme is attached to it in that same operation, through GitHub's own sub-issue relationship
+simulated GitHub failure
+board: could not add https://github.com/harbour-collective/app/issues/900 to project harbour-collective/4
+ok - a parented retry attaches a recovered parentless issue before recording the child
+ok - placing under a programme refuses loudly rather than inventing a container or re-parenting bound work
+ok - work the captain already cleared is placed as cleared, and work that is not stays internalized
+ok - a board with no go column reports the state it could file and never grows a column it did not ask for
+ok - a standing lane is never offered for decomposition or import, on any cycle
+ok - a classification is never reached over the top of another one, in either direction
+ok - a lane sitting open forever is settled, and only a card someone else moved is reported
+ok - the temporary work a lane generates is filed, carded and completed as ordinary work
+ok - a lane is reversed only by a deliberate act, and never by a cycle
+ok - with no lane column configured nothing about persistent lanes exists
+ok - work is classified in the call that files or takes it in, never afterwards
+ok - which area work belongs to is stated by the caller, never guessed here
+ok - a card left blank is named until an area is recorded, and never quietly
+ok - an area that changed with the work's scope is updated, and retried if it does not land
+ok - an area the board shows that firstmate did not write is reported, never reconciled away
+ok - an option name two fields share resolves to the field being written
+ok - the areas a board accepts come from the board, and cost one read to list
+ok - a board configuring no classification field behaves exactly as it did before one could be
+ok - a record written before this field existed reads as unclassified, not as broken
+ok - synchronizing a second field costs no extra request, per card or per cycle
+board: https://github.com/harbour-collective/app/issues/436 is not a card on project harbour-collective/4
+ok - an issue holding a link but no card is carded with the status and area already recorded
+ok - the repair binds nothing, reaches no other record, and invents no status
+board: https://github.com/harbour-collective/app/issues/428 is not a card on project harbour-collective/4
+ok - a card that could not be created is reported and exits, and one half-written is retried
+FM_TEST_END 2026-09-21T08:12:41Z tests/fm-board.test.sh exit=0 duration_ms=121541 gate_skip=false
+FM_TEST_BEGIN 2026-09-21T08:12:41Z tests/fm-teardown.test.sh family=pr-forge expected_gate_skip=none
+ok - local-only worktree with HEAD on a fork remote is torn down and the home summary is refreshed
+ok - teardown closes its own backlog item before reporting success
+ok - teardown honors config/backlog-backend=manual and still finishes cleanly
+ok - local-only worktree with truly unpushed work is refused (safety preserved)
+ok - local-only worktree with work merged into local main is torn down (no regression)
+ok - no-mistakes worktree with HEAD on origin is torn down (no regression)
+ok - no-mistakes worktree with genuinely unlanded work is refused (safety preserved)
+ok - local-only worktree with unpushed work is torn down under --force (escape hatch)
+ok - fm-pr-check publishes the PR-ready line on a secondmate's parent channel once
+ok - a secondmate home's teardown delivers the child's final line or refuses until it can
+ok - teardown completes when an exact busy-state sidecar is already absent
+ok - herdr teardown removes pane-owned escalation dedupe state
+ok - herdr flat teardown refuses before returning the isolated copy under lock contention and the retry completes cleanly
+ok - herdr flat teardown never erases records when pane presence is unparseable
+ok - herdr flat teardown preflight refuses before every destructive change
+ok - forced secondmate teardown preflights every Herdr child before cleanup mutation
+ok - forced secondmate teardown holds every descendant lifecycle and metadata lock
+ok - forced secondmate teardown retains Herdr child identity until exact pane disappearance
+ok - forced teardown retains a nested secondmate home and its grandchild's Herdr identity when the grandchild close is unconfirmed
+ok - herdr projection teardown retires its journal only after confirming the exact recorded pane is gone
+ok - herdr projection teardown retains every record when post-close presence is unknown
+ok - herdr projection teardown surfaces failed focus restoration without turning confirmed cleanup into a hard failure
+ok - squash-merged + deleted-branch worktree (PR merged) is torn down (the fix)
+ok - squash-merged PR accepts a local HEAD that is an ancestor of the final PR head
+ok - teardown discovers a merged PR by branch name and tears down when no pr= was ever recorded
+ok - squash-merged PR accepts replayed unpushed local patches contained in the PR head
+ok - merged PR does not allow teardown after a later local commit
+ok - squash-merged task whose local branch followed the pipeline rebase is torn down
+ok - squash-merged same-path different content still refuses
+ok - squash-merged rebased local still refuses a genuinely unlanded follow-up commit
+ok - squash-merged stale local still refuses when the forge is unreachable
+fm-contributions: data directory unavailable
+contributions: observation not armed; coverage is unconfirmed
+fm-contributions: data directory unavailable
+contributions: observation not armed; coverage is unconfirmed
+ok - fm-pr-check does not refresh PR head after HEAD moves
+fm-contributions: data directory unavailable
+contributions: observation not armed; coverage is unconfirmed
+ok - fm-pr-check records the remote PR head when the local worktree lags
+ok - worktree whose content already landed in the default branch is torn down (content fallback)
+ok - content fallback refreshes origin default before comparing trees
+ok - dirty worktree is refused even when its committed work has landed (dirty always wins)
+ok - gh lookup error with content not in default refuses (fail-safe)
+ok - a refused merge on a pushed branch refuses cleanup and keeps the task record
+ok - an unreadable forge on a pushed branch refuses cleanup and keeps the task record
+ok - a merge at an unexpected head refuses cleanup and keeps the task record
+ok - forced teardown retains a task whose recorded merge never happened
+ok - merged requests without expected heads retain their task records on both forges
+ok - forced teardown still discards dirty work after verifying the recorded merge
+ok - a record predating spawn_gen refuses teardown until --legacy-record is passed
+ok - a landed legacy record with a dead endpoint tears down and logs its accepted incarnation
+ok - --legacy-record never relaxes the unlanded-work refusal
+ok - an endpoint that cannot be confidently read as dead refuses --legacy-record teardown
+ok - --legacy-record teardown rolls its stamp back when the close marker write fails
+ok - a legacy stamp a failed rollback left behind still faces the endpoint gate
+ok - a corrupt spawn_gen is never accepted as a legacy record
+ok - provably-stale worktree index.lock (old, no live holder) is cleared and teardown succeeds
+ok - live-held worktree index.lock is never removed and teardown refuses
+ok - lsof errors leave worktree index.lock in place and refuse teardown
+ok - stale lock cleanup rechecks and refuses dirty worktree before return
+ok - normal repo index.lock is resolved from the worktree and cleared when stale
+ok - lock mtime read failures leave worktree index.lock in place and refuse teardown
+ok - transient index.lock cleared after first failed return is retried successfully without force-remove
+ok - persistent index.lock exhausts retries and refuses without force-removing the lock
+ok - empty retry wait overrides use the default without aborting teardown
+ok - fractional legacy retry wait remains supported without arithmetic
+ok - a task's own parked no-mistakes run is aborted, not orphaned, before the worker is removed
+ok - a parked run the pipeline advanced past the task copy is still concluded from the runs ledger, not orphaned
+ok - a ledger row for a different head never authorizes a parked-run abort
+ok - a malformed ledger row never authorizes a parked-run abort
+ok - an impossible ledger date never authorizes a parked-run abort
+ok - a terminal status with a stale gate never reaches ledger cleanup
+ok - an advanced head present locally aborts through the strict rule alone - the ledger fallback stays dormant
+ok - an unresolvable active row with no same-branch anchor is never concluded (conservative refusal)
+ok - an ancestor-only anchor never binds an advanced parked run to this task
+ok - a terminal unfetched-head row is stale history and never concludes a run
+ok - a terminal newest row anchored at this worktree's head never authorizes an abort
+ok - a resolvable diverged newer same-branch row makes every older row stale history; no run is concluded
+ok - consecutive unresolvable rows are ambiguous and never conclude a run
+ok - a ledger-proven continuation is still left alone while the run is autonomously active
+ok - teardown refuses before reap or removal when a task-owned run remains parked
+ok - a different run cannot confirm the targeted abort
+ok - empty post-abort status is not accepted as confirmation
+ok - the CLI's exact run-not-found signal confirms completion
+ok - a parked run on another branch is never aborted by this task's teardown (ownership is precise)
+ok - a task-owned autonomous running step is left alone rather than aborted
+ok - a leaked descendant process rooted under the task's worktree is reaped by teardown, not left surviving
+ok - a leaked descendant process rooted under the task's per-task tasktmp is reaped by teardown too
+ok - missing lsof falls back to reaping the tmux pane process group
+ok - an erroring lsof scan refuses teardown and preserves the task
+ok - a reused pid with a different start time is never force-killed
+ok - an exec change preserves birth identity and the process is reaped
+ok - a process spawned during grace is reaped on a later pass
+ok - persistent leaked processes refuse teardown after bounded retries
+ok - a process exiting during identity lookup does not block teardown
+ok - the run abort and the leaked-process reap both complete before the destructive worktree return
+FM_TEST_END 2026-09-21T08:15:43Z tests/fm-teardown.test.sh exit=0 duration_ms=182062 gate_skip=false
+FM_TEST_BEGIN 2026-09-21T08:15:43Z tests/fm-wake-drain-open-decisions-cursor.test.sh family=standalone expected_gate_skip=none
+FM_TEST_BEGIN 2026-09-21T08:15:43Z tests/fm-wake-drain-open-decisions.test.sh family=standalone expected_gate_skip=none
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+ok - a default-key row whose note ends in a bracketed token still closes through the answering command
+ok - a needs-decision buried under later routine/other-key lines still reports as open
+ok - an over-long open decision is cut to its per-item budget with the shared truncation marker
+ok - an explicit resolved [key=X] closes the keyed decision
+ok - a later unrelated terminal line never clears an open decision
+ok - a reserved decision key can only be opened or closed by its owning library
+ok - no open decisions across the fleet prints nothing
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 3295181.1789978556.nQRVzc
+ok - the open-decision section is fleet-wide, not scoped to this drain's own queued records
+ok - a buried open decision surfaces even when the wake queue itself is empty
+ok - the fleet-wide decision scan does not follow status symlinks
+FM_TEST_END 2026-09-21T08:15:59Z tests/fm-wake-drain-open-decisions.test.sh exit=0 duration_ms=16122 gate_skip=false
+ok - terminal supersession reaches whole-file reads, incremental drains, old caches, and captured spans
+ok - folded decisions are rebuilt when task-kind evidence changes
+ok - a truncated/rewritten log falls back to a full re-fold instead of dropping or misreading the decision
+ok - a same-size file rotation (new inode) is detected and falls back to a full re-fold
+ok - a failed presentation read preserves status state for retry
+ok - a cursor-cache read failure refolds decisions without replaying handled unread status
+ok - a pre-fix cursor is rebuilt so a previously skipped corr-tagged decision surfaces
+ok - an old fold cache is rebuilt once before same-version incremental reads resume
+ok - a buried decision survives many growing drains with bounded read cost, and resolution durably clears it at bounded cost too
+ok - the incremental fold and a single-pass fold report identical open sets at every point in a growing log
+ok - the two folds agree at every one of the 40 split offsets of a closing line, mid-line and once complete
+FM_TEST_END 2026-09-21T08:16:53Z tests/fm-wake-drain-open-decisions-cursor.test.sh exit=0 duration_ms=69431 gate_skip=false
+FM_TEST_BEGIN 2026-09-21T08:16:53Z tests/fm-send-inbox.test.sh family=backend-dispatch expected_gate_skip=none
+ok - fm-send inbox: the payload is recorded durably and only the doorbell is typed
+ok - fm-send inbox: newlines are legal and the terminal can no longer truncate a steer
+ok - fm-send inbox: resending a still-pending instruction collapses onto it and reports it
+ok - fm-send inbox: collapse identity survives a multi-line body byte-for-byte
+ok - fm-send inbox: --again still queues a deliberate repeat of the same words
+ok - fm-send inbox: a different instruction to the same target still queues separately
+ok - fm-send inbox: collapse is per target - the same instruction reaches each of two workers
+ok - fm-send inbox: handled is not pending - an acknowledged instruction queues again
+ok - fm-send inbox: --again is refused on every plane where nothing collapses
+ok - fm-send inbox: a visibly pending composer skips the ring, and the steer stays durably sent
+ok - fm-send inbox: a failed doorbell is still a durably sent steer
+ok - fm-send planes: slash and codex $skill invocations stay typed; plain $-text rides the inbox
+ok - fm-send planes: an explicit backend target keeps the typed plane
+ok - fm-send planes: the --key lifecycle path never touches the inbox
+ok - fm-send inbox: a secondmate steer records marker+corr in the body and is delivered at enqueue
+ok - fm-send inbox: lost reply bookkeeping never invites a resend, and the delivered steer is never duplicated
+ok - fm-send inbox: metadata lock contention fails bounded without enqueue
+ok - fm-send inbox: an unwritable record is a loud local failure that leaves no false expectation
+ok - fm-send: an empty or whitespace-only text steer refuses before marking, recording, or typing
+FM_TEST_END 2026-09-21T08:17:44Z tests/fm-send-inbox.test.sh exit=0 duration_ms=51080 gate_skip=false
+FM_TEST_BEGIN 2026-09-21T08:17:44Z tests/fm-send-agy-confirm.test.sh family=unclassified expected_gate_skip=none
+ok - agy typed send: no not-submitted refusal on confirmed idle-to-busy
+ok - agy typed send: sleep log shows the confirm poll running to the late busy render
+ok - agy typed send: explicit FM_SEND_RETRIES=3 keeps the exit-1 verdict=unknown refusal
+ok - agy typed send: never-rendering busy footer still refuses with verdict=unknown
+ok - agy typed send: long-brief render (15th poll) still confirms idle-to-busy
+ok - claude typed send: late busy footer still refuses (agy budget is agy-scoped)
+FM_TEST_END 2026-09-21T08:17:49Z tests/fm-send-agy-confirm.test.sh exit=0 duration_ms=4926 gate_skip=false
+FM_TEST_BEGIN 2026-09-21T08:17:49Z tests/fm-board-dispatch.test.sh family=unclassified expected_gate_skip=none
+ok - dispatching board-mapped work creates its card and marks it, in one operation
+ok - a task already on the board is moved, never filed a second time
+ok - a dispatch in a home with no configured board reads nothing, writes nothing, and files nothing
+ok - only a project with its own board stanza is ever placed on a board
+ok - a board write that cannot land leaves a stale card and never blocks a dispatch
+ok - a scout produces a report rather than a card, and places nothing on the board
+ok - a dispatch places and moves its own card and never states a go on the captain's behalf
+FM_TEST_END 2026-09-21T08:18:14Z tests/fm-board-dispatch.test.sh exit=0 duration_ms=24998 gate_skip=false
+FM_TEST_BEGIN 2026-09-21T08:18:14Z tests/fm-secret.test.sh family=unclassified expected_gate_skip=none
+ok - store path spellings preserve the manifest boundary
+ok - partial publication resumes only for identical values
+ok - quoted comments and export preserve independently extracted values
+ok - the fixtures reproduce the incident: the bare file prints its own secret
+ok - list emits credential names and no credential material
+ok - names emits no credential material for the bare, padded-bare or KEY=value shape
+ok - reveal returns each value, for both shapes, without the caller knowing the shape
+ok - reveal refuses traversal and symlinked credentials
+ok - migration closes the incident for both shapes and preserves every value
+ok - migration refuses to guess a shape it cannot tell apart without printing it
+FM_TEST_END 2026-09-21T08:18:18Z tests/fm-secret.test.sh exit=0 duration_ms=3802 gate_skip=false
+FM_TEST_SUMMARY total=12 failed=0 skipped_gate=0 duration_ms=819412
+FM_TEST_SUMMARY_FAMILY family=backend-dispatch count=3 duration_ms=66566 failed=0
+FM_TEST_SUMMARY_FAMILY family=pr-forge count=2 duration_ms=542778 failed=0
+FM_TEST_SUMMARY_FAMILY family=pure-contract-unit count=2 duration_ms=121793 failed=0
+FM_TEST_SUMMARY_FAMILY family=standalone count=2 duration_ms=85553 failed=0
+FM_TEST_SUMMARY_FAMILY family=unclassified count=3 duration_ms=33726 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-pr-merge.test.sh duration_ms=360716
+FM_TEST_SLOWEST rank=2 script=tests/fm-teardown.test.sh duration_ms=182062
+FM_TEST_SLOWEST rank=3 script=tests/fm-board.test.sh duration_ms=121541
+FM_TEST_SLOWEST rank=4 script=tests/fm-wake-drain-open-decisions-cursor.test.sh duration_ms=69431
+FM_TEST_SLOWEST rank=5 script=tests/fm-send-inbox.test.sh duration_ms=51080
+FM_TEST_SLOWEST rank=6 script=tests/fm-board-dispatch.test.sh duration_ms=24998
+FM_TEST_SLOWEST rank=7 script=tests/fm-wake-drain-open-decisions.test.sh duration_ms=16122
+FM_TEST_SLOWEST rank=8 script=tests/fm-send-strict.test.sh duration_ms=12334
+FM_TEST_SLOWEST rank=9 script=tests/fm-send-agy-confirm.test.sh duration_ms=4926
+FM_TEST_SLOWEST rank=10 script=tests/fm-secret.test.sh duration_ms=3802
+FM_TEST_SLOWEST rank=11 script=tests/fm-spawn-batch.test.sh duration_ms=3152
+FM_TEST_SLOWEST rank=12 script=tests/fm-ask-user-authority.test.sh duration_ms=252

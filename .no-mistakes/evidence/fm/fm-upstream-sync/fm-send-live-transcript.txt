@@ -1,0 +1,44 @@
+# isolated FM_HOME=/tmp/tmp.w17N8o3CEu/home, private tmux server (-L fmtest), target t1 = window sess:fm-t1, harness=claude
+$ fm-send.sh t1 please rebase onto main
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+fm-send: steer queued for t1 at /tmp/tmp.w17N8o3CEu/home/state/t1.inbox/001.msg
+[exit 0]
+$ fm-send.sh t1 please rebase onto main
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+fm-send: this exact instruction is already queued and unhandled for t1, so it collapsed onto /tmp/tmp.w17N8o3CEu/home/state/t1.inbox/001.msg rather than queueing a second copy; the worker will act on it once. Pass --again to queue a deliberate repeat.
+[exit 0]
+$ fm-send.sh t1 --again please rebase onto main
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+fm-send: steer queued for t1 at /tmp/tmp.w17N8o3CEu/home/state/t1.inbox/002.msg (deliberate repeat; --again)
+[exit 0]
+$ fm-send.sh t1    
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: a text steer requires a nonempty message; nothing was sent (an empty marked request would deliver only marker and correlation bytes and leave the parent waiting on a reply to nothing)
+[exit 1]
+$ fm-send.sh t1 --again --key Enter
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: --again cannot accompany --key; a keystroke is lifecycle control, not a queued instruction
+[exit 1]
+--- inbox records:
+001.msg
+002.msg
+handled
+--- pane content (what was typed into the worker terminal):
+: Firstmate instruction waiting: list '/tmp/tmp.w17N8o3CEu/home/state/t1.inbox'/*.msg and, in numeric order, read and ac
+t on each, then mv each handled file to '/tmp/tmp.w17N8o3CEu/home/state/t1.inbox'/handled/.
+: Firstmate instruction waiting: list '/tmp/tmp.w17N8o3CEu/home/state/t1.inbox'/*.msg and, in numeric order, read and ac
+t on each, then mv each handled file to '/tmp/tmp.w17N8o3CEu/home/state/t1.inbox'/handled/.
+: Firstmate instruction waiting: list '/tmp/tmp.w17N8o3CEu/home/state/t1.inbox'/*.msg and, in numeric order, read and ac
+t on each, then mv each handled file to '/tmp/tmp.w17N8o3CEu/home/state/t1.inbox'/handled/.
+: Firstmate instruction waiting: list '/tmp/tmp.w17N8o3CEu/home/state/t1.inbox'/*.msg and, in numeric order, read and ac
+t on each, then mv each handled file to '/tmp/tmp.w17N8o3CEu/home/state/t1.inbox'/handled/.
+: Firstmate instruction waiting: list '/tmp/tmp.w17N8o3CEu/home/state/t1.inbox'/*.msg and, in numeric order, read and ac
+t on each, then mv each handled file to '/tmp/tmp.w17N8o3CEu/home/state/t1.inbox'/handled/.
+: Firstmate instruction waiting: list '/tmp/tmp.w17N8o3CEu/home/state/t1.inbox'/*.msg and, in numeric order, read and ac
+t on each, then mv each handled file to '/tmp/tmp.w17N8o3CEu/home/state/t1.inbox'/handled/.
