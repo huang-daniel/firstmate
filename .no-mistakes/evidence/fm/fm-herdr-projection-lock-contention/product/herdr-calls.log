@@ -1,0 +1,762 @@
+status	--json
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	create	--cwd	/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/project	--label	firstmate	--no-focus	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	create	--workspace	w1	--cwd	/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/project	--label	fm-anchor	--no-focus	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w1:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	close	w1:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w1:p2	treehouse get --root '/home/dev/.firstmate-treehouse/home-c9bd661e83ca'	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w1:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w1:p2	export GOTMPDIR=/tmp/fm-anchor/gotmp	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w1:p2	export COMPACT_ADVISER_DISABLE=1	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w1:p2	export FM_TASK_ID=anchor	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	send-text	w1:p2	. '/tmp/fm-anchor+d5ff5cf3820148d2ad8b205a176d9a42d9cf9765be34e99dcd0aaf3124b83760/launch.s1790117837.2134940.14995.sh'	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	send-keys	w1:p2	enter	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	create	--workspace	w1	--cwd	/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/project	--label	fm-shape	--no-focus	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w1:p3	treehouse get --root '/home/dev/.firstmate-treehouse/home-c9bd661e83ca'	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p3	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p3	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p3	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p3	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w1:p3	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w1:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w1:p3	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w1:p3	export GOTMPDIR=/tmp/fm-shape/gotmp	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w1:p3	export COMPACT_ADVISER_DISABLE=1	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w1:p3	export FM_TASK_ID=shape	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	send-text	w1:p3	. '/tmp/fm-shape+d5ff5cf3820148d2ad8b205a176d9a42d9cf9765be34e99dcd0aaf3124b83760/launch.s1790117842.2139663.15173.sh'	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	send-keys	w1:p3	enter	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p3	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p3	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	close	w1:p3	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p3	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p3	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w1:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	create	--cwd	/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/project	--label	└ default-on · p:xIVkV11TVve6eONi9384zA	--no-focus	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	create	--workspace	w2	--cwd	/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/project	--label	fm-default-on	--no-focus	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w2	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w2:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w2:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w2	--session	fm-lab-fm-herdr-present-2134804-1640
+terminal	title	clear	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	close	w2:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w2:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w2	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w2:p2	treehouse get --root '/home/dev/.firstmate-treehouse/home-c9bd661e83ca'	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w2:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w2:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w2:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w2:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w1:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w2:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w2:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w2:p2	export GOTMPDIR=/tmp/fm-default-on/gotmp	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w2:p2	export COMPACT_ADVISER_DISABLE=1	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w2:p2	export FM_TASK_ID=default-on	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	send-text	w2:p2	. '/tmp/fm-default-on+d5ff5cf3820148d2ad8b205a176d9a42d9cf9765be34e99dcd0aaf3124b83760/launch.s1790117854.2148128.18416.sh'	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	send-keys	w2:p2	enter	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w2:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w2:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w2	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	process-info	--pane	w2:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+terminal	title	clear	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w2:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w2:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w2:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w1:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	create	--cwd	/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/project	--label	└ shape · p:98VhMsOY7JAppl-Q0MkB0w	--no-focus	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	create	--workspace	w5	--cwd	/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/project	--label	fm-shape	--no-focus	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w5	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w5	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w5:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w5:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w5	--session	fm-lab-fm-herdr-present-2134804-1640
+terminal	title	clear	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	close	w5:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w5:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w5	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w5	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+api	schema	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w5	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w5	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w5:p2	treehouse get --root '/home/dev/.firstmate-treehouse/home-c9bd661e83ca'	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w5:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w1:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w5:p2	export GOTMPDIR=/tmp/fm-shape/gotmp	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w5:p2	export COMPACT_ADVISER_DISABLE=1	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w5:p2	export FM_TASK_ID=shape	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	send-text	w5:p2	. '/tmp/fm-shape+d5ff5cf3820148d2ad8b205a176d9a42d9cf9765be34e99dcd0aaf3124b83760/launch.s1790117866.2154266.2056.sh'	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	send-keys	w5:p2	enter	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	create	--cwd	/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/project	--label	└ active-seeded · p:ilZFx75FH6LitcynTwx0dw	--no-focus	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	create	--workspace	w6	--cwd	/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/project	--label	fm-active-seeded	--no-focus	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w6	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w6	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w6	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w6:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w6	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w6:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w6	--session	fm-lab-fm-herdr-present-2134804-1640
+terminal	title	clear	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	close	w6:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w6:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w6	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w6	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+api	schema	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w6	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w6	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w6	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w6	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w6:p2	treehouse get --root '/home/dev/.firstmate-treehouse/home-c9bd661e83ca'	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w6:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w6:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w6:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w6:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w6:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w1:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w5:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w6:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w6:p2	export GOTMPDIR=/tmp/fm-active-seeded/gotmp	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w6:p2	export COMPACT_ADVISER_DISABLE=1	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w6:p2	export FM_TASK_ID=active-seeded	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	send-text	w6:p2	. '/tmp/fm-active-seeded+d5ff5cf3820148d2ad8b205a176d9a42d9cf9765be34e99dcd0aaf3124b83760/launch.s1790117873.2158615.9311.sh'	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	send-keys	w6:p2	enter	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w6:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w6:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w6	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w6	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	process-info	--pane	w6:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+terminal	title	clear	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w6:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w6:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w6:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w5:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w1:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+statusstatus		--json--json		--session--session		fm-lab-fm-herdr-present-2134804-1640fm-lab-fm-herdr-present-2134804-1640
+
+agent	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	create	--cwd	/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/project	--label	└ prune-clears · p:ksYbAPHF4ZrqTA7SUtLlbg	--no-focus	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	create	--workspace	w7	--cwd	/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/project	--label	fm-prune-clears	--no-focus	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w7	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w7	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w7	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w7:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w7	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w7:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w7	--session	fm-lab-fm-herdr-present-2134804-1640
+terminal	title	clear	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w7	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w7	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w7	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w7:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w7:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w7	--session	fm-lab-fm-herdr-present-2134804-1640
+terminal	title	clear	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	close	w7:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w7:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w7	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w7	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+api	schema	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w7	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w7	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w7:p2	treehouse get --root '/home/dev/.firstmate-treehouse/home-c9bd661e83ca'	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w7:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w7:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w7:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w7:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w7:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w5:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w1:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+agentagent		getget		w1:p2w7:p2		--session--session		fm-lab-fm-herdr-present-2134804-1640fm-lab-fm-herdr-present-2134804-1640
+
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w7:p2	export GOTMPDIR=/tmp/fm-prune-clears/gotmp	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w7:p2	export COMPACT_ADVISER_DISABLE=1	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w7:p2	export FM_TASK_ID=prune-clears	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	send-text	w7:p2	. '/tmp/fm-prune-clears+d5ff5cf3820148d2ad8b205a176d9a42d9cf9765be34e99dcd0aaf3124b83760/launch.s1790117889.2170705.16542.sh'	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	send-keys	w7:p2	enter	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w7:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w7:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w7	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w7	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	process-info	--pane	w7:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+terminal	title	clear	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w7:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w7:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w7:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w1:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w5:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	create	--cwd	/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/project	--label	└ prune-exhausted · p:oujbUxVRVEqKwzRpk88C8Q	--no-focus	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	create	--workspace	w8	--cwd	/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/project	--label	fm-prune-exhausted	--no-focus	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w8:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w8:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+terminal	title	clear	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w8:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w8:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+terminal	title	clear	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w8:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w8:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+terminal	title	clear	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w8:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+terminal	title	clear	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	close	w8:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w8:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w8:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+terminal	title	clear	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w8	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	create	--workspace	w1	--cwd	/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/project	--label	fm-prune-exhausted	--no-focus	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w1:p4	treehouse get --root '/home/dev/.firstmate-treehouse/home-c9bd661e83ca'	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p4	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p4	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p4	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p4	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w1:p4	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w1:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w5:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w1:p4	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w1:p4	export GOTMPDIR=/tmp/fm-prune-exhausted/gotmp	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w1:p4	export COMPACT_ADVISER_DISABLE=1	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w1:p4	export FM_TASK_ID=prune-exhausted	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	send-text	w1:p4	. '/tmp/fm-prune-exhausted+d5ff5cf3820148d2ad8b205a176d9a42d9cf9765be34e99dcd0aaf3124b83760/launch.s1790117906.2178678.22120.sh'	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	send-keys	w1:p4	enter	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p4	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p4	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	close	w1:p4	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p4	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w1:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w5:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	create	--workspace	w1	--cwd	/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/project	--label	fm-lock-contended	--no-focus	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w1:p5	treehouse get --root '/home/dev/.firstmate-treehouse/home-c9bd661e83ca'	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p5	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p5	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p5	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p5	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w1:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w5:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w1:p5	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w1:p5	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w1:p5	export GOTMPDIR=/tmp/fm-lock-contended/gotmp	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w1:p5	export COMPACT_ADVISER_DISABLE=1	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w1:p5	export FM_TASK_ID=lock-contended	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	send-text	w1:p5	. '/tmp/fm-lock-contended+d5ff5cf3820148d2ad8b205a176d9a42d9cf9765be34e99dcd0aaf3124b83760/launch.s1790117919.2192082.11998.sh'	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	send-keys	w1:p5	enter	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p5	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p5	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w1	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	close	w1:p5	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p5	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p5	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+statusstatus	--json	--json	--session	--session	fm-lab-fm-herdr-present-2134804-1640	
+fm-lab-fm-herdr-present-2134804-1640
+panepane	read		readw1:p2		w5:p2--source		--sourcerecent		recent--lines		--lines200		200--session		--sessionfm-lab-fm-herdr-present-2134804-1640	
+fm-lab-fm-herdr-present-2134804-1640
+statusstatus	--json		--json--session		--sessionfm-lab-fm-herdr-present-2134804-1640
+	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	create	--cwd	/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/project	--label	└ lock-retry · p:gWebR8Mbdm6LjERIHhC5cw	--no-focus	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	create	--workspace	w9	--cwd	/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/project	--label	fm-lock-retry	--no-focus	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w9	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w9	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w9:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w9:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w9	--session	fm-lab-fm-herdr-present-2134804-1640
+terminal	title	clear	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	close	w9:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w9:p1	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w9	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w9	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+api	schema	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w9	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w9	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w9:p2	treehouse get --root '/home/dev/.firstmate-treehouse/home-c9bd661e83ca'	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w9:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w9:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w9:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+panepane		getget		w9:p2w1:p2		--session--session		fm-lab-fm-herdr-present-2134804-1640fm-lab-fm-herdr-present-2134804-1640
+
+pane	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w1:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w9:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	read	w5:p2	--source	recent	--lines	200	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w9:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w9:p2	export GOTMPDIR=/tmp/fm-lock-retry/gotmp	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w9:p2	export COMPACT_ADVISER_DISABLE=1	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	run	w9:p2	export FM_TASK_ID=lock-retry	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	send-text	w9:p2	. '/tmp/fm-lock-retry+d5ff5cf3820148d2ad8b205a176d9a42d9cf9765be34e99dcd0aaf3124b83760/launch.s1790117933.2198202.19563.sh'	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	send-keys	w9:p2	enter	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w9:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+session	list	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w9:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w9	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	list	--workspace	w9	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	process-info	--pane	w9:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+terminal	title	clear	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w9:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+workspace	list	--session	fm-lab-fm-herdr-present-2134804-1640
+tab	list	--workspace	w4	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w9:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w9:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+pane	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+panepane		readread		w5:p2w1:p2		--source--source		recentrecent		--lines--lines		200200		--session--session		fm-lab-fm-herdr-present-2134804-1640fm-lab-fm-herdr-present-2134804-1640
+
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+status	--json	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w1:p2	--session	fm-lab-fm-herdr-present-2134804-1640
+agent	get	w5:p2	--session	fm-lab-fm-herdr-present-2134804-1640

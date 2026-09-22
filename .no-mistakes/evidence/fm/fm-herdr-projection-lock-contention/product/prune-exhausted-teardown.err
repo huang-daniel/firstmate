@@ -1,0 +1,5 @@
+WARNING: watcher still down (same stale episode; last beat: 76s ago, grace 300s) - full banner already printed this episode.
+teardown: reaping leaked worktree process(es) for prune-exhausted: 2184567 2188021 2188022 2189480
+teardown: force-killing leaked worktree process(es) for prune-exhausted: 2184567
+warning: herdr presentation journal for prune-exhausted remains quarantined; no workspace cleanup was attempted
+WARNING: watcher still down (same stale episode; last beat: 79s ago, grace 300s) - full banner already printed this episode.

@@ -1,0 +1,6 @@
+warning: /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/home/data/prune-exhausted/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+warning: herdr presentation cleanup target is the captain's active tab; refusing a close that cannot preserve focus
+warning: herdr presentation seeded-tab prune is still focus-unsafe; retrying (try 2 of 2, 1s each)
+error: herdr presentation seeded-tab prune stayed focus-unsafe for 2 tries of 1s; leaving its journal quarantined
+warning: herdr presentation cleanup target is the captain's active tab; refusing a close that cannot preserve focus
+warning: herdr presentation seeded-tab prune stayed focus-unsafe; using the ordinary flat layout without projection

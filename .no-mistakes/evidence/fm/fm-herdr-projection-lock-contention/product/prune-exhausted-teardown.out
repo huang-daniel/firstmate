@@ -1,0 +1,4 @@
+🌳 Worktree returned to pool.
+/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/project: already current
+teardown prune-exhausted complete (window fm-lab-fm-herdr-present-2134804-1640:w1:p4, worktree /home/dev/.firstmate-treehouse/home-c9bd661e83ca/.treehouse/project-cd7588/3/project)
+Backlog: prune-exhausted just finished (this home keeps no markdown backlog at /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/home/data/backlog.md). Update /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35N3Y6M9S0M7259KYNFPXHV/.test-projection/tmp/fm-herdr-presentation.Oh94dd/home/data/backlog.md - move prune-exhausted to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.

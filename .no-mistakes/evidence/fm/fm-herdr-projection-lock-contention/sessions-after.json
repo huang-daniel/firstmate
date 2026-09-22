@@ -1,0 +1,1 @@
+{"sessions":[{"default":true,"name":"default","running":true,"session_dir":"/home/dev/.config/herdr","socket_path":"/home/dev/.config/herdr/herdr.sock"},{"default":false,"name":"fm-remote","running":false,"session_dir":"/home/dev/.config/herdr/sessions/fm-remote","socket_path":"/home/dev/.config/herdr/sessions/fm-remote/herdr.sock"}]}

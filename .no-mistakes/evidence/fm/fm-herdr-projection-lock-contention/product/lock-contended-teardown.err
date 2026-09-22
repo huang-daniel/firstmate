@@ -1,0 +1,4 @@
+WARNING: watcher still down (same stale episode; last beat: 89s ago, grace 300s) - full banner already printed this episode.
+teardown: reaping leaked worktree process(es) for lock-contended: 2194380 2196032 2196034 2196834
+teardown: force-killing leaked worktree process(es) for lock-contended: 2194380
+WARNING: watcher still down (same stale episode; last beat: 92s ago, grace 300s) - full banner already printed this episode.

@@ -1,0 +1,4 @@
+WARNING: watcher still down (same stale episode; last beat: 43s ago, grace 300s) - full banner already printed this episode.
+teardown: reaping leaked worktree process(es) for active-seeded: 2161811 2166062 2166063 2167264
+teardown: force-killing leaked worktree process(es) for active-seeded: 2161811
+WARNING: watcher still down (same stale episode; last beat: 47s ago, grace 300s) - full banner already printed this episode.

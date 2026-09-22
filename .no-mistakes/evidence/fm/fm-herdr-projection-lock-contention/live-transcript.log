@@ -1,0 +1,10 @@
+ok - real Herdr lab: an opted-out spawn retains the Stage 1 Herdr command sequence with zero ordering calls
+ok - real Herdr lab: a home that configured nothing is projected by default on herdr 0.9.0
+ok - real Herdr lab: every projected create, task-tab create, seeded prune, and move preserves active workspace and tab
+ok - real Herdr lab: persisted-focused seeded prune proceeds when no live client is attached
+viewer attached to fm-lab-fm-herdr-present-2134804-1640 (pid 2170611)
+ok - real Herdr lab: a focus-unsafe seeded prune retries and completes the projection once the viewer leaves the seeded tab
+viewer attached to fm-lab-fm-herdr-present-2134804-1640 (pid 2178330)
+ok - real Herdr lab: an exhausted seeded-prune bound falls back flat with a stdout diagnostic and a quarantined journal record
+ok - real Herdr lab: bounded lock contention retries, then falls back flat with a stdout diagnostic and fallback-only record, without projection or focus drift
+ok - real Herdr lab: a presentation lock released within the bounded wait is acquired on retry and the worker is projected

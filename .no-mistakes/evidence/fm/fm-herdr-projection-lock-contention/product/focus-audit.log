@@ -1,0 +1,43 @@
+workspace-create	ambiguous/ambiguous	w1/w1:t1	firstmate
+tab-create	w1/w1:t1	w1/w1:t1	fm-anchor
+pane-close	w1/w1:t1	w1/w1:t2	w1:p1
+tab-create	w1/w1:t2	w1/w1:t2	fm-shape
+pane-close	w1/w1:t2	w1/w1:t2	w1:p3
+workspace-create	w1/w1:t2	w1/w1:t2	└ default-on · p:xIVkV11TVve6eONi9384zA
+tab-create	w1/w1:t2	w1/w1:t2	fm-default-on
+pane-close	w1/w1:t2	w1/w1:t2	w2:p1
+workspace-create	w4/w4:t1	w4/w4:t1	└ shape · p:98VhMsOY7JAppl-Q0MkB0w
+tab-create	w4/w4:t1	w4/w4:t1	fm-shape
+pane-close	w4/w4:t1	w4/w4:t1	w5:p1
+workspace-move	w4/w4:t1	w4/w4:t1	w5
+workspace-create	w4/w4:t1	w4/w4:t1	└ active-seeded · p:ilZFx75FH6LitcynTwx0dw
+tab-create	w4/w4:t1	w4/w4:t1	fm-active-seeded
+active-seeded-inject	w4/w4:t1	w6/w6:t1	w6:t1
+seeded-prune-refusal	w6/w6:t1	w6/w6:t1	w6:p1
+pane-close	w6/w6:t1	w6/w6:t2	w6:p1
+seeded-prune-refusal	w6/w6:t2	w6/w6:t2	w6:p1
+workspace-move	w6/w6:t2	w6/w6:t2	w6
+workspace-create	w4/w4:t1	w4/w4:t1	└ prune-clears · p:ksYbAPHF4ZrqTA7SUtLlbg
+tab-create	w4/w4:t1	w4/w4:t1	fm-prune-clears
+active-seeded-inject	w4/w4:t1	w7/w7:t1	w7:t1
+seeded-prune-refusal	w7/w7:t1	w7/w7:t1	w7:p1
+seeded-prune-refusal	w4/w4:t1	w4/w4:t1	w7:p1
+pane-close	w4/w4:t1	w4/w4:t1	w7:p1
+seeded-prune-refusal	w4/w4:t1	w4/w4:t1	w7:p1
+workspace-move	w4/w4:t1	w4/w4:t1	w7
+workspace-create	w4/w4:t1	w4/w4:t1	└ prune-exhausted · p:oujbUxVRVEqKwzRpk88C8Q
+tab-create	w4/w4:t1	w4/w4:t1	fm-prune-exhausted
+active-seeded-inject	w4/w4:t1	w8/w8:t1	w8:t1
+seeded-prune-refusal	w8/w8:t1	w8/w8:t1	w8:p1
+seeded-prune-refusal	w8/w8:t1	w8/w8:t1	w8:p1
+seeded-prune-refusal	w8/w8:t1	w8/w8:t1	w8:p1
+pane-close	w8/w8:t1	w8/w8:t1	w8:p2
+seeded-prune-refusal	w8/w8:t1	w8/w8:t1	w8:p1
+tab-create	w8/w8:t1	w8/w8:t1	fm-prune-exhausted
+pane-close	w4/w4:t1	w4/w4:t1	w1:p4
+tab-create	w4/w4:t1	w4/w4:t1	fm-lock-contended
+pane-close	w4/w4:t1	w4/w4:t1	w1:p5
+workspace-create	w4/w4:t1	w4/w4:t1	└ lock-retry · p:gWebR8Mbdm6LjERIHhC5cw
+tab-create	w4/w4:t1	w4/w4:t1	fm-lock-retry
+pane-close	w4/w4:t1	w4/w4:t1	w9:p1
+workspace-move	w4/w4:t1	w4/w4:t1	w9

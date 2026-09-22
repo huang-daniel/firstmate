@@ -1,0 +1,4 @@
+WARNING: watcher still down (same stale episode; last beat: 59s ago, grace 300s) - full banner already printed this episode.
+teardown: reaping leaked worktree process(es) for prune-clears: 2172773 2175230 2175231 2176061
+teardown: force-killing leaked worktree process(es) for prune-clears: 2172773
+WARNING: watcher still down (same stale episode; last beat: 63s ago, grace 300s) - full banner already printed this episode.
