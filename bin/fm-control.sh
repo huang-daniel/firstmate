@@ -720,15 +720,20 @@ do_stand_down() {
     || die "task $ID's agent is stopped, but its record could not be marked before closing the endpoint; the endpoint was left in place"
   close_rc=0
   fm_backend_close_task_endpoint "$BACKEND" "$T" "$STATE" "$ID" "$META" || close_rc=$?
-  # The classifier, not the close's own status, decides: a close that reported
-  # failure but left the endpoint gone keeps the marker that proves it gone,
-  # and anything short of gone drops it so the record never claims a close
-  # that did not happen.
   state=$(agent_state)
-  if [ "$state" != missing ]; then
-    standdown_record_marker - || true
-    die "task $ID's agent is stopped, but its endpoint $T reads '$state' after its close (close status $close_rc) rather than gone; it was left in place and the record still names it"
-  fi
+  case "$state" in
+    missing) ;;
+    alive|dead)
+      standdown_record_marker - || true
+      die "task $ID's endpoint $T reads '$state' after its close (close status $close_rc); it was left in place and the record still names it"
+      ;;
+    *)
+      if [ "$close_rc" -ne 0 ]; then
+        standdown_record_marker - || true
+      fi
+      die "task $ID's endpoint $T reads '$state' after its close (close status $close_rc); whether it survived is unknown"
+      ;;
+  esac
   standdown_report closed
 }
 

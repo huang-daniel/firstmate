@@ -138,18 +138,23 @@ case "${1:-}" in
       exit 1
     fi
     [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
+  has-session)
+    [ ! -f "$D/session-missing" ] && [ ! -f "$D/server-dead" ]
+    exit $? ;;
   new-session)
-    # Nothing in the relaunch path may ever create a session; recording the
-    # call is how a refusal test proves that.
     shift
-    ses=
+    ses= name=shell
     while [ $# -gt 0 ]; do
       case "$1" in
         -s) ses=${2:-}; shift 2 ;;
+        -n) name=${2:-}; shift 2 ;;
         *) shift ;;
       esac
     done
     printf '%s\n' "$ses" >> "$D/created-sessions"
+    printf '%s\n' "$name" > "$D/windows"
+    rm -f "$D/session-missing" "$D/server-dead"
+    printf '@8\n'
     exit 0 ;;
   kill-window)
     # A stand-down close: the exact `=session:=window` target leaves the
@@ -165,6 +170,7 @@ case "${1:-}" in
     name=${target#*:=}
     [ -z "${FM_FAKE_KILL_FAIL:-}" ] || exit 1
     printf '%s\n' "$name" >> "$D/killed-windows"
+    [ -z "${FM_FAKE_POST_CLOSE_UNREADABLE:-}" ] || touch "$D/inventory-broken"
     if [ -f "$D/windows" ]; then
       grep -vxF -- "$name" "$D/windows" > "$D/windows.tmp" || true
       mv "$D/windows.tmp" "$D/windows"
@@ -1911,6 +1917,44 @@ test_stand_down_relaunch_rebinds_a_fresh_tmux_window() {
   pass "fm-control stand-down: a stood-down tmux task relaunches into a fresh window and drops its marker"
 }
 
+test_stand_down_close_evidence_survives_unreadable_probe() {
+  local dir out rc
+  dir=$(new_case standdown-probe sd6)
+  stage_done_ship "$dir" sd6
+  make_no_run_nm_stub "$dir"
+  out=$(FM_FAKE_POST_CLOSE_UNREADABLE=1 run_control "$dir" sd6 stand-down); rc=$?
+  expect_code 1 "$rc" "an unreadable post-close probe must report uncertainty"
+  assert_contains "$out" "whether it survived is unknown" "uncertainty must not claim a surviving endpoint"
+  [ "$(meta_field "$dir" sd6 endpoint_closed)" = fmses:fm-sd6 ] || fail "confirmed closure evidence was lost"
+  rm "$dir/fake/inventory-broken"
+  out=$(run_control "$dir" sd6 exit); rc=$?
+  expect_code 0 "$rc" "exit should accept the preserved closure evidence"$'\n'"$out"
+  out=$(run_control "$dir" sd6 stand-down); rc=$?
+  expect_code 0 "$rc" "stand-down should remain idempotent after recovery"$'\n'"$out"
+  assert_contains "$out" "already-closed" "recovered close should be recognized"
+  out=$(run_control "$dir" sd6 relaunch --note "resume after probe recovery"); rc=$?
+  expect_code 0 "$rc" "relaunch should accept preserved closure evidence"$'\n'"$out"
+  pass "stand-down preserves confirmed closure through an unreadable probe"
+}
+
+test_stand_down_relaunch_reuses_initial_session_window() {
+  local dir out rc
+  dir=$(new_case standdown-session sd7)
+  stage_done_ship "$dir" sd7
+  make_no_run_nm_stub "$dir"
+  out=$(run_control "$dir" sd7 stand-down); rc=$?
+  expect_code 0 "$rc" "stand-down should succeed"$'\n'"$out"
+  touch "$dir/fake/session-missing"
+  printf 'fmses' > "$dir/fake/session-name"
+  out=$(run_control "$dir" sd7 relaunch --note "resume with a new session"); rc=$?
+  expect_code 0 "$rc" "relaunch should recreate the recorded session"$'\n'"$out"
+  [ "$(cat "$dir/fake/windows")" = fm-sd7 ] || fail "session must contain only the task window"
+  assert_absent "$dir/fake/created-windows" "new session's initial window must be reused"
+  assert_grep "encode launch-brief" "$dir/fake/literal" "replacement must launch"
+  [ -z "$(meta_field "$dir" sd7 endpoint_closed)" ] || fail "relaunch must retire closure evidence"
+  pass "stand-down relaunch reuses the new session's initial window"
+}
+
 test_stand_down_refuses_unfinished_or_unlanded_work() {
   local dir out rc what want
   for what in no-pr not-done open-decision dirty unpushed gone-unmarked scout; do
@@ -2404,6 +2448,8 @@ test_stand_down_relaunch_rebinds_a_fresh_tmux_window
 test_stand_down_refuses_unfinished_or_unlanded_work
 test_stand_down_refuses_an_active_validation_run
 test_stand_down_close_failure_keeps_the_endpoint_named
+test_stand_down_close_evidence_survives_unreadable_probe
+test_stand_down_relaunch_reuses_initial_session_window
 test_relaunch_refuses_before_exit_when_the_composer_holds_pending_text
 test_relaunch_refuses_before_exit_when_the_composer_state_is_unproven
 test_relaunch_from_linked_home_preserves_recorded_worktree

@@ -3198,12 +3198,15 @@ if [ "$RELAUNCH" -eq 1 ]; then
     # fm-<id> name, so the next relaunch reads it `dead` and adopts it.
     SES=${RELAUNCH_TARGET%%:*}
     if ! tmux has-session -t "=$SES" 2>/dev/null; then
-      tmux new-session -d -s "$SES" -c "$WT" || {
+      WT_TARGET=$(tmux new-session -dP -F '#{window_id}' -s "$SES" -n "$W" -c "$WT") || {
         echo "error: task $ID's recorded tmux session '$SES' could not be re-created for its closed endpoint" >&2
         exit 1
       }
+      tmux set-window-option -t "$WT_TARGET" automatic-rename off 2>/dev/null || true
+      tmux set-window-option -t "$WT_TARGET" allow-rename off 2>/dev/null || true
+    else
+      WT_TARGET=$(fm_backend_tmux_create_task "$SES" "$W" "$WT") || exit 1
     fi
-    WT_TARGET=$(fm_backend_tmux_create_task "$SES" "$W" "$WT") || exit 1
     T="$SES:$W"
   else
     # The recorded endpoint is authoritatively gone, so there is nothing to
