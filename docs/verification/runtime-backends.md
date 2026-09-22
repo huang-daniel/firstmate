@@ -1137,6 +1137,26 @@ The projected spawn in that run used the historical empty opt-in file, so a home
 One concurrent cross-home recovery case refused under contention on a loaded machine and passed on an immediate rerun; recovery-path presentation lock contention is a deliberate hard refusal rather than a flat fallback, which default-on now makes reachable from any Herdr home.
 That run measured the default-on projection on Herdr 0.8.0 only, while the focus-flash regression below was last run on 0.7.5 before the flip, so neither run covered a defective release under default-on projection; the version floor and the focus-flash suite's Part C close that gap.
 
+The projection suite ran again on 2026-09-22 against Herdr 0.9.0 for the bounded presentation wait, which supersedes the earlier contention result that fell back flat with no journal:
+
+```sh
+HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
+  tests/fm-backend-herdr-presentation-e2e.test.sh
+```
+
+Observed bounded-wait and surfaced-fallback guarantees:
+
+```text
+ok - real Herdr lab: a focus-unsafe seeded prune retries and completes the projection once the viewer leaves the seeded tab
+ok - real Herdr lab: an exhausted seeded-prune bound falls back flat with a stdout diagnostic and a quarantined journal record
+ok - real Herdr lab: bounded lock contention retries, then falls back flat with a stdout diagnostic and fallback-only record, without projection or focus drift
+ok - real Herdr lab: a presentation lock released within the bounded wait is acquired on retry and the worker is projected
+ok - real Herdr lab: session lock contention from a secondmate home falls back flat with a surfaced diagnostic and fallback-only record
+ok - real Herdr lab validation completed on Herdr 0.9.0 with the default-session tripwire intact
+```
+
+The lab has no attached client, so the seeded-prune cases model a live foreground viewer by answering the viewer probe the way Herdr answers while a client is attached; the attached-viewer refusal itself is proven against a real viewer under "Attached foreground viewer" below.
+
 The restored-shell session-start cleanup ran on 2026-07-24 against Herdr 0.7.5 protocol 17:
 
 ```sh

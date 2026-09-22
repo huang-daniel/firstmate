@@ -113,11 +113,14 @@
 #   authority, and every ambiguous recovery stays on the flat fallback after
 #   duplicate-agent risk is independently absent. Treehouse allocation and task
 #   metadata are unchanged.
-#   A clean projected create or exact resume makes one bounded attempt to hold
-#   the one session-scoped presentation-order lock (keyed by named session plus
-#   canonical socket, outside any home's state/) through launch handoff. Lock
-#   contention warns and falls back to the ordinary flat layout before any
-#   projection mutation. The exact response-derived new workspace is inserted
+#   Presentation wait, fallback, and recovery behavior is owned by
+#   docs/herdr-backend.md "Presentation spaces"; the backend journal helpers
+#   own record formats and retry-override parsing.
+#   A successful fresh spawn that exhausted the presentation wait prints
+#   HERDR_PRESENTATION_FALLBACK: <id> reason=<lock-contended|prune-refused>
+#   bound=<tries>x<seconds>s record=<journal> followed by recovery guidance,
+#   on one stdout line before the spawned line, even if recording the fallback
+#   failed with a warning. The exact response-derived new workspace is inserted
 #   immediately after its owning parent (firstmate or 2ndmate-<id>) contiguous
 #   child block. Ordering never authorizes lifecycle cleanup, and any
 #   unavailable, ambiguous, or failed move warns while the spawn continues.
@@ -1110,6 +1113,7 @@ HERDR_PROJECTION_ABORT_TASK_PANE=
 HERDR_PROJECTION_ABORT_SEEDED_PANE=
 HERDR_PRESENTATION_ORDER_LOCK=
 HERDR_PRESENTATION_ORDER_LOCK_HELD=0
+HERDR_PRESENTATION_FALLBACK_REASON=
 SPAWN_TASK_LOCK=
 SPAWN_TASK_LOCK_HELD=0
 SPAWN_CONTROL_LOCK=
@@ -1297,21 +1301,41 @@ trap spawn_abort_cleanup EXIT
 # One bounded lock per live Herdr session/socket, shared across all homes.
 # <session> is required so secondmate and primary spawns serialize against the
 # same session without writing any other home's state directory.
+# Each try polls for the documented per-try bound and the helper retries the
+# documented number of tries (fm_backend_herdr_presentation_retry_*), so a
+# concurrent spawn from any home holding the lock through its launch handoff
+# delays this one instead of silently demoting it to the flat layout.
 spawn_herdr_presentation_order_lock_acquire() {
-  local session=${1:-} attempt lock_path
+  local session=${1:-} lock_path tries try_seconds try poll
   [ -n "$session" ] || session=$(fm_backend_herdr_session)
   lock_path=$(fm_backend_herdr_presentation_session_lock_path "$session") || return 1
   HERDR_PRESENTATION_ORDER_LOCK="$lock_path"
-  attempt=0
-  while [ "$attempt" -lt 50 ]; do
-    if fm_lock_try_acquire "$HERDR_PRESENTATION_ORDER_LOCK"; then
-      HERDR_PRESENTATION_ORDER_LOCK_HELD=1
-      return 0
-    fi
-    sleep 0.1
-    attempt=$((attempt + 1))
+  tries=$(fm_backend_herdr_presentation_retry_tries)
+  try_seconds=$(fm_backend_herdr_presentation_retry_try_seconds)
+  try=1
+  while :; do
+    poll=0
+    while [ "$poll" -lt $((try_seconds * 10)) ]; do
+      if fm_lock_try_acquire "$HERDR_PRESENTATION_ORDER_LOCK"; then
+        HERDR_PRESENTATION_ORDER_LOCK_HELD=1
+        return 0
+      fi
+      sleep 0.1
+      poll=$((poll + 1))
+    done
+    [ "$try" -lt "$tries" ] || return 1
+    try=$((try + 1))
+    echo "warning: herdr presentation session lock is still held by another spawn; retrying (try $try of $tries, ${try_seconds}s each)" >&2
   done
-  return 1
+}
+
+# Record a bounded-wait flat fallback in the presentation journal and arm the
+# stdout diagnostic printed with the spawn result.
+spawn_herdr_presentation_fallback() {  # <reason> <gone|retained>
+  HERDR_PRESENTATION_FALLBACK_REASON=$1
+  if ! fm_backend_herdr_projection_journal_record_fallback "$STATE" "$ID" "$1" "$2"; then
+    echo "warning: could not record the herdr presentation fallback in $HERDR_PRESENTATION_JOURNAL" >&2
+  fi
 }
 
 clear_relaunch_harness_wiring() {
@@ -3302,7 +3326,22 @@ else
     if [ "$KIND" != secondmate ] && fm_backend_herdr_presentation_enabled "$CONFIG" "$STATE"; then
       HERDR_SES=$(fm_backend_herdr_session)
       HERDR_PARENT_LABEL=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_workspace_label)
-      if [ -e "$HERDR_PRESENTATION_JOURNAL" ] || [ -L "$HERDR_PRESENTATION_JOURNAL" ]; then
+      HERDR_FALLBACK_RECORD=0
+      if fm_backend_herdr_projection_journal_fallback_only "$HERDR_PRESENTATION_JOURNAL" "$ID"; then
+        if [ ! -e "$STATE/$ID.meta" ] && [ ! -L "$STATE/$ID.meta" ]; then
+          # A fallback-only record without metadata was left by a spawn that
+          # aborted after falling back. It names no projection, so this fresh
+          # spawn simply replaces it with a new attempt.
+          rm -f -- "$HERDR_PRESENTATION_JOURNAL" || exit 1
+        else
+          HERDR_FALLBACK_RECORD=1
+        fi
+      fi
+      if [ "$HERDR_FALLBACK_RECORD" = 1 ]; then
+        # A restart of a task that already fell back flat keeps its flat
+        # layout and its record; there is no projection to recover.
+        :
+      elif [ -e "$HERDR_PRESENTATION_JOURNAL" ] || [ -L "$HERDR_PRESENTATION_JOURNAL" ]; then
         fm_backend_herdr_server_ensure "$HERDR_SES" || {
           echo "error: herdr presentation recovery could not ensure its exact named session" >&2
           exit 1
@@ -3377,8 +3416,28 @@ else
           else
             HERDR_PROJECTION_ID=$(fm_backend_herdr_projection_journal_create "$STATE" "$ID") || exit 1
             HERDR_PROJECTION_LABEL=$(fm_backend_herdr_projection_workspace_label "$ID" "$HERDR_PROJECTION_ID")
-            if ! FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_projection_create_task \
+            if FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_projection_create_task \
               "$PROJ_ABS" "$HERDR_PROJECTION_LABEL" "$W"; then
+              HERDR_PROJECTED=1
+            elif [ "${FM_BACKEND_HERDR_PROJECTION_FALLBACK:-}" = prune-refused ] &&
+              [ "${FM_BACKEND_HERDR_PROJECTION_CLEANUP_SAFE:-0}" = 1 ]; then
+              # The seeded-tab prune stayed focus-unsafe for the whole bounded
+              # wait. Remove the exact unused projection panes where focus
+              # allows, then place the worker flat in this same spawn.
+              fm_backend_herdr_projection_cleanup_exact \
+                "$FM_BACKEND_HERDR_PROJECTION_SESSION" \
+                "$FM_BACKEND_HERDR_PROJECTION_PANE_ID" \
+                "$FM_BACKEND_HERDR_PROJECTION_SEEDED_PANE_ID" || true
+              HERDR_FALLBACK_PROJECTION=retained
+              if [ "$(fm_backend_herdr_workspace_presence_state \
+                "$FM_BACKEND_HERDR_PROJECTION_SESSION" \
+                "$FM_BACKEND_HERDR_PROJECTION_WORKSPACE_ID")" = dead ]; then
+                HERDR_FALLBACK_PROJECTION=gone
+              fi
+              spawn_herdr_presentation_order_lock_release
+              echo "warning: herdr presentation seeded-tab prune stayed focus-unsafe; using the ordinary flat layout without projection" >&2
+              spawn_herdr_presentation_fallback prune-refused "$HERDR_FALLBACK_PROJECTION"
+            else
               if [ "${FM_BACKEND_HERDR_PROJECTION_CLEANUP_SAFE:-0}" = 1 ]; then
                 HERDR_PROJECTION_ABORT_CLEANUP=1
                 HERDR_PROJECTION_ABORT_SESSION=$FM_BACKEND_HERDR_PROJECTION_SESSION
@@ -3387,7 +3446,8 @@ else
               fi
               exit 1
             fi
-            HERDR_PROJECTED=1
+          fi
+          if [ "$HERDR_PROJECTED" -eq 1 ]; then
             HERDR_SES=$FM_BACKEND_HERDR_PROJECTION_SESSION
             HERDR_WORKSPACE_ID=$FM_BACKEND_HERDR_PROJECTION_WORKSPACE_ID
             HERDR_SEEDED_DEFAULT_TAB_ID=$FM_BACKEND_HERDR_PROJECTION_SEEDED_TAB_ID
@@ -3416,6 +3476,7 @@ else
           fi
         else
           echo "warning: herdr presentation focus lock unavailable; using the ordinary flat layout without projection" >&2
+          spawn_herdr_presentation_fallback lock-contended gone
         fi
       fi
     fi
@@ -5063,6 +5124,9 @@ spawn_reflect_on_board() {
 }
 spawn_reflect_on_board || true
 
+if [ -n "$HERDR_PRESENTATION_FALLBACK_REASON" ]; then
+  echo "HERDR_PRESENTATION_FALLBACK: $ID reason=$HERDR_PRESENTATION_FALLBACK_REASON bound=$(fm_backend_herdr_presentation_retry_tries)x$(fm_backend_herdr_presentation_retry_try_seconds)s record=$HERDR_PRESENTATION_JOURNAL - the worker is unaffected but stays in the flat Herdr layout for its lifetime; if its projected placement matters, clean it up and respawn it before it holds unlanded work"
+fi
 SPAWN_DELIVERY=
 [ -z "$MODE" ] || SPAWN_DELIVERY=" mode=$MODE yolo=$YOLO"
 echo "spawned $ID harness=$HARNESS kind=$KIND$SPAWN_DELIVERY window=$META_WINDOW worktree=$WT"

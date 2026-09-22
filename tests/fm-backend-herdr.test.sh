@@ -2941,6 +2941,132 @@ test_projection_seeded_prune_refuses_active_tab() {
   pass "herdr presentation focus: projected seeded pruning refuses the active tab"
 }
 
+test_projection_journal_records_flat_fallback_without_projection_authority() {
+  local dir state out journal
+  dir="$TMP_ROOT/projection-journal-fallback"; state="$dir/state"; mkdir -p "$state"
+  out=$(bash -c '
+    . "$0/bin/backends/herdr.sh"
+    fm_backend_herdr_projection_journal_record_fallback "$1" task-lock lock-contended retained 2>/dev/null \
+      && { echo "retained without an attempt"; exit 1; }
+    fm_backend_herdr_projection_journal_record_fallback "$1" task-lock lock-contended gone || exit 1
+    fm_backend_herdr_projection_journal_fallback_only "$1/task-lock.herdr-presentation" task-lock || exit 1
+    printf "only=%s\n" "$FM_BACKEND_HERDR_JOURNAL_FALLBACK"
+    fm_backend_herdr_projection_journal_snapshot "$1/task-lock.herdr-presentation" task-lock \
+      && { echo "fallback-only record read as a projection journal"; exit 1; }
+    fm_backend_herdr_projection_journal_token "$1/task-lock.herdr-presentation" task-lock >/dev/null \
+      && { echo "fallback-only record yielded a token"; exit 1; }
+    fm_backend_herdr_projection_journal_record_fallback "$1" task-lock lock-contended gone \
+      && { echo "fallback recorded twice"; exit 1; }
+    token=$(fm_backend_herdr_projection_journal_create "$1" task-prune) || exit 1
+    fm_backend_herdr_projection_journal_record_fallback "$1" task-prune prune-refused retained || exit 1
+    fm_backend_herdr_projection_journal_snapshot "$1/task-prune.herdr-presentation" task-prune || exit 1
+    printf "retained=%s|%s|%s\n" "$FM_BACKEND_HERDR_JOURNAL_VERSION" "$FM_BACKEND_HERDR_JOURNAL_FALLBACK" \
+      "$([ "$FM_BACKEND_HERDR_JOURNAL_PROJECTION_ID" = "$token" ] && echo same-token)"
+    fm_backend_herdr_projection_journal_fallback_only "$1/task-prune.herdr-presentation" task-prune \
+      && { echo "retained attempt read as fallback-only"; exit 1; }
+    label=$(fm_backend_herdr_projection_workspace_label task-prune "$token")
+    fm_backend_herdr_projection_journal_bind "$1/task-prune.herdr-presentation" task-prune \
+      "$1" s w w:t w:p pw firstmate "$label" fm-task-prune \
+      && { echo "a fallen-back attempt was bound"; exit 1; }
+    fm_backend_herdr_projection_journal_create "$1" task-gone >/dev/null || exit 1
+    fm_backend_herdr_projection_journal_record_fallback "$1" task-gone prune-refused gone || exit 1
+    fm_backend_herdr_projection_journal_fallback_only "$1/task-gone.herdr-presentation" task-gone || exit 1
+    printf "gone=%s\n" "$FM_BACKEND_HERDR_JOURNAL_FALLBACK"
+    fm_backend_herdr_projection_journal_record_fallback "$1" task-bad made-up gone \
+      && { echo "an unknown reason was recorded"; exit 1; }
+    exit 0
+  ' "$ROOT" "$state" 2>&1) || fail "presentation fallback journal records misbehaved: $out"
+  assert_contains "$out" "only=lock-contended" "a lock fallback did not publish a fallback-only record"
+  assert_contains "$out" "retained=1|prune-refused|same-token" \
+    "a retained prune fallback did not keep its attempt token beside the reason"
+  assert_contains "$out" "gone=prune-refused" \
+    "a prune fallback whose projection is gone did not become a fallback-only record"
+  journal="$state/task-lock.herdr-presentation"
+  [ "$(cat "$journal")" = "$(printf 'version=3\ntask_id=task-lock\nfallback=lock-contended')" ] \
+    || fail "fallback-only record was not the exact three-field version 3 shape: $(cat "$journal")"
+  [ ! -e "$state/task-bad.herdr-presentation" ] || fail "an unknown fallback reason published a record"
+  pass "herdr presentation journal: flat fallbacks are recorded without granting projection, token, or binding authority"
+}
+
+# Runs projection create with the seeded-tab prune replaced by a scripted
+# sequence of statuses, so the bounded retry is exercised without timing on a
+# real focus change. Prints the create status, the fallback verdict, and the
+# number of prune attempts.
+projection_create_with_prune_sequence() {  # <dir> <statuses> <tries> <try-seconds>
+  local dir=$1 statuses=$2 tries=$3 try_seconds=$4 log resp fb
+  mkdir -p "$dir/responses"
+  log="$dir/log"; resp="$dir/responses"; : > "$log"
+  printf '{"result":{"workspace":{"workspace_id":"w9"},"tab":{"tab_id":"w9:t1"},"root_pane":{"pane_id":"w9:p1"}}}\n' > "$resp/1.out"
+  printf '{"result":{"tab":{"tab_id":"w9:t2"},"root_pane":{"pane_id":"w9:p2"}}}\n' > "$resp/2.out"
+  printf '{"result":{"tabs":[{"tab_id":"w9:t2","label":"fm-task-p2","workspace_id":"w9"}]}}\n' > "$resp/3.out"
+  printf '{"result":{"panes":[{"pane_id":"w9:p2","tab_id":"w9:t2"}]}}\n' > "$resp/4.out"
+  fb=$(make_herdr_fakebin "$dir")
+  PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" HERDR_SESSION=fmtest \
+    FM_HERDR_PRESENTATION_RETRY_TRIES="$tries" FM_HERDR_PRESENTATION_RETRY_TRY_SECONDS="$try_seconds" \
+    PRUNE_STATUSES="$statuses" PRUNE_COUNT="$dir/prune-count" \
+    bash -c '
+      . "$0/bin/backends/herdr.sh"
+      fm_backend_herdr_projection_focus_snapshot() { printf "captain-ws\tcaptain-tab"; }
+      fm_backend_herdr_projection_focus_restore() { return 0; }
+      fm_backend_herdr_workspace_prune_seeded_default_tab() {
+        local n status
+        n=$(( $(cat "$PRUNE_COUNT" 2>/dev/null || echo 0) + 1 ))
+        printf "%s\n" "$n" > "$PRUNE_COUNT"
+        status=$(printf "%s\n" $PRUNE_STATUSES | sed -n "${n}p")
+        [ -n "$status" ] || status=$(printf "%s\n" $PRUNE_STATUSES | tail -n 1)
+        [ "$status" = 0 ] || echo "warning: herdr presentation cleanup target is the captain'"'"'s active tab; refusing a close that cannot preserve focus" >&2
+        return "$status"
+      }
+      if fm_backend_herdr_projection_create_task /tmp/proj label fm-task-p2; then status=0; else status=$?; fi
+      printf "status=%s fallback=%s\n" "$status" "${FM_BACKEND_HERDR_PROJECTION_FALLBACK:-none}"
+    ' "$ROOT" 2>"$dir/err"
+  printf 'attempts=%s\n' "$(cat "$dir/prune-count" 2>/dev/null || echo 0)"
+}
+
+test_projection_seeded_prune_retries_until_focus_clears() {
+  local dir out
+  dir="$TMP_ROOT/projection-prune-retry-clears"
+  out=$(projection_create_with_prune_sequence "$dir" "1 1 0" 2 1)
+  assert_contains "$out" "status=0 fallback=none" \
+    "a prune refusal that cleared within the bound did not complete the projection: $out $(cat "$dir/err")"
+  assert_contains "$out" "attempts=3" "the refused prune was not retried until it succeeded: $out"
+  [ "$(grep -c "target is the captain's active tab" "$dir/err")" = 1 ] \
+    || fail "a repeated identical prune refusal should be reported once: $(cat "$dir/err")"
+  assert_not_contains "$(cat "$dir/err")" "stayed focus-unsafe" \
+    "a prune that succeeded within the bound reported exhaustion"
+  pass "herdr presentation create: a refused focus-unsafe seeded prune retries until the focus condition clears"
+}
+
+test_projection_seeded_prune_exhausted_bound_reports_flat_fallback() {
+  local dir out
+  dir="$TMP_ROOT/projection-prune-retry-exhausted"
+  out=$(projection_create_with_prune_sequence "$dir" "1" 2 1)
+  assert_contains "$out" "status=1 fallback=prune-refused" \
+    "an exhausted prune bound did not return the flat-fallback verdict: $out"
+  assert_contains "$(cat "$dir/err")" "retrying (try 2 of 2, 1s each)" \
+    "an exhausted prune bound did not announce its bounded retry: $(cat "$dir/err")"
+  assert_contains "$(cat "$dir/err")" "stayed focus-unsafe for 2 tries of 1s" \
+    "an exhausted prune bound did not report its bound: $(cat "$dir/err")"
+  case "$out" in
+    *attempts=1$'\n'*|*attempts=1) fail "an exhausted prune bound made no retry: $out" ;;
+  esac
+  assert_not_contains "$(cat "$dir/log")" $'workspace\x1fclose' \
+    "an exhausted prune bound must never close a workspace"
+  pass "herdr presentation create: an exhausted seeded-prune bound yields a prune-refused flat-fallback verdict"
+}
+
+test_projection_seeded_prune_focus_restore_failure_is_not_retried() {
+  local dir out
+  dir="$TMP_ROOT/projection-prune-restore-failure"
+  out=$(projection_create_with_prune_sequence "$dir" "2" 3 5)
+  assert_contains "$out" "status=1 fallback=none" \
+    "a prune that could not restore focus must stay a spawn failure, not a flat fallback: $out"
+  assert_contains "$out" "attempts=1" "a prune that could not restore focus was retried: $out"
+  assert_contains "$(cat "$dir/err")" "did not preserve exact active focus" \
+    "a prune focus-restore failure was not reported: $(cat "$dir/err")"
+  pass "herdr presentation create: a seeded prune that lost focus fails at once without a flat fallback"
+}
+
 test_projection_label_builder_uses_corner_and_strips_owner_prefixes() {
   local primary secondmate token
   token='AbCdEfGhIjKlMnOpQrStUv'
@@ -5312,6 +5438,10 @@ test_kill_focused_workspace_stays_plain_close
 test_endpoint_confirmed_gone_gates_on_structured_presence
 test_kill_refuses_when_presentation_lock_is_unavailable
 test_projection_seeded_prune_refuses_active_tab
+test_projection_journal_records_flat_fallback_without_projection_authority
+test_projection_seeded_prune_retries_until_focus_clears
+test_projection_seeded_prune_exhausted_bound_reports_flat_fallback
+test_projection_seeded_prune_focus_restore_failure_is_not_retried
 test_projection_label_builder_uses_corner_and_strips_owner_prefixes
 test_projection_order_moves_only_exact_new_workspace_and_preserves_relative_order
 test_projection_order_secondmate_parent_block
