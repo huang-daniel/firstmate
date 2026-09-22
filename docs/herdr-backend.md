@@ -107,6 +107,16 @@ After the new workspace converges to one exact task endpoint beneath one exact p
 Another parent with the same presentation label does not prevent publication or participate in restart reclaim.
 The token is visible in the workspace title because Herdr exposes no verified hidden persistent field, but neither token, title, nor journal authorizes send, capture, task ownership, Treehouse return, or general recovery.
 
+A fresh projected spawn never degrades silently on a contended or refused projection step.
+Acquiring the shared named-session presentation lock waits a bounded time per try and retries a bounded number of tries, 3 tries of 10 seconds by default, so a concurrent spawn from any home that holds the lock through its launch handoff delays this spawn instead of demoting it.
+When the seeded-tab prune refuses a focus-unsafe close, or cannot read an unambiguous focus snapshot, it retries within that same bound once the captain's focus leaves the seeded tab; a prune whose close could not restore focus still stops the spawn at once.
+`FM_HERDR_PRESENTATION_RETRY_TRIES` and `FM_HERDR_PRESENTATION_RETRY_TRY_SECONDS` override the bound, and `bin/backends/herdr.sh` owns their parsing.
+Only when the bound is exhausted does the spawn fall back to the ordinary flat layout, before any projection mutation for the lock, and after exact focus-preserving cleanup of the unused projection panes for the prune.
+Either fallback prints one `HERDR_PRESENTATION_FALLBACK: <task> reason=<lock-contended|prune-refused> bound=<tries>x<seconds>s record=<journal>` line on stdout before the `spawned` line and records the reason in the presentation journal.
+When no projection remains, the record is a three-field version 3 fallback-only record with no token, which names nothing in Herdr, survives a relaunch of that flat task, is replaced by a genuinely fresh spawn that finds no task metadata, and retires with the other task records at cleanup.
+When the prune's projection workspace could not be removed, the version 1 attempt keeps its token and gains one `fallback=` line, so the ordinary quarantine, recovery, and session-start cleanup paths still find it and it is never bound.
+Neither record nor the diagnostic changes endpoint or task authority; the worker runs normally in the flat layout for its lifetime.
+
 The owning parent is the launcher's own exact workspace, resolved from the same identity the flat path uses, and falls back to a unique home-label lookup only for a Firstmate outside Herdr.
 Projected children are never collapsed back into that parent; it is the placement and ordering reference the projection is bound under.
 The normal `fm-<id>` task tab is created in the exact new workspace returned by Herdr.
@@ -171,8 +181,8 @@ A malformed or missing title or token, duplicate token, zero or multiple journal
 Operational compromises:
 
 - Grouping is best-effort; only an exact same-identity version 2 binding survives a Herdr restart in place.
-- A failed journal publication or projected workspace create stops that spawn instead of falling back flat, so a Herdr create failure surfaces as a spawn failure in every Herdr home rather than only in homes that opted in; every earlier degradation on the fresh projected-create path (no session server, contended presentation lock, absent or ambiguous parent) still warns and continues flat.
-- Recovery of an existing presentation journal deliberately refuses the spawn when the shared presentation lock is contended rather than falling back flat, and default-on makes that refusal reachable in any Herdr home.
+- A failed journal publication or projected workspace create stops that spawn instead of falling back flat, so a Herdr create failure surfaces as a spawn failure in every Herdr home rather than only in homes that opted in; a missing session server or an absent or ambiguous parent still warns and continues flat, while a contended presentation lock or a focus-unsafe seeded-tab prune continues flat only after the bounded wait above and always with its stdout diagnostic and journal record.
+- Recovery of an existing presentation journal deliberately refuses the spawn when the shared presentation lock stays contended for the same bounded wait rather than falling back flat, and default-on makes that refusal reachable in any Herdr home.
 - Existing layouts are not force-renamed or rearranged.
 - Missing or ambiguous restart bindings fall back to the ordinary home workspace while the old projection remains untouched.
 - Crashes, lost responses, failed exact-pane cleanup, or human renames can leave quarantined spaces; session start removes only the exact home-local, uniquely journal-correlated, childless idle-shell shape above.
@@ -181,7 +191,7 @@ Operational compromises:
 - Regaining a dedicated space after degradation requires stopping the flat task, manually checking the stale projection, and clearing its journal before a genuinely fresh launch.
 - The visible token is only a restart-stable correlator and never substitutes for the exact binding.
 
-`tests/fm-backend-herdr-presentation-e2e.test.sh` covers multi-home ordering, concurrency, lock contention, legacy coexistence, focus preservation, exact same-identity restart replacement, ambiguous bindings and tokens, and exact-pane cleanup through the guarded lab path.
+`tests/fm-backend-herdr-presentation-e2e.test.sh` covers multi-home ordering, concurrency, bounded lock contention and seeded-prune retry with their surfaced flat fallbacks, legacy coexistence, focus preservation, exact same-identity restart replacement, ambiguous bindings and tokens, and exact-pane cleanup through the guarded lab path.
 `tests/fm-herdr-session-cleanup.test.sh` covers every discovery, ownership, topology, process, locking, revalidation, focus, retirement, and continue-on-error boundary.
 `tests/fm-herdr-session-cleanup-e2e.test.sh` covers the restored-shell cleanup in a guarded non-default named lab.
 `tests/fm-backend-herdr-focus-flash-e2e.test.sh` reproduces the raw explicit-close focus steal on the installed release and proves the focus-safe emptying-close plan removes a doomed workspace with no wrong-focus interval; [`verification/runtime-backends.md`](verification/runtime-backends.md#workspace-removal-focus-safety) owns the active versioned evidence.

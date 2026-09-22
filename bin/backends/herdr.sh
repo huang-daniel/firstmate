@@ -146,8 +146,36 @@ FM_BACKEND_HERDR_SECONDMATE_MARKER=".fm-secondmate-home"
 # Version 2 additionally binds the successful projection's exact home,
 # session, workspace, tab, pane, parent, and presentation labels so a resumed
 # spawn can replace one verified agent-free husk under the session lock.
+# A version 1 attempt whose spawn fell back flat while its projection may
+# remain carries one trailing fallback=<reason> line. Version 3 is a
+# token-less fallback-only record: no projection remains, so it names nothing
+# in Herdr and only records why this task runs flat.
 # No send, capture, Treehouse, or general task-ownership path reads it.
 FM_BACKEND_HERDR_PRESENTATION_JOURNAL_SUFFIX=".herdr-presentation"
+
+# Bounded presentation wait: a contended session lock or a refused
+# focus-unsafe seeded-tab prune is retried for up to
+# FM_HERDR_PRESENTATION_RETRY_TRIES tries (default 3) of
+# FM_HERDR_PRESENTATION_RETRY_TRY_SECONDS each (default 10) before the spawn
+# falls back flat and surfaces that fallback. A missing, zero, or non-numeric
+# override uses the default.
+fm_backend_herdr_presentation_retry_positive() {  # <value> <default>
+  local value=$1
+  case "$value" in
+    ''|*[!0-9]*) value=$2 ;;
+  esac
+  value=$((10#$value))
+  [ "$value" -gt 0 ] || value=$2
+  printf '%s' "$value"
+}
+
+fm_backend_herdr_presentation_retry_tries() {
+  fm_backend_herdr_presentation_retry_positive "${FM_HERDR_PRESENTATION_RETRY_TRIES:-}" 3
+}
+
+fm_backend_herdr_presentation_retry_try_seconds() {
+  fm_backend_herdr_presentation_retry_positive "${FM_HERDR_PRESENTATION_RETRY_TRY_SECONDS:-}" 10
+}
 
 # The config item a home writes to opt out of, or explicitly in to, the
 # projection.
@@ -631,6 +659,7 @@ fm_backend_herdr_projection_journal_snapshot() {  # <journal> <task-id>
   FM_BACKEND_HERDR_JOURNAL_PARENT_LABEL=""
   FM_BACKEND_HERDR_JOURNAL_WORKSPACE_LABEL=""
   FM_BACKEND_HERDR_JOURNAL_TASK_LABEL=""
+  FM_BACKEND_HERDR_JOURNAL_FALLBACK=""
   [ -f "$journal" ] && [ ! -L "$journal" ] || return 1
   lines=$(wc -l < "$journal" 2>/dev/null | tr -d '[:space:]')
   FM_BACKEND_HERDR_JOURNAL_VERSION=$(fm_backend_herdr_projection_journal_field "$journal" version) || return 1
@@ -643,6 +672,11 @@ fm_backend_herdr_projection_journal_snapshot() {  # <journal> <task-id>
   esac
   case "$FM_BACKEND_HERDR_JOURNAL_VERSION:$lines" in
     1:3) return 0 ;;
+    1:4)
+      FM_BACKEND_HERDR_JOURNAL_FALLBACK=$(fm_backend_herdr_projection_journal_field "$journal" fallback) || return 1
+      fm_backend_herdr_projection_fallback_reason_valid "$FM_BACKEND_HERDR_JOURNAL_FALLBACK"
+      return
+      ;;
     2:12) ;;
     *) return 1 ;;
   esac
@@ -676,6 +710,69 @@ fm_backend_herdr_projection_journal_snapshot() {  # <journal> <task-id>
   expected_task_label="fm-$id"
   [ "$FM_BACKEND_HERDR_JOURNAL_WORKSPACE_LABEL" = "$expected_label" ] \
     && [ "$FM_BACKEND_HERDR_JOURNAL_TASK_LABEL" = "$expected_task_label" ]
+}
+
+fm_backend_herdr_projection_fallback_reason_valid() {  # <reason>
+  case "$1" in
+    lock-contended|prune-refused) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# fm_backend_herdr_projection_journal_fallback_only: validate one version 3
+# fallback-only record and set FM_BACKEND_HERDR_JOURNAL_FALLBACK.
+# It carries no token, so no Herdr lookup, recovery, or cleanup path can
+# correlate it with anything.
+fm_backend_herdr_projection_journal_fallback_only() {  # <journal> <task-id>
+  local journal=$1 id=$2 lines version task_id reason
+  FM_BACKEND_HERDR_JOURNAL_FALLBACK=""
+  [ -f "$journal" ] && [ ! -L "$journal" ] || return 1
+  lines=$(wc -l < "$journal" 2>/dev/null | tr -d '[:space:]')
+  [ "$lines" = 3 ] || return 1
+  version=$(fm_backend_herdr_projection_journal_field "$journal" version) || return 1
+  task_id=$(fm_backend_herdr_projection_journal_field "$journal" task_id) || return 1
+  reason=$(fm_backend_herdr_projection_journal_field "$journal" fallback) || return 1
+  [ "$version" = 3 ] && [ "$task_id" = "$id" ] || return 1
+  fm_backend_herdr_projection_fallback_reason_valid "$reason" || return 1
+  FM_BACKEND_HERDR_JOURNAL_FALLBACK=$reason
+}
+
+# fm_backend_herdr_projection_journal_record_fallback: record why a fresh
+# projected spawn fell back flat.
+# <projection> is "gone" when no projection exists for this task (nothing was
+# created, or its exact workspace is confirmed removed), which publishes or
+# replaces the record with a version 3 fallback-only record; "retained" keeps
+# an unbound version 1 attempt's token for the ordinary quarantine and
+# recovery paths and appends the reason to it.
+fm_backend_herdr_projection_journal_record_fallback() {  # <state-dir> <task-id> <reason> <gone|retained>
+  local state=$1 id=$2 reason=$3 projection=$4 journal tmp token
+  fm_backend_herdr_projection_fallback_reason_valid "$reason" || return 1
+  journal=$(fm_backend_herdr_projection_journal_path "$state" "$id")
+  if [ -e "$journal" ] || [ -L "$journal" ]; then
+    fm_backend_herdr_projection_journal_snapshot "$journal" "$id" || return 1
+    [ "$FM_BACKEND_HERDR_JOURNAL_VERSION" = 1 ] \
+      && [ -z "$FM_BACKEND_HERDR_JOURNAL_FALLBACK" ] || return 1
+    token=$FM_BACKEND_HERDR_JOURNAL_PROJECTION_ID
+  else
+    [ "$projection" = gone ] || return 1
+    token=
+  fi
+  tmp=$(mktemp "$state/.${id}.herdr-presentation.fallback.XXXXXX") || return 1
+  chmod 0600 "$tmp" || { rm -f "$tmp"; return 1; }
+  if [ "$projection" = gone ]; then
+    printf 'version=3\ntask_id=%s\nfallback=%s\n' "$id" "$reason" > "$tmp"
+  else
+    printf 'version=1\ntask_id=%s\nprojection_id=%s\nfallback=%s\n' "$id" "$token" "$reason" > "$tmp"
+  fi || { rm -f "$tmp"; return 1; }
+  if [ -n "$token" ]; then
+    mv -f "$tmp" "$journal"
+    return
+  fi
+  if ! ln "$tmp" "$journal" 2>/dev/null; then
+    rm -f "$tmp"
+    return 1
+  fi
+  rm -f "$tmp"
 }
 
 # fm_backend_herdr_projection_journal_token: validate and read either journal
@@ -725,7 +822,8 @@ fm_backend_herdr_projection_journal_bind() {  # <journal> <task-id> <home> <sess
   local journal=$1 id=$2 home=$3 session=$4 workspace=$5 tab=$6 pane=$7
   local parent_workspace=$8 parent_label=$9 workspace_label=${10} task_label=${11} token
   fm_backend_herdr_projection_journal_snapshot "$journal" "$id" || return 1
-  [ "$FM_BACKEND_HERDR_JOURNAL_VERSION" = 1 ] || return 1
+  [ "$FM_BACKEND_HERDR_JOURNAL_VERSION" = 1 ] \
+    && [ -z "$FM_BACKEND_HERDR_JOURNAL_FALLBACK" ] || return 1
   token=$FM_BACKEND_HERDR_JOURNAL_PROJECTION_ID
   fm_backend_herdr_projection_journal_write_v2 \
     "$journal" "$id" "$token" "$home" "$session" "$workspace" "$tab" "$pane" \
@@ -2510,11 +2608,18 @@ EOF
 #   FM_BACKEND_HERDR_PROJECTION_TAB_ID
 #   FM_BACKEND_HERDR_PROJECTION_PANE_ID
 #   FM_BACKEND_HERDR_PROJECTION_CLEANUP_SAFE
+#   FM_BACKEND_HERDR_PROJECTION_FALLBACK
 # CLEANUP_SAFE becomes 1 only after both creates returned complete exact IDs.
+# FALLBACK becomes prune-refused only when the seeded-tab prune stayed
+# focus-unsafe for the whole bounded presentation wait with focus intact; the
+# caller may then clean up exactly and fall back flat, while every other
+# failure stays a spawn failure.
 # A missing, failed, or malformed create response stays ambiguous and grants no
 # cleanup authority.
 fm_backend_herdr_projection_create_task() {  # <cwd> <workspace-label> <task-label>
   local cwd=$1 workspace_label=$2 task_label=$3 session out tabs panes tab_count pane_count focus_before active_tab
+  local tries try_seconds try attempt deadline prune_status prune_err
+  FM_BACKEND_HERDR_PROJECTION_FALLBACK=""
   FM_BACKEND_HERDR_PROJECTION_SESSION=""
   FM_BACKEND_HERDR_PROJECTION_WORKSPACE_ID=""
   FM_BACKEND_HERDR_PROJECTION_SEEDED_TAB_ID=""
@@ -2578,18 +2683,54 @@ fm_backend_herdr_projection_create_task() {  # <cwd> <workspace-label> <task-lab
   fi
   # shellcheck disable=SC2034  # caller consumes the same-process cleanup gate
   FM_BACKEND_HERDR_PROJECTION_CLEANUP_SAFE=1
-  focus_before=$(fm_backend_herdr_projection_focus_snapshot "$session") || {
-    echo "error: herdr presentation seeded-tab prune could not capture exact active workspace and tab; refusing a focus-unsafe prune" >&2
-    return 1
-  }
-  if ! fm_backend_herdr_workspace_prune_seeded_default_tab \
-    "$session" \
-    "$FM_BACKEND_HERDR_PROJECTION_WORKSPACE_ID" \
-    "$FM_BACKEND_HERDR_PROJECTION_SEEDED_TAB_ID" \
-    focus-preserving; then
-    echo "error: herdr presentation seeded-tab prune refused a focus-unsafe close; leaving its journal quarantined" >&2
-    return 1
-  fi
+  # An ambiguous focus snapshot or a refused focus-unsafe close leaves the
+  # seeded tab and focus untouched, so both are retried within the bounded
+  # presentation wait; only a close that could not restore focus stops at once.
+  # Retry attempts after the first repeat the same refusal, so only the first
+  # attempt's and any non-refusal attempt's warnings are replayed.
+  tries=$(fm_backend_herdr_presentation_retry_tries)
+  try_seconds=$(fm_backend_herdr_presentation_retry_try_seconds)
+  try=1
+  attempt=1
+  deadline=$((SECONDS + try_seconds))
+  while :; do
+    prune_status=1
+    prune_err=
+    if focus_before=$(fm_backend_herdr_projection_focus_snapshot "$session"); then
+      if prune_err=$(fm_backend_herdr_workspace_prune_seeded_default_tab \
+        "$session" \
+        "$FM_BACKEND_HERDR_PROJECTION_WORKSPACE_ID" \
+        "$FM_BACKEND_HERDR_PROJECTION_SEEDED_TAB_ID" \
+        focus-preserving 2>&1 >/dev/null); then
+        prune_status=0
+      else
+        prune_status=$?
+      fi
+    elif [ "$attempt" -eq 1 ]; then
+      prune_err="error: herdr presentation seeded-tab prune could not capture exact active workspace and tab; refusing a focus-unsafe prune"
+    fi
+    if [ -n "$prune_err" ] && { [ "$attempt" -eq 1 ] || [ "$prune_status" -ne 1 ]; }; then
+      printf '%s\n' "$prune_err" >&2
+    fi
+    [ "$prune_status" -ne 0 ] || break
+    if [ "$prune_status" -ne 1 ]; then
+      echo "error: herdr presentation seeded-tab prune did not preserve exact active focus; leaving its journal quarantined" >&2
+      return 1
+    fi
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      if [ "$try" -ge "$tries" ]; then
+        # shellcheck disable=SC2034  # caller consumes the flat-fallback verdict
+        FM_BACKEND_HERDR_PROJECTION_FALLBACK=prune-refused
+        echo "error: herdr presentation seeded-tab prune stayed focus-unsafe for $tries tries of ${try_seconds}s; leaving its journal quarantined" >&2
+        return 1
+      fi
+      try=$((try + 1))
+      deadline=$((SECONDS + try_seconds))
+      echo "warning: herdr presentation seeded-tab prune is still focus-unsafe; retrying (try $try of $tries, ${try_seconds}s each)" >&2
+    fi
+    attempt=$((attempt + 1))
+    sleep 1
+  done
   active_tab=${focus_before#*$'\t'}
   if [ "$FM_BACKEND_HERDR_PROJECTION_SEEDED_TAB_ID" != "$active_tab" ]; then
     fm_backend_herdr_projection_focus_restore "$session" "$focus_before" "seeded-tab prune" || {

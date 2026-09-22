@@ -2848,6 +2848,29 @@ test_herdr_projection_teardown_surfaces_restore_failure_without_blocking_cleanup
   pass "herdr projection teardown surfaces failed focus restoration without turning confirmed cleanup into a hard failure"
 }
 
+test_herdr_projection_teardown_retires_fallback_only_record_with_task_records() {
+  local case_dir log closed restored
+  case_dir=$(make_case herdr-projection-fallback-only)
+  write_meta "$case_dir" local-only ship
+  configure_herdr_projection_teardown_case "$case_dir"
+  printf '%s\n' 'version=3' 'task_id=task-x1' 'fallback=lock-contended' \
+    > "$case_dir/state/task-x1.herdr-presentation"
+  log="$case_dir/herdr.log"; closed="$case_dir/closed"; restored="$case_dir/restored"; : > "$log"
+
+  FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" FM_FAKE_HERDR_RESTORED="$restored" \
+    run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "herdr-projection-fallback-only: forced teardown of a flat-fallback task failed: $(cat "$case_dir/stderr")"
+  [ -e "$closed" ] \
+    || fail "herdr-projection-fallback-only: teardown did not close the flat task pane"
+  [ ! -e "$case_dir/state/task-x1.herdr-presentation" ] \
+    || fail "a fallback-only presentation record outlived its task"
+  assert_not_contains "$(cat "$case_dir/stderr")" "remains quarantined" \
+    "a fallback-only presentation record was reported as a quarantined projection"
+  assert_not_contains "$(cat "$log")" "workspace close" \
+    "a fallback-only presentation record must not authorize workspace cleanup"
+  pass "herdr teardown retires a fallback-only presentation record with the other task records"
+}
+
 # --- Fix 1: conclude/abort the task's own parked no-mistakes run before the
 # worker is removed, and Fix 2: reap leaked descendant processes rooted under
 # the task's own worktree/tasktmp - both exercised through the real teardown
@@ -3893,6 +3916,7 @@ test_forced_teardown_retains_nested_secondmate_home_when_grandchild_close_unconf
 test_herdr_projection_teardown_retires_journal_only_after_confirmed_close
 test_herdr_projection_teardown_retains_journal_when_close_unconfirmed
 test_herdr_projection_teardown_surfaces_restore_failure_without_blocking_cleanup
+test_herdr_projection_teardown_retires_fallback_only_record_with_task_records
 test_squash_merged_branch_deleted_allows
 test_squash_merged_pr_allows_when_head_ancestor_of_pr_head
 test_no_pr_recorded_discovers_merged_pr_by_branch_allows

@@ -29,6 +29,7 @@ MOVE_CALL_LOG="$TMP_ROOT/workspace-move-calls.log"
 FOCUS_AUDIT_LOG="$TMP_ROOT/focus-audit.log"
 ACTIVE_SEEDED_CONTROL="$TMP_ROOT/active-seeded-control"
 POST_CREATE_ABORT_CONTROL="$TMP_ROOT/post-create-abort-control"
+LIVE_VIEWER_CONTROL="$TMP_ROOT/live-viewer-control"
 mkdir -p "$FAKEBIN"
 : > "$HERDR_CALL_LOG"
 : > "$TREEHOUSE_CALL_LOG"
@@ -36,7 +37,7 @@ mkdir -p "$FAKEBIN"
 : > "$FOCUS_AUDIT_LOG"
 REAL_MOVER="$ROOT/bin/backends/herdr-workspace-move.py"
 export REAL_HERDR REAL_TREEHOUSE REAL_MOVER HERDR_CALL_LOG TREEHOUSE_CALL_LOG TREEHOUSE_LOCK_DIR MOVE_CALL_LOG FOCUS_AUDIT_LOG HERDR_ORIGINAL_PATH HERDR_LAB_HELPER
-export ACTIVE_SEEDED_CONTROL POST_CREATE_ABORT_CONTROL TMP_ROOT
+export ACTIVE_SEEDED_CONTROL POST_CREATE_ABORT_CONTROL LIVE_VIEWER_CONTROL TMP_ROOT
 
 # Log every production-adapter call, remove its already-validated trailing
 # session flag, and send the operation through the lab helper so that helper
@@ -76,6 +77,12 @@ done
 if [ "${1:-}" = --version ]; then
   exec env PATH="$HERDR_ORIGINAL_PATH" "$REAL_HERDR" "$@" --session "$HERDR_LAB_SESSION"
 fi
+# The lab has no attached client, so a live foreground viewer is modeled by
+# answering Herdr's viewer probe the way it answers while a client is attached.
+if [ "${1:-} ${2:-} ${3:-}" = "terminal title clear" ] && [ -e "$LIVE_VIEWER_CONTROL" ]; then
+  printf '%s\n' '{"result":{"reason":"cleared"}}'
+  exit 0
+fi
 focus_snapshot() {
   local list row workspace tab tabs
   list=$(env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" workspace list) || return 1
@@ -112,6 +119,7 @@ arg_value() {
 }
 
 label=$(arg_value --label "$@" || true)
+seeded_task=$(cat "$ACTIVE_SEEDED_CONTROL/task" 2>/dev/null || printf active-seeded)
 if [ "${1:-} ${2:-}" = "workspace list" ] && [ -d "$ACTIVE_SEEDED_CONTROL" ]; then
   stage=$(cat "$ACTIVE_SEEDED_CONTROL/stage" 2>/dev/null || true)
   if [ "$stage" = task-created ]; then
@@ -150,7 +158,7 @@ else
 fi
 if [ "$status" -eq 0 ] && [ "$mutation" = workspace-create ]; then
   case "$label" in
-    $'└ active-seeded · p:'*)
+    "└ $seeded_task · p:"*)
       mkdir -p "$ACTIVE_SEEDED_CONTROL"
       printf '%s\n' "$(printf '%s' "$out" | jq -r '.result.workspace.workspace_id')" > "$ACTIVE_SEEDED_CONTROL/workspace"
       printf '%s\n' "$(printf '%s' "$out" | jq -r '.result.tab.tab_id')" > "$ACTIVE_SEEDED_CONTROL/seeded-tab"
@@ -165,9 +173,12 @@ if [ "$status" -eq 0 ] && [ "$mutation" = workspace-create ]; then
 fi
 if [ "$status" -eq 0 ] && [ "$mutation" = tab-create ]; then
   case "$label" in
-    fm-active-seeded)
-      printf '%s\n' "$(printf '%s' "$out" | jq -r '.result.root_pane.pane_id')" > "$ACTIVE_SEEDED_CONTROL/task-pane"
-      printf '%s\n' task-created > "$ACTIVE_SEEDED_CONTROL/stage"
+    "fm-$seeded_task")
+      # A flat fallback creates a second fm-<id> tab; only the projected one is recorded.
+      if [ ! -e "$ACTIVE_SEEDED_CONTROL/task-pane" ]; then
+        printf '%s\n' "$(printf '%s' "$out" | jq -r '.result.root_pane.pane_id')" > "$ACTIVE_SEEDED_CONTROL/task-pane"
+        printf '%s\n' task-created > "$ACTIVE_SEEDED_CONTROL/stage"
+      fi
       ;;
     fm-abort-a|fm-abort-b)
       task=${label#fm-}
@@ -529,6 +540,9 @@ write_ship_brief "$HOME_DIR" active-seeded 'Projection active seeded fixture.'
 write_ship_brief "$HOME_DIR" abort-a 'Projection abort fixture A.'
 write_ship_brief "$HOME_DIR" abort-b 'Projection abort fixture B.'
 write_ship_brief "$HOME_DIR" lock-contended 'Projection lock contention fixture.'
+write_ship_brief "$HOME_DIR" lock-retry 'Projection lock released within the bounded wait fixture.'
+write_ship_brief "$HOME_DIR" prune-clears 'Projection seeded prune focus clears within the bounded wait fixture.'
+write_ship_brief "$HOME_DIR" prune-exhausted 'Projection seeded prune focus stays unsafe for the bounded wait fixture.'
 write_ship_brief "$HOME_DIR" default-on 'Projection default-on fixture.'
 make_project "$PROJECT_DIR"
 make_project "$RECOVERY_PROJECT_DIR"
@@ -648,6 +662,18 @@ JOURNAL="$HOME_DIR/state/shape.herdr-presentation"
 [ -f "$JOURNAL" ] || fail "projected spawn did not publish its presentation journal"
 TOKEN=$(grep '^projection_id=' "$JOURNAL" | cut -d= -f2-)
 [ "${#TOKEN}" -eq 22 ] || fail "projection id is not the compact 22-character encoding of 128 bits"
+# The uncontended projected path must stay byte-identical to the opted-out
+# spawn's result line apart from the endpoint, with no bounded-wait output.
+[ "$(sed -E 's/window=[^ ]*/window=<endpoint>/' "$TMP_ROOT/on.out")" = "$(sed -E 's/window=[^ ]*/window=<endpoint>/' "$TMP_ROOT/off.out")" ] \
+  || fail "uncontended projected spawn stdout diverged from the flat result line: $(cat "$TMP_ROOT/on.out")"
+[ "$(wc -l < "$TMP_ROOT/on.out" | tr -d '[:space:]')" = 1 ] \
+  || fail "uncontended projected spawn printed more than its result line: $(cat "$TMP_ROOT/on.out")"
+if grep -E 'retrying|HERDR_PRESENTATION_FALLBACK|stayed focus-unsafe' "$TMP_ROOT/on.err" >/dev/null 2>&1; then
+  fail "uncontended projected spawn reported a bounded wait or fallback: $(cat "$TMP_ROOT/on.err")"
+fi
+if grep -q '^fallback=' "$JOURNAL"; then
+  fail "uncontended projected spawn recorded a fallback in its journal"
+fi
 PROJECTED_WSID=$(grep '^herdr_workspace_id=' "$ON_META" | cut -d= -f2-)
 PROJECTED_TAB=$(grep '^herdr_tab_id=' "$ON_META" | cut -d= -f2-)
 PROJECTED_PANE=$(grep '^herdr_pane_id=' "$ON_META" | cut -d= -f2-)
@@ -701,6 +727,104 @@ cp "$TMP_ROOT/move-log-before-active-seeded" "$MOVE_CALL_LOG"
 assert_focus_is "$CAPTAIN_FOCUS" "active seeded-tab fixture cleanup"
 pass "real Herdr lab: persisted-focused seeded prune proceeds when no live client is attached"
 
+# A live viewer on the fresh seeded tab refuses the prune; once the captain
+# navigates back within the bounded wait, the retried prune completes the
+# projection instead of demoting the worker to the flat layout.
+mkdir -p "$ACTIVE_SEEDED_CONTROL"
+printf '%s\n' prune-clears > "$ACTIVE_SEEDED_CONTROL/task"
+printf '%s\n' requested > "$ACTIVE_SEEDED_CONTROL/stage"
+: > "$LIVE_VIEWER_CONTROL"
+cp "$MOVE_CALL_LOG" "$TMP_ROOT/move-log-before-prune-clears"
+FM_HERDR_PRESENTATION_RETRY_TRIES=3 FM_HERDR_PRESENTATION_RETRY_TRY_SECONDS=5 \
+  spawn_task prune-clears "$HOME_DIR" "$PROJECT_DIR" > "$TMP_ROOT/prune-clears.out" 2> "$TMP_ROOT/prune-clears.err" &
+PRUNE_CLEARS_PID=$!
+PRUNE_CLEARS_WAIT=0
+while ! grep -F "target is the captain's active tab" "$TMP_ROOT/prune-clears.err" >/dev/null 2>&1; do
+  kill -0 "$PRUNE_CLEARS_PID" 2>/dev/null || break
+  PRUNE_CLEARS_WAIT=$((PRUNE_CLEARS_WAIT + 1))
+  [ "$PRUNE_CLEARS_WAIT" -lt 600 ] || break
+  sleep 0.05
+done
+grep -F "target is the captain's active tab" "$TMP_ROOT/prune-clears.err" >/dev/null 2>&1 \
+  || { wait "$PRUNE_CLEARS_PID" 2>/dev/null; fail "a live viewer on the seeded tab did not refuse the first prune: $(cat "$TMP_ROOT/prune-clears.err")"; }
+lab tab focus "$SECOND_TWO_TAB" >/dev/null || fail "could not model the captain navigating away from the seeded tab"
+wait "$PRUNE_CLEARS_PID" || fail "a seeded prune whose focus cleared within the bound failed the spawn: $(cat "$TMP_ROOT/prune-clears.err")"
+rm -f "$LIVE_VIEWER_CONTROL"
+PRUNE_CLEARS_SEEDED_PANE=$(cat "$ACTIVE_SEEDED_CONTROL/seeded-pane")
+rm -rf "$ACTIVE_SEEDED_CONTROL"
+remember_meta_worktree "$HOME_DIR/state/prune-clears.meta" >/dev/null
+if lab pane get "$PRUNE_CLEARS_SEEDED_PANE" >/dev/null 2>&1; then
+  fail "the retried seeded prune left the seeded pane behind"
+fi
+[ "$(grep '^herdr_workspace_id=' "$HOME_DIR/state/prune-clears.meta" | cut -d= -f2-)" != "$FIRSTMATE_WSID" ] \
+  || fail "a seeded prune whose focus cleared within the bound still fell back flat"
+grep -q '^version=2$' "$HOME_DIR/state/prune-clears.herdr-presentation" \
+  || fail "a seeded prune whose focus cleared within the bound did not bind its projection"
+if grep -q '^fallback=' "$HOME_DIR/state/prune-clears.herdr-presentation"; then
+  fail "a completed projection recorded a flat fallback"
+fi
+if grep -q 'HERDR_PRESENTATION_FALLBACK' "$TMP_ROOT/prune-clears.out"; then
+  fail "a completed projection printed a flat-fallback diagnostic"
+fi
+[ "$(grep -c "target is the captain's active tab" "$TMP_ROOT/prune-clears.err")" = 1 ] \
+  || fail "the repeated seeded-prune refusal was not reported exactly once: $(cat "$TMP_ROOT/prune-clears.err")"
+assert_focus_is "$CAPTAIN_FOCUS" "retried seeded prune"
+teardown_task prune-clears "$HOME_DIR" > "$TMP_ROOT/prune-clears-teardown.out" 2> "$TMP_ROOT/prune-clears-teardown.err" \
+  || fail "retried seeded prune teardown failed: $(cat "$TMP_ROOT/prune-clears-teardown.err")"
+cp "$TMP_ROOT/move-log-before-prune-clears" "$MOVE_CALL_LOG"
+assert_focus_is "$CAPTAIN_FOCUS" "retried seeded prune cleanup"
+pass "real Herdr lab: a focus-unsafe seeded prune retries and completes the projection once the viewer leaves the seeded tab"
+
+# A live viewer that stays on the seeded tab exhausts the bound: the spawn
+# still succeeds flat, but only with an actionable stdout diagnostic and a
+# journal record that keeps the unremovable projection's token quarantined.
+mkdir -p "$ACTIVE_SEEDED_CONTROL"
+printf '%s\n' prune-exhausted > "$ACTIVE_SEEDED_CONTROL/task"
+printf '%s\n' requested > "$ACTIVE_SEEDED_CONTROL/stage"
+: > "$LIVE_VIEWER_CONTROL"
+PRUNE_EXHAUSTED_MOVE_START=$(wc -l < "$MOVE_CALL_LOG" | tr -d '[:space:]')
+FM_HERDR_PRESENTATION_RETRY_TRIES=2 FM_HERDR_PRESENTATION_RETRY_TRY_SECONDS=1 \
+  spawn_task prune-exhausted "$HOME_DIR" "$PROJECT_DIR" > "$TMP_ROOT/prune-exhausted.out" 2> "$TMP_ROOT/prune-exhausted.err" \
+  || fail "an exhausted seeded-prune bound did not fall back to a successful flat spawn: $(cat "$TMP_ROOT/prune-exhausted.err")"
+rm -f "$LIVE_VIEWER_CONTROL"
+PRUNE_EXHAUSTED_SEEDED_PANE=$(cat "$ACTIVE_SEEDED_CONTROL/seeded-pane")
+PRUNE_EXHAUSTED_TASK_PANE=$(cat "$ACTIVE_SEEDED_CONTROL/task-pane")
+PRUNE_EXHAUSTED_WSID=$(cat "$ACTIVE_SEEDED_CONTROL/workspace")
+rm -rf "$ACTIVE_SEEDED_CONTROL"
+remember_meta_worktree "$HOME_DIR/state/prune-exhausted.meta" >/dev/null
+PRUNE_EXHAUSTED_JOURNAL="$HOME_DIR/state/prune-exhausted.herdr-presentation"
+[ "$(sed -n '1p' "$TMP_ROOT/prune-exhausted.out")" = "$(sed -n '1p' "$TMP_ROOT/prune-exhausted.out" | grep -F "HERDR_PRESENTATION_FALLBACK: prune-exhausted reason=prune-refused bound=2x1s record=$PRUNE_EXHAUSTED_JOURNAL - ")" ] \
+  && [ -n "$(sed -n '1p' "$TMP_ROOT/prune-exhausted.out")" ] \
+  || fail "an exhausted seeded-prune bound did not print its actionable stdout diagnostic: $(cat "$TMP_ROOT/prune-exhausted.out")"
+sed -n '2p' "$TMP_ROOT/prune-exhausted.out" | grep -q '^spawned prune-exhausted ' \
+  || fail "the flat-fallback diagnostic did not precede the spawn result line: $(cat "$TMP_ROOT/prune-exhausted.out")"
+grep -F "retrying (try 2 of 2, 1s each)" "$TMP_ROOT/prune-exhausted.err" >/dev/null 2>&1 \
+  || fail "an exhausted seeded-prune bound did not retry: $(cat "$TMP_ROOT/prune-exhausted.err")"
+[ "$(grep '^herdr_workspace_id=' "$HOME_DIR/state/prune-exhausted.meta" | cut -d= -f2-)" = "$FIRSTMATE_WSID" ] \
+  || fail "an exhausted seeded-prune bound did not place the worker in the ordinary flat workspace"
+if lab pane get "$PRUNE_EXHAUSTED_TASK_PANE" >/dev/null 2>&1; then
+  fail "an exhausted seeded-prune bound left the unused projected task pane behind: $(cat "$TMP_ROOT/prune-exhausted.err") calls: $(grep -F "$PRUNE_EXHAUSTED_TASK_PANE" "$HERDR_CALL_LOG")"
+fi
+lab pane get "$PRUNE_EXHAUSTED_SEEDED_PANE" >/dev/null 2>&1 \
+  || fail "an exhausted seeded-prune bound closed the pane a live viewer was watching"
+PRUNE_EXHAUSTED_TOKEN=$(sed -n 's/^projection_id=//p' "$PRUNE_EXHAUSTED_JOURNAL")
+[ "$(cat "$PRUNE_EXHAUSTED_JOURNAL")" = "$(printf 'version=1\ntask_id=prune-exhausted\nprojection_id=%s\nfallback=prune-refused' "$PRUNE_EXHAUSTED_TOKEN")" ] \
+  || fail "an exhausted seeded-prune bound did not record its fallback beside the retained token: $(cat "$PRUNE_EXHAUSTED_JOURNAL")"
+[ "$(lab workspace get "$PRUNE_EXHAUSTED_WSID" | jq -r '.result.workspace.label')" = "└ prune-exhausted · p:$PRUNE_EXHAUSTED_TOKEN" ] \
+  || fail "the retained projection is not the one its fallback record names"
+[ "$(wc -l < "$MOVE_CALL_LOG" | tr -d '[:space:]')" = "$PRUNE_EXHAUSTED_MOVE_START" ] \
+  || fail "an exhausted seeded-prune bound ordered the abandoned projection"
+lab tab focus "$SECOND_TWO_TAB" >/dev/null || fail "could not restore the captain tab after the exhausted seeded-prune fixture"
+lab pane close "$PRUNE_EXHAUSTED_SEEDED_PANE" >/dev/null 2>&1 || true
+assert_focus_is "$CAPTAIN_FOCUS" "exhausted seeded-prune fixture restoration"
+teardown_task prune-exhausted "$HOME_DIR" > "$TMP_ROOT/prune-exhausted-teardown.out" 2> "$TMP_ROOT/prune-exhausted-teardown.err" \
+  || fail "exhausted seeded-prune flat teardown failed: $(cat "$TMP_ROOT/prune-exhausted-teardown.err")"
+grep -F "remains quarantined" "$TMP_ROOT/prune-exhausted-teardown.err" >/dev/null 2>&1 \
+  || fail "a retained prune fallback journal was not kept quarantined at teardown"
+rm -f "$PRUNE_EXHAUSTED_JOURNAL"
+assert_focus_is "$CAPTAIN_FOCUS" "exhausted seeded-prune fixture cleanup"
+pass "real Herdr lab: an exhausted seeded-prune bound falls back flat with a stdout diagnostic and a quarantined journal record"
+
 LOCK_CONTENTION_READY="$TMP_ROOT/lock-contention-ready"
 LOCK_CONTENTION_RELEASE="$TMP_ROOT/lock-contention-release"
 LOCK_CONTENTION_PATH=$(session_presentation_lock_path) \
@@ -719,7 +843,8 @@ while [ ! -e "$LOCK_CONTENTION_READY" ] && kill -0 "$LOCK_CONTENTION_OWNER_PID" 
 LOCK_CONTENTION_START=$(log_line_count)
 LOCK_CONTENTION_FOCUS_START=$(focus_audit_line_count)
 LOCK_CONTENTION_MOVE_START=$(wc -l < "$MOVE_CALL_LOG" | tr -d '[:space:]')
-if spawn_task lock-contended "$HOME_DIR" "$PROJECT_DIR" > "$TMP_ROOT/lock-contended.out" 2> "$TMP_ROOT/lock-contended.err"; then
+if FM_HERDR_PRESENTATION_RETRY_TRIES=2 FM_HERDR_PRESENTATION_RETRY_TRY_SECONDS=1 \
+  spawn_task lock-contended "$HOME_DIR" "$PROJECT_DIR" > "$TMP_ROOT/lock-contended.out" 2> "$TMP_ROOT/lock-contended.err"; then
   LOCK_CONTENTION_STATUS=0
 else
   LOCK_CONTENTION_STATUS=$?
@@ -731,13 +856,20 @@ LOCK_CONTENTION_OWNER_PID=
   || fail "bounded presentation lock contention did not fall back to a successful flat spawn: $(cat "$TMP_ROOT/lock-contended.err")"
 grep -F "presentation focus lock unavailable; using the ordinary flat layout without projection" "$TMP_ROOT/lock-contended.err" >/dev/null 2>&1 \
   || fail "bounded presentation lock contention did not warn about flat fallback"
+grep -F "session lock is still held by another spawn; retrying (try 2 of 2, 1s each)" "$TMP_ROOT/lock-contended.err" >/dev/null 2>&1 \
+  || fail "bounded presentation lock contention did not retry before falling back: $(cat "$TMP_ROOT/lock-contended.err")"
+LOCK_CONTENTION_JOURNAL="$HOME_DIR/state/lock-contended.herdr-presentation"
+sed -n '1p' "$TMP_ROOT/lock-contended.out" | grep -F "HERDR_PRESENTATION_FALLBACK: lock-contended reason=lock-contended bound=2x1s record=$LOCK_CONTENTION_JOURNAL - " >/dev/null 2>&1 \
+  || fail "bounded presentation lock contention did not print its actionable stdout diagnostic: $(cat "$TMP_ROOT/lock-contended.out")"
+sed -n '2p' "$TMP_ROOT/lock-contended.out" | grep -q '^spawned lock-contended ' \
+  || fail "the lock flat-fallback diagnostic did not precede the spawn result line: $(cat "$TMP_ROOT/lock-contended.out")"
 LOCK_CONTENTION_META="$HOME_DIR/state/lock-contended.meta"
 remember_meta_worktree "$LOCK_CONTENTION_META" >/dev/null
 LOCK_CONTENTION_WSID=$(grep '^herdr_workspace_id=' "$LOCK_CONTENTION_META" | cut -d= -f2-)
 [ "$LOCK_CONTENTION_WSID" = "$FIRSTMATE_WSID" ] \
   || fail "bounded lock contention did not use the ordinary flat firstmate workspace"
-[ ! -e "$HOME_DIR/state/lock-contended.herdr-presentation" ] \
-  || fail "bounded lock contention published a projection journal"
+[ "$(cat "$LOCK_CONTENTION_JOURNAL")" = "$(printf 'version=3\ntask_id=lock-contended\nfallback=lock-contended')" ] \
+  || fail "bounded lock contention did not record a token-less fallback-only journal: $(cat "$LOCK_CONTENTION_JOURNAL" 2>&1)"
 LOCK_CONTENTION_CALLS=$(sed -n "$((LOCK_CONTENTION_START + 1)),\$p" "$HERDR_CALL_LOG")
 # session list is required to resolve the shared session lock path before the
 # bounded acquire attempt; it must not unlock projection create or move.
@@ -751,7 +883,58 @@ assert_raw_presentation_mutations_preserved_since "$LOCK_CONTENTION_FOCUS_START"
 teardown_task lock-contended "$HOME_DIR" > "$TMP_ROOT/lock-contended-teardown.out" 2> "$TMP_ROOT/lock-contended-teardown.err" \
   || fail "flat lock-contention fixture teardown failed: $(cat "$TMP_ROOT/lock-contended-teardown.err")"
 assert_focus_is "$CAPTAIN_FOCUS" "bounded presentation lock flat fallback teardown"
-pass "real Herdr lab: bounded lock contention warns and falls back flat without projection or focus drift"
+[ ! -e "$LOCK_CONTENTION_JOURNAL" ] || fail "the fallback-only record outlived its flat task's teardown"
+if grep -F "remains quarantined" "$TMP_ROOT/lock-contended-teardown.err" >/dev/null 2>&1; then
+  fail "a fallback-only record was reported as a quarantined projection at teardown"
+fi
+pass "real Herdr lab: bounded lock contention retries, then falls back flat with a stdout diagnostic and fallback-only record, without projection or focus drift"
+
+# A lock released during the bounded wait is acquired on a later try, so the
+# worker is projected rather than silently demoted to the flat layout.
+LOCK_RETRY_READY="$TMP_ROOT/lock-retry-ready"
+LOCK_RETRY_RELEASE="$TMP_ROOT/lock-retry-release"
+ROOT="$ROOT" READY="$LOCK_RETRY_READY" RELEASE="$LOCK_RETRY_RELEASE" \
+  LOCK="$LOCK_CONTENTION_PATH" bash -c '
+  . "$ROOT/bin/fm-wake-lib.sh"
+  fm_lock_try_acquire "$LOCK" || exit 1
+  : > "$READY"
+  while [ ! -e "$RELEASE" ]; do sleep 0.05; done
+  fm_lock_release "$LOCK"
+' &
+LOCK_CONTENTION_OWNER_PID=$!
+while [ ! -e "$LOCK_RETRY_READY" ] && kill -0 "$LOCK_CONTENTION_OWNER_PID" 2>/dev/null; do sleep 0.01; done
+[ -e "$LOCK_RETRY_READY" ] || fail "could not hold the guarded lab presentation lock for the retry case"
+cp "$MOVE_CALL_LOG" "$TMP_ROOT/move-log-before-lock-retry"
+FM_HERDR_PRESENTATION_RETRY_TRIES=3 FM_HERDR_PRESENTATION_RETRY_TRY_SECONDS=1 \
+  spawn_task lock-retry "$HOME_DIR" "$PROJECT_DIR" > "$TMP_ROOT/lock-retry.out" 2> "$TMP_ROOT/lock-retry.err" &
+LOCK_RETRY_PID=$!
+LOCK_RETRY_WAIT=0
+while ! grep -F "session lock is still held by another spawn; retrying" "$TMP_ROOT/lock-retry.err" >/dev/null 2>&1; do
+  kill -0 "$LOCK_RETRY_PID" 2>/dev/null || break
+  LOCK_RETRY_WAIT=$((LOCK_RETRY_WAIT + 1))
+  [ "$LOCK_RETRY_WAIT" -lt 600 ] || break
+  sleep 0.05
+done
+: > "$LOCK_RETRY_RELEASE"
+wait "$LOCK_CONTENTION_OWNER_PID" || fail "guarded lab presentation lock owner failed in the retry case"
+LOCK_CONTENTION_OWNER_PID=
+wait "$LOCK_RETRY_PID" || fail "a lock released within the bounded wait failed the spawn: $(cat "$TMP_ROOT/lock-retry.err")"
+remember_meta_worktree "$HOME_DIR/state/lock-retry.meta" >/dev/null
+grep -F "session lock is still held by another spawn; retrying (try 2 of 3, 1s each)" "$TMP_ROOT/lock-retry.err" >/dev/null 2>&1 \
+  || fail "the lock retry case did not exercise a retried try: $(cat "$TMP_ROOT/lock-retry.err")"
+[ "$(grep '^herdr_workspace_id=' "$HOME_DIR/state/lock-retry.meta" | cut -d= -f2-)" != "$FIRSTMATE_WSID" ] \
+  || fail "a lock released within the bounded wait still fell back flat"
+grep -q '^version=2$' "$HOME_DIR/state/lock-retry.herdr-presentation" \
+  || fail "a lock released within the bounded wait did not bind its projection"
+if grep -q 'HERDR_PRESENTATION_FALLBACK' "$TMP_ROOT/lock-retry.out"; then
+  fail "a lock released within the bounded wait printed a flat-fallback diagnostic"
+fi
+assert_focus_is "$CAPTAIN_FOCUS" "lock acquired on retry"
+teardown_task lock-retry "$HOME_DIR" > "$TMP_ROOT/lock-retry-teardown.out" 2> "$TMP_ROOT/lock-retry-teardown.err" \
+  || fail "lock retry fixture teardown failed: $(cat "$TMP_ROOT/lock-retry-teardown.err")"
+cp "$TMP_ROOT/move-log-before-lock-retry" "$MOVE_CALL_LOG"
+assert_focus_is "$CAPTAIN_FOCUS" "lock acquired on retry cleanup"
+pass "real Herdr lab: a presentation lock released within the bounded wait is acquired on retry and the worker is projected"
 PROJECTION_ORDER_START=$(log_line_count)
 
 [ "$OFF_WT" = "$ON_WT" ] || fail "Treehouse did not reuse the same fixture worktree, so byte comparison is inconclusive"
@@ -1149,7 +1332,8 @@ while [ ! -e "$CROSS_LOCK_READY" ] && kill -0 "$CROSS_LOCK_PID" 2>/dev/null; do 
 [ -e "$CROSS_LOCK_READY" ] || fail "could not hold the cross-home session presentation lock"
 mkdir -p "$SECOND_HOME_A/data/aflat"
 write_ship_brief "$SECOND_HOME_A" aflat 'Flat fallback under session lock contention.'
-if spawn_task aflat "$SECOND_HOME_A" "$PROJECT_DIR" > "$TMP_ROOT/aflat.out" 2> "$TMP_ROOT/aflat.err"; then
+if FM_HERDR_PRESENTATION_RETRY_TRIES=2 FM_HERDR_PRESENTATION_RETRY_TRY_SECONDS=1 \
+  spawn_task aflat "$SECOND_HOME_A" "$PROJECT_DIR" > "$TMP_ROOT/aflat.out" 2> "$TMP_ROOT/aflat.err"; then
   AFLAT_STATUS=0
 else
   AFLAT_STATUS=$?
@@ -1165,12 +1349,16 @@ AFLAT_WSID=$(grep '^herdr_workspace_id=' "$SECOND_HOME_A/state/aflat.meta" | cut
 AFLAT_LABEL=$(lab workspace get "$AFLAT_WSID" | jq -r '.result.workspace.label')
 [ "$AFLAT_LABEL" = 2ndmate-alpha ] \
   || fail "cross-home lock contention did not use the ordinary secondmate home workspace: $AFLAT_LABEL"
-[ ! -e "$SECOND_HOME_A/state/aflat.herdr-presentation" ] \
-  || fail "cross-home lock contention published a projection journal"
+[ "$(cat "$SECOND_HOME_A/state/aflat.herdr-presentation")" = "$(printf 'version=3\ntask_id=aflat\nfallback=lock-contended')" ] \
+  || fail "cross-home lock contention did not record a token-less fallback-only journal"
+grep -F "HERDR_PRESENTATION_FALLBACK: aflat reason=lock-contended bound=2x1s " "$TMP_ROOT/aflat.out" >/dev/null 2>&1 \
+  || fail "cross-home lock contention did not print its actionable stdout diagnostic: $(cat "$TMP_ROOT/aflat.out")"
 assert_focus_is "$CAPTAIN_FOCUS" "cross-home lock contention flat fallback"
 teardown_task aflat "$SECOND_HOME_A" > "$TMP_ROOT/aflat-teardown.out" 2> "$TMP_ROOT/aflat-teardown.err" \
   || fail "flat cross-home contention fixture teardown failed"
-pass "real Herdr lab: session lock contention from a secondmate home falls back flat with no journal"
+[ ! -e "$SECOND_HOME_A/state/aflat.herdr-presentation" ] \
+  || fail "the cross-home fallback-only record outlived its flat task's teardown"
+pass "real Herdr lab: session lock contention from a secondmate home falls back flat with a surfaced diagnostic and fallback-only record"
 
 # Same-identity recovery replaces only one exact agent-free husk in its
 # original projected workspace. These full-session restarts also stop the
