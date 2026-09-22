@@ -2720,7 +2720,7 @@ fm_backend_herdr_projection_create_task() {  # <cwd> <workspace-label> <task-lab
     if [ "$SECONDS" -ge "$deadline" ]; then
       if [ "$try" -ge "$tries" ]; then
         # shellcheck disable=SC2034  # caller consumes the flat-fallback verdict
-        FM_BACKEND_HERDR_PROJECTION_FALLBACK=prune-refused
+        FM_BACKEND_HERDR_PROJECTION_FALLBACK="prune-refused"
         echo "error: herdr presentation seeded-tab prune stayed focus-unsafe for $tries tries of ${try_seconds}s; leaving its journal quarantined" >&2
         return 1
       fi
