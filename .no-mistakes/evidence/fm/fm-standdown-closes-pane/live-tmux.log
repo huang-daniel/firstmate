@@ -1,0 +1,46 @@
++ tmux list-windows -t fmlab -F #{window_name}
+control
+fm-sd
++ bin/fm-control.sh sd stand-down
+error: task sd's worktree holds uncommitted or untracked changes before stand-down; stand-down refuses to close the endpoint of a worker with unlanded work
+fm-sd
++ bin/fm-control.sh sd stand-down
+stood-down sd endpoint=closed backend=tmux closed=fmlab:fm-sd worktree=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35NJ4Z09RFK1BGRXGK339HA/.test-standdown/live/wt
++ tmux list-windows -t fmlab -F #{window_name}
+control
++ tmux display-message -p -t fmlab:fm-sd #{pane_id} #{window_name}
+%0 control
++ bin/fm-crew-state.sh sd
+state: done · source: status-log · PR ready (endpoint closed at stand-down)
++ bin/fm-control.sh sd stand-down
+stood-down sd endpoint=already-closed backend=tmux closed=fmlab:fm-sd worktree=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35NJ4Z09RFK1BGRXGK339HA/.test-standdown/live/wt
++ bin/fm-control.sh sd exit
+endpoint-gone sd harness=claude backend=tmux endpoint=fmlab:fm-sd worktree=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35NJ4Z09RFK1BGRXGK339HA/.test-standdown/live/wt
+PASS: close, sibling survival, finished-state reporting, repeat, exit, and record preservation
++ bin/fm-crew-state.sh sd
+state: unknown · source: pane · harness state unavailable (unknown missing)
++ bin/fm-control.sh sd stand-down
+error: task sd's endpoint fmlab:fm-sd reads 'unreadable' after its close (close status 0); whether it survived is unknown
+endpoint_closed=fmlab:fm-sd
++ bin/fm-control.sh sd exit
+endpoint-gone sd harness=claude backend=tmux endpoint=fmlab:fm-sd worktree=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35NJ4Z09RFK1BGRXGK339HA/.test-standdown/live/wt
++ bin/fm-control.sh sd stand-down
+stood-down sd endpoint=already-closed backend=tmux closed=fmlab:fm-sd worktree=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35NJ4Z09RFK1BGRXGK339HA/.test-standdown/live/wt
+PASS: successful close proof survives temporarily unreadable inventory
++ bin/fm-spawn.sh sd --relaunch --harness codex
+warning: /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35NJ4Z09RFK1BGRXGK339HA/.test-standdown/live/home/data/sd/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode direct-PR - confirm its definition of done matches
+notice: sd ships mode=direct-PR while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+spawned sd harness=codex kind=ship mode=direct-PR yolo= window=fmlab:fm-sd worktree=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35NJ4Z09RFK1BGRXGK339HA/.test-standdown/live/wt
++ tmux list-windows -t fmlab -F #{window_name}
+control
+fm-sd
+PASS: existing-session relaunch adds exactly one task window and clears closure proof (inert harness)
++ bin/fm-control.sh sd stand-down
+stood-down sd endpoint=closed backend=tmux closed=fmlab:fm-sd worktree=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35NJ4Z09RFK1BGRXGK339HA/.test-standdown/live/wt
++ bin/fm-spawn.sh sd --relaunch --harness codex
+warning: /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35NJ4Z09RFK1BGRXGK339HA/.test-standdown/live/home/data/sd/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode direct-PR - confirm its definition of done matches
+notice: sd ships mode=direct-PR while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+spawned sd harness=codex kind=ship mode=direct-PR yolo= window=fmlab:fm-sd worktree=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35NJ4Z09RFK1BGRXGK339HA/.test-standdown/live/wt
++ tmux list-windows -t fmlab -F #{window_name}
+fm-sd
+PASS: missing-session relaunch creates only the task window (inert harness)

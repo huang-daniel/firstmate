@@ -1,0 +1,27 @@
+BEFORE: actual tmux windows
+sentinel 120x40
+fm-task 120x40
+GUARD: dirty work must keep terminal
+error: task task's worktree holds uncommitted or untracked changes before stand-down; stand-down refuses to close the endpoint of a worker with unlanded work
+fm-task
+GUARD: unfinished work must keep terminal
+error: task task's current status is 'working: continuing', not done; stand-down is allowed only from the done state
+fm-task
+STAND DOWN: finished clean task
+stood-down task endpoint=closed backend=tmux closed=validation:fm-task worktree=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35NJ4Z09RFK1BGRXGK339HA/.test-tmp/live/repo
+AFTER: actual tmux windows
+sentinel
+window=validation:fm-task
+worktree=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35NJ4Z09RFK1BGRXGK339HA/.test-tmp/live/repo
+project=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35NJ4Z09RFK1BGRXGK339HA/.test-tmp/live/repo
+harness=claude
+kind=ship
+mode=direct-PR
+backend=tmux
+pr=https://github.com/example/repo/pull/7
+pr_head=574da6119b69479c1a127de3af05eb109d2db9c1
+endpoint_closed=validation:fm-task
+REPEAT:
+stood-down task endpoint=already-closed backend=tmux closed=validation:fm-task worktree=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35NJ4Z09RFK1BGRXGK339HA/.test-tmp/live/repo
+EXIT AFTER STAND DOWN:
+endpoint-gone task harness=claude backend=tmux endpoint=validation:fm-task worktree=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35NJ4Z09RFK1BGRXGK339HA/.test-tmp/live/repo

@@ -1,0 +1,31 @@
+ok - fm-control relaunch: a same-harness relaunch replaces the agent in the same endpoint and worktree
+ok - fm-control stand-down: a done tmux ship's window is closed while its record, log, inbox, poll and worktree stay
+ok - fm-control stand-down: a stood-down tmux task relaunches into a fresh window and drops its marker
+ok - fm-control stand-down: no PR, not done, an open decision, uncommitted or unpushed work, an unproven gone endpoint, or a non-ship refuses
+ok - fm-control stand-down: an active validation run refuses before the agent is touched
+ok - fm-control stand-down: a close that leaves the window in place fails and drops its marker
+ok - stand-down preserves confirmed closure through an unreadable probe
+ok - stand-down relaunch reuses the new session's initial window
+ok - fm-control relaunch: pending composer text refuses before the exit command is typed
+ok - fm-control relaunch: an unreadable composer fails safe before the exit command is typed
+ok - fm-control relaunch: a linked spawning home preserves committed and unfinished work in the recorded copy
+ok - fm-control relaunch: durable task metadata survives replacement launch publication
+ok - fm-control relaunch: delivery and concurrent task metadata publication serialize
+ok - fm-control relaunch: disabling tracing clears metadata and pane context
+ok - fm-control relaunch: progress and the Firstmate-worktree worker identity reach the replacement
+ok - fm-control relaunch: a ship task refuses without the progress note its replacement needs
+ok - fm-control relaunch: switching harness is one ordinary relaunch, and the old wiring goes with the old agent
+ok - fm-control relaunch: a harness switch resets model and effort unless they are named too
+ok - fm-control relaunch: a prefixed recorded harness can switch adapters transactionally
+ok - fm-control relaunch: a prefixed command requires an explicit replacement harness
+ok - fm-control relaunch: a same-harness relaunch keeps the profile axes it was running with
+ok - native Ultra relaunch preserves its profile and rejects an unsupported model before stopping
+ok - fm-control relaunch: explicit model and effort win over the recorded ones
+ok - fm-control relaunch: refuses to relaunch onto an adapter with no verified mechanics
+ok - fm-control relaunch: the retired incarnation's global turn-end token is revoked
+ok - fm-control relaunch: wiring cleanup failure refuses replacement arming
+ok - fm-control-lib: one owner resolves each harness's turn-end registry entry, and refuses a malformed token
+not ok - a configured secondmate harness should relaunch
+error: secondmate home cannot be inside the firstmate repo: /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35NJ4Z09RFK1BGRXGK339HA/.test-tmp/fm-control-relaunch.X1vflH/smpin-19561/smhome
+error: the replacement agent for sm3 could not be launched on codex
+error: sm3's agent was stopped but the replacement did not launch; no agent is running, and its work plus the recorded progress note are preserved at /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M35NJ4Z09RFK1BGRXGK339HA/.test-tmp/fm-control-relaunch.X1vflH/smpin-19561/smhome: expected exit 0, got 1
