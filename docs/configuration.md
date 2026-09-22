@@ -38,6 +38,7 @@ Each `/calm` command persists the new choice before changing live presentation, 
 The Pi extension reloads this preference on every Pi `session_start`, including startup, new, resume, fork, and reload reasons.
 The Claude Code mod likewise reloads it on every `session.start`, including same-process session replacement, and also loads it lazily before any row that can draw ahead of that event, including during `claude --continue` restoration.
 This preference is local to each Firstmate home and is not part of secondmate inherited configuration.
+For automatic Calm loading in Claude workers, see [Calm on Claude Code](calm.md#claude-code); the [`bin/fm-spawn.sh` header](../bin/fm-spawn.sh) owns launch mechanics.
 
 ## Pi supervision branch
 
