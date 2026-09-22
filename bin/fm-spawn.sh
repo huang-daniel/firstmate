@@ -113,20 +113,14 @@
 #   authority, and every ambiguous recovery stays on the flat fallback after
 #   duplicate-agent risk is independently absent. Treehouse allocation and task
 #   metadata are unchanged.
-#   A clean projected create or exact resume holds the one session-scoped
-#   presentation-order lock (keyed by named session plus canonical socket,
-#   outside any home's state/) through launch handoff. Acquiring it waits a
-#   bounded time per try and retries a bounded number of tries (default 3 tries
-#   of 10s; FM_HERDR_PRESENTATION_RETRY_TRIES and
-#   FM_HERDR_PRESENTATION_RETRY_TRY_SECONDS override). A projected create whose
-#   seeded-tab prune refuses a focus-unsafe close retries within that same
-#   bound. Only when the bound is exhausted does the spawn fall back to the
-#   ordinary flat layout, before any projection mutation for the lock or after
-#   exact cleanup of the unused projection panes for the prune; either fallback
-#   is recorded in state/<id>.herdr-presentation and printed on stdout as one
-#   HERDR_PRESENTATION_FALLBACK: line before the spawned line. A version 3
-#   fallback-only record is kept across a relaunch and replaced by a fresh
-#   spawn that finds no metadata. The exact response-derived new workspace is inserted
+#   Presentation wait, fallback, and recovery behavior is owned by
+#   docs/herdr-backend.md "Presentation spaces"; the backend journal helpers
+#   own record formats and retry-override parsing.
+#   A successful fresh spawn that exhausted the presentation wait prints
+#   HERDR_PRESENTATION_FALLBACK: <id> reason=<lock-contended|prune-refused>
+#   bound=<tries>x<seconds>s record=<journal> followed by recovery guidance,
+#   on one stdout line before the spawned line, even if recording the fallback
+#   failed with a warning. The exact response-derived new workspace is inserted
 #   immediately after its owning parent (firstmate or 2ndmate-<id>) contiguous
 #   child block. Ordering never authorizes lifecycle cleanup, and any
 #   unavailable, ambiguous, or failed move warns while the spawn continues.

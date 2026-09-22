@@ -101,20 +101,21 @@ A secondmate agent itself always stays in its ordinary parent workspace; only ch
 An unconverged opt-out keeps the default projection in that home until convergence.
 
 Presentation is a best-effort visual projection, never task ownership or lifecycle authority.
-Only a fresh task with neither metadata nor an existing presentation journal is eligible for projected creation.
+Only a fresh task with no metadata and no projection-bearing journal is eligible for projected creation; a fallback-only record left by an aborted spawn is removed before a new attempt.
 Firstmate atomically publishes a three-field version 1 journal containing a random 128-bit base64url token before asking Herdr to create anything.
 After the new workspace converges to one exact task endpoint beneath one exact parent workspace id, the journal advances to a version 2 binding that records the physical home, named session, endpoint, parent, and immutable expected labels.
 Another parent with the same presentation label does not prevent publication or participate in restart reclaim.
 The token is visible in the workspace title because Herdr exposes no verified hidden persistent field, but neither token, title, nor journal authorizes send, capture, task ownership, Treehouse return, or general recovery.
 
 A fresh projected spawn never degrades silently on a contended or refused projection step.
-Acquiring the shared named-session presentation lock waits a bounded time per try and retries a bounded number of tries, 3 tries of 10 seconds by default, so a concurrent spawn from any home that holds the lock through its launch handoff delays this spawn instead of demoting it.
-When the seeded-tab prune refuses a focus-unsafe close, or cannot read an unambiguous focus snapshot, it retries within that same bound once the captain's focus leaves the seeded tab; a prune whose close could not restore focus still stops the spawn at once.
+Acquiring the shared named-session presentation lock waits a bounded time per try and retries a bounded number of tries, 3 tries of 10 seconds by default, so contention that clears within the bound delays this spawn without demoting it.
+When the seeded-tab prune refuses a focus-unsafe close, or cannot read an unambiguous focus snapshot, it retries within that same bound and can complete when focus becomes safe; a prune whose close could not restore focus still stops the spawn at once.
 `FM_HERDR_PRESENTATION_RETRY_TRIES` and `FM_HERDR_PRESENTATION_RETRY_TRY_SECONDS` override the bound, and `bin/backends/herdr.sh` owns their parsing.
-Only when the bound is exhausted does the spawn fall back to the ordinary flat layout, before any projection mutation for the lock, and after exact focus-preserving cleanup of the unused projection panes for the prune.
-Either fallback prints one `HERDR_PRESENTATION_FALLBACK: <task> reason=<lock-contended|prune-refused> bound=<tries>x<seconds>s record=<journal>` line on stdout before the `spawned` line and records the reason in the presentation journal.
-When no projection remains, the record is a three-field version 3 fallback-only record with no token, which names nothing in Herdr, survives a relaunch of that flat task, is replaced by a genuinely fresh spawn that finds no task metadata, and retires with the other task records at cleanup.
-When the prune's projection workspace could not be removed, the version 1 attempt keeps its token and gains one `fallback=` line, so the ordinary quarantine, recovery, and session-start cleanup paths still find it and it is never bound.
+Only when the bound is exhausted does the spawn fall back to the ordinary flat layout, before any projection mutation for the lock, and after attempting exact focus-preserving cleanup of the unused projection panes for the prune; panes that cannot be safely removed remain quarantined.
+Either fallback prints a `HERDR_PRESENTATION_FALLBACK:` diagnostic on stdout before the `spawned` line and attempts to record the reason in the presentation journal; a failed record write warns without blocking the flat launch.
+The header of `bin/fm-spawn.sh` owns the diagnostic fields, and the journal helpers in `bin/backends/herdr.sh` own its record formats.
+When no projection remains, the fallback-only record names nothing in Herdr and has no token; it survives a relaunch of that flat task, is replaced by a genuinely fresh spawn that finds no task metadata, and retires with the other task records at cleanup.
+When the prune's projection workspace could not be removed, the attempt journal keeps its token and records the fallback reason, so the ordinary quarantine, recovery, and session-start cleanup paths still find it and it is never bound.
 Neither record nor the diagnostic changes endpoint or task authority; the worker runs normally in the flat layout for its lifetime.
 
 The owning parent is the launcher's own exact workspace, resolved from the same identity the flat path uses, and falls back to a unique home-label lookup only for a Firstmate outside Herdr.
@@ -153,7 +154,7 @@ Missing or malformed endpoint identity and missing confirmation machinery are am
 If lock, snapshot, pane identity, or restoration is ambiguous, cleanup warns and preserves the journal for manual inspection.
 
 Recovery is deliberately conservative and presentation-only.
-An existing journal suppresses another projected create.
+An existing projection-bearing journal suppresses another projected create; fallback-only records follow the fresh-spawn and relaunch rules above.
 Before any recovery mutation, Firstmate holds both the task spawn lock and the named-session presentation lock.
 A same-identity version 2 binding may replace one exact agent-free restart husk in place only when the physical home, session, metadata endpoint, unique token match, workspace shape and labels, parent identity and placement, and non-target focus snapshot all agree.
 The replacement tab and pane are created and verified before the old pane is rechecked and closed, then the journal advances atomically to the replacement endpoint before metadata publication.
@@ -181,14 +182,15 @@ A malformed or missing title or token, duplicate token, zero or multiple journal
 Operational compromises:
 
 - Grouping is best-effort; only an exact same-identity version 2 binding survives a Herdr restart in place.
-- A failed journal publication or projected workspace create stops that spawn instead of falling back flat, so a Herdr create failure surfaces as a spawn failure in every Herdr home rather than only in homes that opted in; a missing session server or an absent or ambiguous parent still warns and continues flat, while a contended presentation lock or a focus-unsafe seeded-tab prune continues flat only after the bounded wait above and always with its stdout diagnostic and journal record.
-- Recovery of an existing presentation journal deliberately refuses the spawn when the shared presentation lock stays contended for the same bounded wait rather than falling back flat, and default-on makes that refusal reachable in any Herdr home.
+- A failed initial attempt-journal publication or projected workspace create stops that spawn instead of falling back flat, so a Herdr create failure surfaces as a spawn failure in every Herdr home rather than only in homes that opted in; a missing session server or an absent or ambiguous parent still warns and continues flat, while lock contention and seeded-tab prune refusals follow the bounded-wait fallback rules above.
+- Recovery of an existing projection-bearing journal deliberately refuses the spawn when the shared presentation lock stays contended for the same bounded wait rather than falling back flat, and default-on makes that refusal reachable in any Herdr home.
 - Existing layouts are not force-renamed or rearranged.
 - Missing or ambiguous restart bindings fall back to the ordinary home workspace while the old projection remains untouched.
 - Crashes, lost responses, failed exact-pane cleanup, or human renames can leave quarantined spaces; session start removes only the exact home-local, uniquely journal-correlated, childless idle-shell shape above.
 - Spaces have no cross-home cleanup path, and a secondmate child can clean up only from its exact home.
 - Every stale-looking space outside that narrow startup proof still requires manual cleanup in Herdr's UI after human inspection.
-- Regaining a dedicated space after degradation requires stopping the flat task, manually checking the stale projection, and clearing its journal before a genuinely fresh launch.
+- Regaining a dedicated space after degradation requires normal task cleanup and a genuinely fresh launch; preserve unlanded work and inspect any retained projection before clearing its journal.
+  A fallback-only record retires automatically with task cleanup.
 - The visible token is only a restart-stable correlator and never substitutes for the exact binding.
 
 `tests/fm-backend-herdr-presentation-e2e.test.sh` covers multi-home ordering, concurrency, bounded lock contention and seeded-prune retry with their surfaced flat fallbacks, legacy coexistence, focus preservation, exact same-identity restart replacement, ambiguous bindings and tokens, and exact-pane cleanup through the guarded lab path.
