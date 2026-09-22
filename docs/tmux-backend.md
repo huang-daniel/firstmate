@@ -102,8 +102,6 @@ Without that baseline, an `unknown` verdict is preserved untouched, so a busy-lo
 ### Stand-down close
 
 `bin/fm-control.sh <id> stand-down` closes a finished ship's window with the same exact-identity close teardown uses, after proving its agent stopped ([agent-control.md](agent-control.md#standing-a-finished-worker-down) owns the contract).
-No tmux read can prove a window absent, because a task record carries no socket identity, so the record's `endpoint_closed=<session:window>` marker is what proves the closed window gone: `exit` reports it `endpoint-gone`, and `relaunch` opens one fresh `fm-<id>` window in the recorded session and republishes the record without the marker.
-A window that disappears without that marker still refuses both verbs.
 
 ## Limits and regression entry points
 
