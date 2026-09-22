@@ -176,8 +176,7 @@ set -u
 case "${1:-}" in
   list-windows)
     # A successful but empty inventory: it omits the crew's window, so absence
-    # is proved by the answer rather than by an addressed call failing. Only
-    # reached once display-message has already failed.
+    # is proved by the answer rather than by an addressed call failing.
     ;;
   display-message)
     [ "${FM_FAKE_TMUX_MISSING:-0}" = 1 ] && exit 1
@@ -2442,6 +2441,15 @@ test_window_closed_at_stand_down_reads_its_status_log() {
   assert_contains "$out" "state: done" "a window closed at stand-down keeps its done state"
   assert_contains "$out" "source: status-log" "a window closed at stand-down reads its status log"
   assert_contains "$out" "endpoint closed at stand-down" "the detail should say why the endpoint is gone"
+
+  # tmux can resolve the missing named window to another surviving window.
+  # Its inventory still omits the recorded endpoint even when display answers.
+  FM_FAKE_TMUX_MISSING=0
+  out=$(run_crew_state "$d" feat-sd)
+  assert_contains "$out" "state: done" "a readable fallback window must not hide confirmed closure"
+  assert_contains "$out" "source: status-log" "confirmed closure precedes the pane probe"
+  assert_contains "$out" "endpoint closed at stand-down" "readable fallback retains the closure detail"
+  FM_FAKE_TMUX_MISSING=1
 
   fm_write_meta "$d/state/feat-sd.meta" "window=fm:fm-feat-sd" "worktree=$d/wt" "kind=ship" \
     "endpoint_closed=fm:fm-other"
