@@ -99,6 +99,10 @@ A second, baseline-gated conversion covers harnesses whose mid-turn screen the c
 Without that baseline, an `unknown` verdict is preserved untouched, so a busy-looking pane can never convert an unread composer into a confirmation.
 `tests/fm-tmux-submit-busy.test.sh` covers busy and idle panes with proven, ambiguous, and cleared composers.
 
+### Stand-down close
+
+`bin/fm-control.sh <id> stand-down` closes a finished ship's window with the same exact-identity close teardown uses, after proving its agent stopped ([agent-control.md](agent-control.md#standing-a-finished-worker-down) owns the contract).
+
 ## Limits and regression entry points
 
 - tmux is the reference path and supports secondmate homes.
@@ -114,6 +118,8 @@ tests/fm-muse-harness.test.sh
 tests/fm-omp-harness.test.sh
 tests/fm-tmux-submit-busy.test.sh
 tests/fm-bootstrap.test.sh
+tests/fm-control-relaunch.test.sh
+tests/fm-teardown-endpoint-safety.test.sh
 ```
 
 [`verification/runtime-backends.md`](verification/runtime-backends.md#tmux) records the active foreground-process and submit evidence.

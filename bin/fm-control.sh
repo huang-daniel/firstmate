@@ -4,6 +4,7 @@
 #
 # Usage: fm-control.sh <task-id> interrupt
 #        fm-control.sh <task-id> exit
+#        fm-control.sh <task-id> stand-down
 #        fm-control.sh <task-id> relaunch [--harness <name>] [--model <name>]
 #                                         [--effort <level>]
 #                                         (--note <text> | --note-file <path>)
@@ -34,30 +35,60 @@
 #              `missing` is put through the control plane's per-backend absence
 #              proof (fm_control_endpoint_absence_verdict) before anything is
 #              claimed about it, because `missing` also covers an endpoint that
-#              is merely unreachable from this seat. That proof exists only on
-#              HERDR, whose reads are scoped to the session the record names:
+#              is merely unreachable from this seat. Proof from backend reads
+#              exists only on HERDR, whose reads are scoped to the recorded session:
 #              proven gone reports `endpoint-gone` rather than
 #              `already-stopped`, because the endpoint this verb normally
 #              preserves did not survive; a pane that turns out to be there and
 #              idle is the ordinary `already-stopped`; one whose agent is back
 #              takes the ordinary interrupt-then-exit path. A tmux `missing`
-#              always REFUSES: a task record carries no socket identity for its
+#              refuses unless the stand-down marker proves closure (see below):
+#              a task record carries no socket identity for its
 #              endpoint, so this verb cannot tell a destroyed window from one on
 #              a tmux server it cannot address, and it will not claim a stop it
 #              cannot see.
+#   stand-down Stand a finished ship worker down: stop its agent exactly as
+#              `exit` does, then CLOSE its terminal endpoint so a task held for
+#              a merge word does not leave a blank shell behind. Everything
+#              else is preserved: the worktree, the task record, the status
+#              log, the steering inbox, and the merge poll. Allowed only from
+#              the done state with the recorded PR present, and refused before
+#              anything is touched otherwise:
+#                - kind=ship on a no-mistakes or direct-PR delivery path, with
+#                  a recorded pr=;
+#                - the status log's current declaration is `done` (an open
+#                  decision or blocker, or any later event, refuses);
+#                - bin/fm-crew-state.sh reads `done` - so an active validation
+#                  run, which it reads as working or parked, always refuses; a
+#                  direct-PR task whose agent is already stopped may instead
+#                  read `unknown`, since it has no run to attribute;
+#                - the worktree has no uncommitted or untracked changes, and
+#                  its HEAD is on a remote-tracking branch or is the recorded
+#                  pr_head - re-checked after the agent stops and before the
+#                  close.
+#              Only tmux and herdr are supported (the backends whose agent
+#              state is recovery-grade); every other backend refuses and keeps
+#              its endpoint. The close goes through bin/fm-backend.sh's
+#              fm_backend_close_task_endpoint, the backend's own focus-safe
+#              path, and is confirmed by the agent-state classifier reading the
+#              endpoint `missing`. Before closing, the record gains
+#              `endpoint_closed=<endpoint>`: the durable proof that the
+#              endpoint is gone because firstmate closed it. That marker is
+#              what lets `exit` and `relaunch` treat the gone endpoint as
+#              proven absent even on tmux, so a stood-down task stays
+#              relaunchable from its records alone, and bin/fm-teardown.sh
+#              treats the already-gone endpoint as an ordinary silent close
+#              while still running its full landed-work test. Idempotent: a
+#              task already stood down reports `already-closed`.
 #   relaunch   Transactionally replace the running agent with a new one, in the
 #              SAME worktree - and the same endpoint whenever that endpoint
 #              still exists - on the same or a newly chosen
 #              harness/model/effort - so switching harness is one ordinary use
 #              of this verb. When the recorded endpoint is instead proven gone -
-#              a Herdr pane or workspace destroyed in churn - the launch owner
-#              re-creates one in that worktree, in the herdr session the record
-#              names, and the task's record rebinds to it; that is how a task
-#              whose terminal was destroyed is reclaimed by the home that owns
-#              it, rather than being stranded with a parked approval nobody can
-#              answer. Reclaim is HERDR-ONLY for the reason `exit` gives above:
-#              a tmux `missing` cannot be proven absent from a task record, so
-#              it refuses.
+#              under fm_control_endpoint_absence_verdict's shared proof - the
+#              launch owner creates one fresh endpoint in the recorded session
+#              and worktree and rebinds the record to it. See
+#              docs/agent-control.md's reclaim contract for backend limits.
 #              An explicit `default` model or effort clears that
 #              axis for the replacement. With no explicit axis, a secondmate
 #              re-resolves its durable config/secondmate-harness pin (harness
@@ -78,9 +109,10 @@
 #              running.
 #
 # Teardown and discard are NOT verbs here and never will be. `exit` stops an
-# agent and preserves everything else; removing a worktree, killing an
-# endpoint, or discarding work stays with bin/fm-teardown.sh, which owns the
-# landed-work test.
+# agent and preserves everything else; `stand-down` additionally closes the
+# endpoint of a finished, fully pushed ship and preserves everything else;
+# removing a worktree, removing a task's records, or discarding work stays with
+# bin/fm-teardown.sh, which owns the landed-work test.
 #
 # `resume` is not a verb: it is not deterministic across the verified adapters
 # (bin/fm-control-lib.sh's header owns that reasoning). `relaunch` covers the
@@ -156,6 +188,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-busy-lib.sh
 . "$SCRIPT_DIR/fm-busy-lib.sh"
+# shellcheck source=bin/fm-classify-lib.sh
+. "$SCRIPT_DIR/fm-classify-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
@@ -487,7 +521,7 @@ do_exit() {
       # "destroyed" with "unreachable from this seat". Route it through the
       # control plane's one absence proof - the same one the relaunch gate uses
       # - and report what that proof actually established, never more.
-      absence=$(fm_control_endpoint_absence_verdict "$BACKEND" "$T")
+      absence=$(fm_control_endpoint_absence_verdict "$BACKEND" "$T" "$META")
       case "${absence%%$'\t'*}" in
         gone)
           # Proven gone, so the agent that lived in it went with it: exit's
@@ -564,6 +598,144 @@ do_exit() {
   # orphaned generation survives the agent that produced it.
   retire_busy_incarnation
   printf 'stopped'
+}
+
+# --- stand-down -------------------------------------------------------------
+
+# standdown_worktree_landed_on_remote: refuse unless the recorded worktree holds
+# no uncommitted or untracked change and its HEAD is already pushed - reachable
+# from a remote-tracking branch, or exactly the recorded pr_head. Closing the
+# endpoint of a worker that still holds unpushed work is what stand-down must
+# never do, whatever its status log claims.
+standdown_worktree_landed_on_remote() {  # <phase>
+  local phase=$1 status_output head pr_head remotes
+  [ -n "$WT" ] && [ -d "$WT" ] \
+    || die "task $ID's recorded worktree '${WT:-none}' is missing; stand-down refuses to close the endpoint without accounting for its work"
+  status_output=$(git -C "$WT" status --porcelain 2>/dev/null) \
+    || die "task $ID's worktree status cannot be inspected $phase; stand-down refuses to close the endpoint without accounting for local changes"
+  [ -z "$status_output" ] \
+    || die "task $ID's worktree holds uncommitted or untracked changes $phase; stand-down refuses to close the endpoint of a worker with unlanded work"
+  head=$(git -C "$WT" rev-parse --verify -q HEAD 2>/dev/null) \
+    || die "task $ID's worktree HEAD cannot be resolved $phase; stand-down refuses to close the endpoint without accounting for its commits"
+  pr_head=$(fm_meta_get "$META" pr_head)
+  [ -n "$pr_head" ] && [ "$pr_head" = "$head" ] && return 0
+  remotes=$(git -C "$WT" for-each-ref --contains "$head" --format='%(refname)' refs/remotes 2>/dev/null) \
+    || die "task $ID's remote-tracking branches cannot be inspected $phase; stand-down refuses to close the endpoint without proving its commits are pushed"
+  [ -n "$remotes" ] \
+    || die "task $ID's worktree HEAD $head is not on any remote-tracking branch and is not the recorded PR head $phase; stand-down refuses to close the endpoint of a worker with unpushed commits"
+}
+
+# standdown_gate: every precondition that must hold before stand-down touches
+# the agent. Refuses by name; nothing has changed when it does.
+standdown_gate() {
+  local mode pr current crew crew_state endpoint_state
+  [ "$KIND" = ship ] \
+    || die "task $ID is a $KIND task; stand-down closes only a finished ship worker's endpoint (use 'exit' to stop this agent and keep its endpoint)"
+  mode=$(fm_meta_get "$META" mode)
+  [ -n "$mode" ] || mode=no-mistakes
+  case "$mode" in
+    no-mistakes|direct-PR) ;;
+    *) die "task $ID ships through '$mode', which has no recorded PR to wait on; stand-down applies to no-mistakes and direct-PR work only" ;;
+  esac
+  pr=$(fm_meta_get "$META" pr)
+  [ -n "$pr" ] \
+    || die "task $ID has no recorded PR; stand-down is allowed only from the done state with the PR recorded (bin/fm-pr-check.sh records it)"
+  current=$(status_current_line "$STATE/$ID.status" "$KIND")
+  case "$current" in
+    done|done\ *|done:*) ;;
+    *) die "task $ID's current status is '${current:-none}', not done; stand-down is allowed only from the done state" ;;
+  esac
+  crew=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CREW_STATE_NO_FORGE=1 \
+    "$SCRIPT_DIR/fm-crew-state.sh" "$ID" 2>/dev/null) || crew=
+  crew_state=${crew#state: }
+  crew_state=${crew_state%% *}
+  case "$crew_state" in
+    done) ;;
+    unknown)
+      # A direct-PR task has no validation run to attribute, so once its agent
+      # is already stopped its current state has nothing left to read from. Only
+      # that exact case - no pipeline, and an agent positively gone - may pass.
+      endpoint_state=$(agent_state)
+      if [ "$mode" != direct-PR ] || { [ "$endpoint_state" != dead ] && [ "$endpoint_state" != missing ]; }; then
+        die "task $ID's current state reads '${crew:-unreadable}'; stand-down cannot prove no validation run is active, so it refuses"
+      fi
+      ;;
+    *) die "task $ID's current state reads '${crew:-unreadable}', not done; stand-down never closes the endpoint of a worker that is validating, parked, or otherwise not finished" ;;
+  esac
+  standdown_worktree_landed_on_remote "before stand-down"
+}
+
+# standdown_record_marker <endpoint|->: add (or, with -, drop) the record's
+# endpoint_closed= marker under the task's meta lock, preserving every other
+# line byte-for-byte.
+standdown_record_marker() {  # <endpoint|->
+  local value=$1 lock tmp line rc=0
+  lock=$(fm_meta_lock_path "$META") || return 1
+  fm_lock_acquire_wait "$lock" || return 1
+  tmp="$STATE/.$ID.meta.standdown.${BASHPID:-$$}"
+  # Copy first so the replacement keeps the record's own mode, then rewrite its
+  # bytes in place.
+  cp -p "$META" "$tmp" || rc=1
+  if [ "$rc" = 0 ]; then
+    {
+      while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+          endpoint_closed=*) ;;
+          *) printf '%s\n' "$line" ;;
+        esac
+      done < "$META"
+      [ "$value" = - ] || printf 'endpoint_closed=%s\n' "$value"
+    } > "$tmp" || rc=1
+  fi
+  [ "$rc" != 0 ] || mv -f "$tmp" "$META" || rc=1
+  rm -f "$tmp"
+  fm_lock_release "$lock" || true
+  return "$rc"
+}
+
+# do_stand_down: prints the stand-down outcome line, whose endpoint= is
+# `closed` or `already-closed`. Called directly rather than through a command
+# substitution so errexit still stops it at the first refusal of a nested one.
+do_stand_down() {
+  local exit_result state close_rc
+  require_state_verified_backend stand-down
+  case "$BACKEND" in
+    tmux|herdr) ;;
+    *) die "task $ID runs on the $BACKEND backend, which has no stand-down endpoint close; use 'exit', which keeps the endpoint" ;;
+  esac
+  standdown_gate
+  exit_result=$(do_exit)
+  # The agent is gone now. Re-prove that nothing unlanded appeared while it was
+  # stopping, because the close below is the point of no return for the shell.
+  standdown_worktree_landed_on_remote "after the agent stopped"
+  if [ "$exit_result" = endpoint-gone ] \
+     && fm_control_endpoint_closed_at_standdown "$META" "$T"; then
+    standdown_report already-closed
+    return 0
+  fi
+  standdown_record_marker "$T" \
+    || die "task $ID's agent is stopped, but its record could not be marked before closing the endpoint; the endpoint was left in place"
+  close_rc=0
+  fm_backend_close_task_endpoint "$BACKEND" "$T" "$STATE" "$ID" "$META" || close_rc=$?
+  state=$(agent_state)
+  case "$state" in
+    missing) ;;
+    alive|dead)
+      standdown_record_marker - || true
+      die "task $ID's endpoint $T reads '$state' after its close (close status $close_rc); it was left in place and the record still names it"
+      ;;
+    *)
+      if [ "$close_rc" -ne 0 ]; then
+        standdown_record_marker - || true
+      fi
+      die "task $ID's endpoint $T reads '$state' after its close (close status $close_rc); whether it survived is unknown"
+      ;;
+  esac
+  standdown_report closed
+}
+
+standdown_report() {  # <closed|already-closed>
+  echo "stood-down $ID endpoint=$1 backend=$BACKEND closed=$T worktree=$WT"
 }
 
 # --- transactional relaunch -------------------------------------------------
@@ -971,6 +1143,9 @@ case "$VERB" in
   exit)
     result=$(do_exit)
     echo "$result $ID harness=$HARNESS backend=$BACKEND endpoint=$T worktree=$WT"
+    ;;
+  stand-down)
+    do_stand_down
     ;;
   relaunch)
     do_relaunch

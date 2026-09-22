@@ -1285,6 +1285,54 @@ test_refused_merge_on_pushed_branch_keeps_the_task_record() {
   pass "a refused merge on a pushed branch refuses cleanup and keeps the task record"
 }
 
+# A task stood down while held for its merge word: bin/fm-control.sh closed its
+# endpoint and marked the record endpoint_closed=. Cleanup treats that closed
+# endpoint as ordinary and still runs the whole landed-work test - a merged PR
+# tears down, an unmerged one refuses and keeps every record.
+mark_stood_down() {
+  printf '%s\n' 'endpoint_closed=firstmate:fm-task-x1' >> "$1/state/task-x1.meta"
+}
+
+test_stood_down_task_tears_down_once_its_pr_merged() {
+  local case_dir rc head
+  case_dir=$(make_case stood-down-merged)
+  write_meta "$case_dir" no-mistakes ship
+  head=$(setup_recorded_pr_on_pushed_branch "$case_dir")
+  add_gh_pr_merged_for_head "$case_dir" "$head"
+  mark_stood_down "$case_dir"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "stood-down-merged: cleanup of a stood-down task with a merged PR should succeed"$'\n'"$(cat "$case_dir/stderr")"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "stood-down-merged: cleanup printed a REFUSED line"
+  [ ! -e "$case_dir/state/task-x1.meta" ] || fail "stood-down-merged: cleanup left the task record behind"
+  pass "a stood-down task whose PR merged is cleaned up normally"
+}
+
+test_stood_down_task_still_refuses_an_unmerged_pr() {
+  local case_dir rc head
+  case_dir=$(make_case stood-down-open)
+  write_meta "$case_dir" no-mistakes ship
+  head=$(setup_recorded_pr_on_pushed_branch "$case_dir")
+  add_gh_pr_open_mergeable_unknown "$case_dir" "$head"
+  mark_stood_down "$case_dir"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "stood-down-open: cleanup must refuse while the recorded PR has not merged"$'\n'"$(cat "$case_dir/stderr")"
+  grep -q REFUSED "$case_dir/stderr" || fail "stood-down-open: no REFUSED line in stderr"
+  assert_refusal_retained_task_state "$case_dir" stood-down-open "$head"
+  grep -qx 'endpoint_closed=firstmate:fm-task-x1' "$case_dir/state/task-x1.meta" \
+    || fail "stood-down-open: the refusal dropped the stand-down marker"
+  pass "a stood-down task still faces the landed-work test and keeps its record while its PR is open"
+}
+
 # The same shape with the forge unreadable instead of answering. Unknown is not
 # permission: it is precisely the reading that caused today's incident.
 test_unreadable_forge_on_pushed_branch_keeps_the_task_record() {
@@ -3933,6 +3981,8 @@ test_content_fallback_refreshes_stale_origin_ref
 test_dirty_worktree_refuses
 test_gh_error_and_content_absent_refuses
 test_refused_merge_on_pushed_branch_keeps_the_task_record
+test_stood_down_task_tears_down_once_its_pr_merged
+test_stood_down_task_still_refuses_an_unmerged_pr
 test_unreadable_forge_on_pushed_branch_keeps_the_task_record
 test_merge_at_an_unexpected_head_keeps_the_task_record
 test_forced_teardown_keeps_a_refused_merge_record

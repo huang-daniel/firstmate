@@ -15,7 +15,7 @@ The failure repeated across harnesses and homes, and the workaround (remember to
 
 `bin/fm-control-lib.sh` is the single executable owner of three capability tables, which have no side effects, so they can be read as a contract:
 
-- The **verb allowlist**: `interrupt`, `exit`, `relaunch`.
+- The **verb allowlist**: `interrupt`, `exit`, `stand-down`, `relaunch`.
   There is no arbitrary-text and no generic raw-key entry point.
   A caller either names an allowlisted verb or is refused.
 - **Per-harness mechanics**: the key that cancels a running turn, how many times it must be delivered, whether the composer needs clearing afterwards, the command that exits the agent, and which task kinds the adapter is verified to run.
@@ -33,7 +33,8 @@ A recorded `harness=` is not always an exact adapter name: a task launched from 
 | Verb | Effect | Postcondition |
 | --- | --- | --- |
 | `interrupt` | Deliver the harness's verified interrupt sequence while leaving the agent running. | Delivery succeeds while the endpoint still exists and the agent is still alive where the backend can classify that; cancellation is confirmed only from an adapter-owned acknowledgement and otherwise reports `cancel=unconfirmed`. |
-| `exit` | Stop the agent, preserving the endpoint, the worktree, and every uncommitted change. | The backend's recovery-grade classifier reports the agent gone. Already-stopped is idempotent success. An endpoint reading `missing` goes through the same [absence proof](#reclaiming-a-task-whose-endpoint-is-gone) the reclaim uses before anything is claimed about it, and only Herdr can supply one: proven gone reports `endpoint-gone` (the agent went with it, and the endpoint this verb normally preserves did not survive), a pane that turns out to be there and idle is the ordinary `already-stopped`, one whose agent is back takes the ordinary interrupt-then-exit path. A tmux `missing` always refuses rather than claim a stop it cannot see. |
+| `exit` | Stop the agent, preserving the endpoint, the worktree, and every uncommitted change. | The backend's recovery-grade classifier reports the agent gone. Already-stopped is idempotent success. An endpoint reading `missing` goes through the same [absence proof](#reclaiming-a-task-whose-endpoint-is-gone) the reclaim uses before anything is claimed about it, and only Herdr can supply one from a read: proven gone reports `endpoint-gone` (the agent went with it, and the endpoint this verb normally preserves did not survive), a pane that turns out to be there and idle is the ordinary `already-stopped`, one whose agent is back takes the ordinary interrupt-then-exit path. A tmux `missing` refuses rather than claim a stop it cannot see, unless the record says `stand-down` closed that endpoint, which reports `endpoint-gone`. |
+| `stand-down` | Stand a finished ship worker down: stop its agent as `exit` does, then close its endpoint so a task held for a merge word leaves no blank terminal behind. The worktree, task record, status log, steering inbox, and merge poll are all preserved. | The endpoint reads gone to the recovery-grade classifier, and the task record carries `endpoint_closed=<endpoint>`. Already closed is idempotent success (`already-closed`). See [Standing a finished worker down](#standing-a-finished-worker-down). |
 | `relaunch` | Replace the running agent with a new one in the same worktree - and the same endpoint whenever that endpoint still exists - on the exact recorded adapter or an explicitly chosen harness, model, and effort. | The new agent is alive on the endpoint the task's record now names, and that record names the harness that is actually running. |
 
 An exit that delivers lifecycle input but cannot prove the agent stopped fails with `exit=unconfirmed`, reports the observed agent state and any interrupt cancellation claim, and never claims that nothing changed.
@@ -49,15 +50,44 @@ The clear is refused before anything is sent when the recorded backend cannot de
 
 **Teardown and discard are not verbs and will not become verbs.**
 `exit` stops an agent and preserves everything else.
-Removing a worktree, closing an endpoint, or discarding work stays with [`bin/fm-teardown.sh`](../bin/fm-teardown.sh), which owns the landed-work test.
+`stand-down` additionally closes a finished, fully pushed ship's endpoint and preserves everything else.
+Removing a worktree, removing a task's records, or discarding work stays with [`bin/fm-teardown.sh`](../bin/fm-teardown.sh), which owns the landed-work test.
 
 **`resume` is not a verb.**
 It is not deterministic across the verified adapters: codex, grok, and gemini resume only from a session id printed at exit, opencode continues the most recent session for the cwd, and claude, pi, pi-signed, omp, kimi, and agy have no verified pane-resume contract.
 `relaunch` covers the same need on every adapter, because the brief on disk - not a harness-private session - is the durable instruction.
 
+## Standing a finished worker down
+
+A ship worker that reported done with its PR recorded usually waits for a merge word, and standing it down with `exit` left its endpoint as an empty shell until post-merge cleanup.
+`stand-down` closes that endpoint, and it is allowed only from the done state with the recorded PR present.
+Every one of these must hold before the agent is touched, or it refuses and nothing changes:
+
+- The task is `kind=ship` on the no-mistakes or direct-PR path, with a recorded `pr=`.
+- The status log's current declaration is `done`; an open decision or blocker, or any later event, refuses.
+- [`bin/fm-crew-state.sh`](../bin/fm-crew-state.sh) reads `done`, so an active validation run, which it reads as working or parked, always refuses.
+  The one exception is a direct-PR task whose agent is already stopped: it has no run to attribute, so its current state may read `unknown`.
+- The worktree has no uncommitted or untracked change, and its HEAD is on a remote-tracking branch or is the recorded `pr_head`.
+  This is checked again after the agent stops and before the endpoint closes.
+
+The agent is stopped through the ordinary `exit` path, with its postcondition.
+The record then gains `endpoint_closed=<endpoint>`, and the endpoint is closed through [`bin/fm-backend.sh`](../bin/fm-backend.sh)'s `fm_backend_close_task_endpoint`: tmux's exact-identity window close, or Herdr's focus-preserving pane close under the named-session presentation lock, which also retires a matching presentation journal.
+A post-close probe that finds the endpoint still present drops the marker and reports that it remains.
+An inconclusive probe reports that survival is unknown: it preserves the marker when the backend close already confirmed absence, and drops it otherwise.
+An unreadable or ambiguous endpoint still refuses `exit` and `relaunch` until a readable probe permits the shared absence proof.
+Only tmux and herdr are supported; every other backend refuses and keeps its endpoint.
+
+The marker is what keeps a stood-down task recoverable from its records alone:
+
+- `exit` reports `endpoint-gone` for it, and `relaunch` creates one fresh endpoint in the recorded worktree - on tmux too, where no read can prove a window absent, because the record itself says `stand-down` closed that exact endpoint after proving its agent stopped.
+  A tmux rebind opens the window in the session the record names, re-creating that session only when it no longer exists and using its initial window for the task, without an extra blank window.
+  Every republished record drops the marker, so it never outlives the endpoint it names.
+- [`bin/fm-teardown.sh`](../bin/fm-teardown.sh) meets the already-gone endpoint as an ordinary silent close and still runs its complete landed-work test.
+- The session-start digest reports the endpoint as closed at stand-down rather than dead, and [`bin/fm-crew-state.sh`](../bin/fm-crew-state.sh) keeps reading the task's current state from its status log rather than reporting a gone endpoint.
+
 ## Transactional relaunch
 
-`relaunch` is the only verb that changes durable records, so it runs as a transaction with a journal at `state/<id>.control-relaunch`, the prior record preserved beside it, and a ship or scout's prior instructions preserved when a progress note is appended.
+`relaunch` replaces the agent and republishes the task record, so it runs as a transaction with a journal at `state/<id>.control-relaunch`, the prior record preserved beside it, and a ship or scout's prior instructions preserved when a progress note is appended.
 
 1. **Resolve the profile.**
    An explicit `--harness`, `--model`, or `--effort` wins.
@@ -74,7 +104,7 @@ It is not deterministic across the verified adapters: codex, grok, and gemini re
    A secondmate relaunch does not require one and never rewrites its standing charter.
 4. **Stop the old agent** through the `exit` verb, with its postcondition.
 5. **Launch the replacement** through its single owner, `bin/fm-spawn.sh --relaunch`, which reuses the recorded worktree instead of creating one, adopts the recorded endpoint when it still exists, clears the previous harness's per-task wiring, and arms a fresh busy generation.
-   When the recorded endpoint is proven gone rather than merely idle or unreachable - which only Herdr can establish - the launch owner creates one fresh endpoint in that same worktree and the republished record rebinds the task to it - see [Reclaiming a task whose endpoint is gone](#reclaiming-a-task-whose-endpoint-is-gone).
+   When the recorded endpoint is proven gone rather than merely idle or unreachable, the launch owner creates one fresh endpoint in that same worktree and the republished record rebinds the task to it - see [Reclaiming a task whose endpoint is gone](#reclaiming-a-task-whose-endpoint-is-gone).
 
 Switching harness is therefore one ordinary relaunch rather than a separate mechanism.
 
@@ -83,7 +113,9 @@ Switching harness is therefore one ordinary relaunch rather than a separate mech
 A Herdr pane or workspace can be destroyed out from under a live task by churn or a session restart.
 The task's worktree, branch, commits, and uncommitted changes all survive that; only its terminal does not.
 
-**Reclaim is Herdr-only.** On tmux, both verbs refuse a `missing` endpoint, leaving it exactly as deadlocked as it was before this mechanism existed - deliberately, and with the reason stated rather than guessed past.
+**Absence proof from backend reads is Herdr-only.**
+On tmux, both verbs refuse an unexplained `missing` endpoint.
+The one exception is an endpoint the record says [`stand-down`](#standing-a-finished-worker-down) closed, which is proven gone by that record rather than by a read.
 
 Two endpoint verdicts are agent-free, and both license a relaunch:
 
@@ -100,7 +132,7 @@ An unreachable endpoint can still hold the live agent a rebind would duplicate, 
   So in that state `exit` - which otherwise reads as a read-only inspection - leaves an idle herdr server behind.
 - **tmux cannot.** `list-windows -a` describes only the tmux server the *current process* addresses (its `TMUX_TMPDIR`/socket), and a task record carries no socket identity for its endpoint.
   A different but running server would answer "not anywhere" about a window it was never able to see, so a server-wide read cannot tell a destroyed window from one on a server this process cannot address.
-  There is no read available that closes that gap, so tmux always refuses - for a renamed session, a moved window, a foreign socket, and a dead server alike.
+  There is no read available that closes that gap, so tmux refuses - for a renamed session, a moved window, a foreign socket, and a dead server alike - unless the record's stand-down marker names that exact endpoint.
 
 Every transient or self-contradicting read stays `unreadable` or `ambiguous` and still refuses, so a momentary backend failure can never be mistaken for absence.
 
@@ -157,8 +189,8 @@ The worktree and the task's records are unaffected either way.
 - An ambiguous or unreadable endpoint state refuses.
   Only a positively classified state acts.
 - `exit`'s composer-empty check, above, is itself a fail-closed boundary that `relaunch` inherits by stopping the old agent through `exit`.
-- `fm-spawn --relaunch` independently refuses unless the endpoint is positively agent-free - either a `dead` endpoint that survives, or a Herdr endpoint proven gone by the absence proof above - so a replacement can never join a live agent.
-  An `alive`, `ambiguous`, or `unreadable` verdict all refuse, and so does any endpoint whose absence is not provable, which on tmux is every `missing`; absence is claimed only from positive evidence of it.
+- `fm-spawn --relaunch` independently refuses unless the endpoint is positively agent-free - either a `dead` endpoint that survives, or an endpoint proven gone by the shared absence proof above - so a replacement can never join a live agent.
+  An `alive`, `ambiguous`, or `unreadable` verdict all refuse, and so does any endpoint whose absence is not provable, which on tmux is every `missing` the record does not mark as closed at stand-down; absence is claimed only from positive evidence of it.
   It also requires the shell to be in the recorded worktree: tmux refuses immediately when it is not, while Herdr sends one `cd` to the recorded path and refuses unless a subsequent path read confirms the move.
 
 ## Capability matrix
@@ -181,3 +213,6 @@ The empirical basis for each adapter's value is the `harness-adapters` skill's v
 - `tests/fm-control.test.sh` - the adapter contract for its verified-harness lane (adapters outside the lane pin their control mechanics in their own harness suites), the backend capability matrix, exact-id scoping, the closed verb list, the busy, idle, dead, and idempotent lifecycle cases, and marker non-regression, all against a stubbed session provider.
 - `tests/fm-control-relaunch.test.sh` - the relaunch transaction: identity preservation, harness switching, the progress note, checkpoint refusals, rollback after a failed launch, and the endpoint-absence proof both verbs share - the Herdr reclaim of a destroyed endpoint, and tmux refusing one it cannot prove absent.
 - `tests/fm-control-herdr-smoke.test.sh` - the second state-verified backend against the real herdr binary, on an isolated throwaway lab session.
+- `tests/fm-control-relaunch.test.sh` also pins `stand-down` on tmux against the same stubbed provider: the close, what it preserves, every refusal including an active validation run, idempotency, and relaunch into a fresh window afterwards.
+- `tests/fm-control-herdr-standdown-smoke.test.sh` - `stand-down` against the real herdr binary on an isolated lab session: the pane close, idempotency, relaunch into a fresh pane, and cleanup afterwards.
+- `tests/fm-teardown.test.sh` and `tests/fm-teardown-endpoint-safety.test.sh` - cleanup after `stand-down`: a merged PR completes, an unmerged one still refuses, and a real tmux window closed at stand-down completes silently.

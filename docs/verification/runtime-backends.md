@@ -393,6 +393,29 @@ Removing the `--force` arm makes the forced generic case refuse; honoring `--for
 Restoring `fm_backend_orca_kill`'s swallowed tool check makes the CLI-absent adapter case report success.
 Dropping the retention-is-not-durable line makes the refusal claim a retention teardown does not own.
 
+
+### Stand-down close
+
+`bin/fm-control.sh <id> stand-down` closes a finished ship's endpoint through `fm_backend_close_task_endpoint` and keeps every record naming it ([agent-control.md](../agent-control.md#standing-a-finished-worker-down)).
+Verified on 2026-09-22 on Linux x86_64 with tmux 3.6 against a real window on a dedicated socket, and with Herdr 0.9.0 in an isolated `fm-lab-` session with no real harness launched:
+
+```sh
+tests/fm-teardown-endpoint-safety.test.sh
+tests/fm-control-herdr-standdown-smoke.test.sh
+```
+
+```text
+ok - fm-teardown: a real tmux window closed at stand-down leaves its record, and the later cleanup completes silently
+ok - real herdr 0.9.0: stand-down closes a done ship's pane and keeps its record, status log, and worktree
+ok - real herdr: a repeated stand-down reports the pane already closed
+ok - real herdr: a stood-down task relaunches from its records into a fresh pane in its recorded session
+ok - real herdr: cleanup after stand-down meets the already-closed pane as ordinary and completes
+```
+
+The tmux close is the same exact-identity window close teardown uses, so an independent window in the same session survives it.
+The Herdr close reports success only once the exact recorded pane reads structurally gone, and the relaunch that follows opens one fresh pane in the recorded session and republishes the record without the stand-down marker.
+Run the Herdr guard after every Herdr upgrade rather than trusting the version above.
+
 ## Claude workspace trust
 
 Verified 2026-09-03 on Claude Code 2.1.259.

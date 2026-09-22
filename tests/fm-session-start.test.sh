@@ -1339,12 +1339,15 @@ EOF
 
   printf 'window=fm-sess:live-window\nkind=ship\n' > "$home/state/task-live.meta"
   printf 'window=fm-sess:dead-window\nkind=ship\n' > "$home/state/task-dead.meta"
+  printf 'window=fm-sess:closed-window\nkind=ship\nendpoint_closed=fm-sess:closed-window\n' > "$home/state/task-closed.meta"
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   assert_contains "$out" "endpoint: alive (backend=tmux window=fm-sess:live-window)" "live tmux endpoint not reported alive"
   assert_contains "$out" "endpoint: dead (backend=tmux window=fm-sess:dead-window)" "dead tmux endpoint not reported dead"
+  assert_contains "$out" "endpoint: closed at stand-down (backend=tmux window=fm-sess:closed-window)" \
+    "a tmux endpoint closed at stand-down should not read as a dead endpoint to recover"
 
-  pass "tmux endpoint liveness is reported per task: alive for a live window, dead for a gone one"
+  pass "tmux endpoint liveness is reported per task: alive for a live window, dead for a gone one, closed after stand-down"
 }
 
 test_endpoint_liveness_herdr() {
@@ -1359,12 +1362,15 @@ EOF
 
   printf 'window=sess:p-live\nkind=ship\nbackend=herdr\n' > "$home/state/task-live.meta"
   printf 'window=sess:p-dead\nkind=ship\nbackend=herdr\n' > "$home/state/task-dead.meta"
+  printf 'window=sess:p-closed\nkind=ship\nbackend=herdr\nendpoint_closed=sess:p-closed\n' > "$home/state/task-closed.meta"
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   assert_contains "$out" "endpoint: alive (backend=herdr window=sess:p-live)" "live herdr endpoint not reported alive"
   assert_contains "$out" "endpoint: dead (backend=herdr window=sess:p-dead)" "dead herdr endpoint not reported dead"
+  assert_contains "$out" "endpoint: closed at stand-down (backend=herdr window=sess:p-closed)" \
+    "a herdr endpoint closed at stand-down should not read as a dead endpoint to recover"
 
-  pass "herdr endpoint liveness is reported per task: alive for a live pane, dead for a gone one"
+  pass "herdr endpoint liveness is reported per task: alive for a live pane, dead for a gone one, closed after stand-down"
 }
 
 # --- composition: real scripts run, not reimplemented ------------------------

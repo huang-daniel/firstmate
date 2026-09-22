@@ -138,18 +138,43 @@ case "${1:-}" in
       exit 1
     fi
     [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
+  has-session)
+    [ ! -f "$D/session-missing" ] && [ ! -f "$D/server-dead" ]
+    exit $? ;;
   new-session)
-    # Nothing in the relaunch path may ever create a session; recording the
-    # call is how a refusal test proves that.
     shift
-    ses=
+    ses= name=shell
     while [ $# -gt 0 ]; do
       case "$1" in
         -s) ses=${2:-}; shift 2 ;;
+        -n) name=${2:-}; shift 2 ;;
         *) shift ;;
       esac
     done
     printf '%s\n' "$ses" >> "$D/created-sessions"
+    printf '%s\n' "$name" > "$D/windows"
+    rm -f "$D/session-missing" "$D/server-dead"
+    printf '@8\n'
+    exit 0 ;;
+  kill-window)
+    # A stand-down close: the exact `=session:=window` target leaves the
+    # session inventory, so the next agent-state read answers `missing`.
+    shift
+    target=
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        -t) target=${2:-}; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    name=${target#*:=}
+    [ -z "${FM_FAKE_KILL_FAIL:-}" ] || exit 1
+    printf '%s\n' "$name" >> "$D/killed-windows"
+    [ -z "${FM_FAKE_POST_CLOSE_UNREADABLE:-}" ] || touch "$D/inventory-broken"
+    if [ -f "$D/windows" ]; then
+      grep -vxF -- "$name" "$D/windows" > "$D/windows.tmp" || true
+      mv "$D/windows.tmp" "$D/windows"
+    fi
     exit 0 ;;
   new-window)
     # Model the one thing an endpoint re-creation depends on: the window now
@@ -1800,6 +1825,226 @@ test_reclaim_refuses_an_unreadable_endpoint() {
   pass "reclaim: an unclassifiable endpoint is still refused, so two agents cannot share one"
 }
 
+# --- stand-down: a finished ship's endpoint is closed, its task kept --------
+#
+# A worker held for a merge word is stood down. `exit` alone leaves a blank
+# shell in its endpoint until post-merge cleanup; stand-down closes that
+# endpoint too, and only from the done state with the PR recorded and nothing
+# unlanded in the local copy. The record, status log, inbox and merge poll stay,
+# and the task stays relaunchable from them - on tmux as well, where no read can
+# prove a window absent, because the record itself says stand-down closed it.
+
+# stage_done_ship <case-dir> <id> [mode]: a claude ship task that reported done
+# with its PR recorded and its branch pushed.
+stage_done_ship() {
+  local dir=$1 id=$2 mode=${3:-direct-PR}
+  add_ship_task "$dir" "$id" claude
+  sed "s/^mode=.*/mode=$mode/" "$dir/home/state/$id.meta" > "$dir/home/state/$id.meta.tmp"
+  mv "$dir/home/state/$id.meta.tmp" "$dir/home/state/$id.meta"
+  git -C "$dir/wt" push -q origin "task-$id"
+  printf '%s\n' "pr=https://github.com/example/repo/pull/$RANDOM" >> "$dir/home/state/$id.meta"
+  # A worker that reported done has ended its turn: its busy record reads idle.
+  printf 'busy_gen=%s\n' "$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" "$id" --state idle)" \
+    >> "$dir/home/state/$id.meta"
+  mkdir -p "$dir/home/state/$id.inbox/handled"
+  printf 'done [at=%s]: PR https://github.com/example/repo/pull/1\n' "$(date +%s)" \
+    > "$dir/home/state/$id.status"
+  : > "$dir/home/state/$id.pr-poll"
+}
+
+# A no-mistakes stub that reports no run for this worktree, so the task's current
+# state comes from its pane and status log exactly as a direct-PR task's does.
+make_no_run_nm_stub() {  # <case-dir>
+  cat > "$1/fakebin/no-mistakes" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$1/fakebin/no-mistakes"
+}
+
+test_stand_down_closes_a_done_ship_endpoint_and_keeps_the_task() {
+  local dir out rc status_before
+  dir=$(new_case standdown sd1)
+  stage_done_ship "$dir" sd1
+  make_no_run_nm_stub "$dir"
+  status_before=$(cat "$dir/home/state/sd1.status")
+
+  out=$(run_control "$dir" sd1 stand-down); rc=$?
+  expect_code 0 "$rc" "a done ship with its PR recorded and its branch pushed should stand down"$'\n'"$out"
+  assert_contains "$out" "stood-down sd1 endpoint=closed backend=tmux closed=fmses:fm-sd1" \
+    "the outcome should name the closed endpoint"
+  assert_grep "/exit" "$dir/fake/literal" "the agent must be stopped before its endpoint is closed"
+  assert_grep "fm-sd1" "$dir/fake/killed-windows" "the task's window should have been closed"
+  assert_no_grep "fm-sd1" "$dir/fake/windows" "the closed window must be gone from the session"
+  [ "$(meta_field "$dir" sd1 endpoint_closed)" = fmses:fm-sd1 ] \
+    || fail "the record should say stand-down closed exactly this endpoint"
+  [ "$(meta_field "$dir" sd1 window)" = fmses:fm-sd1 ] || fail "the record must keep naming its endpoint"
+  [ -n "$(meta_field "$dir" sd1 pr)" ] || fail "the recorded PR must survive stand-down"
+  [ "$(cat "$dir/home/state/sd1.status")" = "$status_before" ] || fail "stand-down must not rewrite the status log"
+  assert_present "$dir/home/state/sd1.inbox" "the steering inbox must survive stand-down"
+  assert_present "$dir/home/state/sd1.pr-poll" "the merge poll must survive stand-down"
+  [ -d "$dir/wt" ] || fail "the worktree must survive stand-down"
+
+  out=$(run_control "$dir" sd1 stand-down); rc=$?
+  expect_code 0 "$rc" "standing a stood-down task down again should be idempotent"$'\n'"$out"
+  assert_contains "$out" "endpoint=already-closed" "a repeat should report the endpoint already closed"
+  out=$(run_control "$dir" sd1 exit); rc=$?
+  expect_code 0 "$rc" "exit on a stood-down tmux task should accept the recorded close as proof"$'\n'"$out"
+  assert_contains "$out" "endpoint-gone sd1" "exit should report the stood-down endpoint gone"
+  pass "fm-control stand-down: a done tmux ship's window is closed while its record, log, inbox, poll and worktree stay"
+}
+
+test_stand_down_relaunch_rebinds_a_fresh_tmux_window() {
+  local dir out rc
+  dir=$(new_case standdown-relaunch sd2)
+  stage_done_ship "$dir" sd2
+  make_no_run_nm_stub "$dir"
+  out=$(run_control "$dir" sd2 stand-down); rc=$?
+  expect_code 0 "$rc" "stand-down should succeed"$'\n'"$out"
+  : > "$dir/fake/literal"
+  printf 'zsh' > "$dir/fake/command"
+
+  out=$(run_control "$dir" sd2 relaunch --note "the PR needs a follow-up fix"); rc=$?
+  expect_code 0 "$rc" "a stood-down tmux task should relaunch from its records"$'\n'"$out"
+  assert_grep "fm-sd2" "$dir/fake/created-windows" "relaunch should create a fresh window for the task"
+  assert_absent "$dir/fake/created-sessions" "an existing recorded session must be reused, not re-created"
+  [ "$(meta_field "$dir" sd2 window)" = fmses:fm-sd2 ] \
+    || fail "the rebound record should name the task's window in its recorded session"
+  [ -z "$(meta_field "$dir" sd2 endpoint_closed)" ] \
+    || fail "a relaunched task's record must drop the stand-down marker"
+  [ -n "$(meta_field "$dir" sd2 pr)" ] || fail "the recorded PR must survive the relaunch"
+  assert_grep "encode launch-brief" "$dir/fake/literal" "the replacement should have been launched"
+  pass "fm-control stand-down: a stood-down tmux task relaunches into a fresh window and drops its marker"
+}
+
+test_stand_down_close_evidence_survives_unreadable_probe() {
+  local dir out rc
+  dir=$(new_case standdown-probe sd6)
+  stage_done_ship "$dir" sd6
+  make_no_run_nm_stub "$dir"
+  out=$(FM_FAKE_POST_CLOSE_UNREADABLE=1 run_control "$dir" sd6 stand-down); rc=$?
+  expect_code 1 "$rc" "an unreadable post-close probe must report uncertainty"
+  assert_contains "$out" "whether it survived is unknown" "uncertainty must not claim a surviving endpoint"
+  [ "$(meta_field "$dir" sd6 endpoint_closed)" = fmses:fm-sd6 ] || fail "confirmed closure evidence was lost"
+  rm "$dir/fake/inventory-broken"
+  out=$(run_control "$dir" sd6 exit); rc=$?
+  expect_code 0 "$rc" "exit should accept the preserved closure evidence"$'\n'"$out"
+  out=$(run_control "$dir" sd6 stand-down); rc=$?
+  expect_code 0 "$rc" "stand-down should remain idempotent after recovery"$'\n'"$out"
+  assert_contains "$out" "already-closed" "recovered close should be recognized"
+  out=$(run_control "$dir" sd6 relaunch --note "resume after probe recovery"); rc=$?
+  expect_code 0 "$rc" "relaunch should accept preserved closure evidence"$'\n'"$out"
+  pass "stand-down preserves confirmed closure through an unreadable probe"
+}
+
+test_stand_down_relaunch_reuses_initial_session_window() {
+  local dir out rc
+  dir=$(new_case standdown-session sd7)
+  stage_done_ship "$dir" sd7
+  make_no_run_nm_stub "$dir"
+  out=$(run_control "$dir" sd7 stand-down); rc=$?
+  expect_code 0 "$rc" "stand-down should succeed"$'\n'"$out"
+  touch "$dir/fake/session-missing"
+  printf 'fmses' > "$dir/fake/session-name"
+  out=$(run_control "$dir" sd7 relaunch --note "resume with a new session"); rc=$?
+  expect_code 0 "$rc" "relaunch should recreate the recorded session"$'\n'"$out"
+  [ "$(cat "$dir/fake/windows")" = fm-sd7 ] || fail "session must contain only the task window"
+  assert_absent "$dir/fake/created-windows" "new session's initial window must be reused"
+  assert_grep "encode launch-brief" "$dir/fake/literal" "replacement must launch"
+  [ -z "$(meta_field "$dir" sd7 endpoint_closed)" ] || fail "relaunch must retire closure evidence"
+  pass "stand-down relaunch reuses the new session's initial window"
+}
+
+test_stand_down_refuses_unfinished_or_unlanded_work() {
+  local dir out rc what want
+  for what in no-pr not-done open-decision dirty unpushed gone-unmarked scout; do
+    dir=$(new_case "standdown-$what" sd3)
+    stage_done_ship "$dir" sd3
+    make_no_run_nm_stub "$dir"
+    case "$what" in
+      no-pr) grep -v '^pr=' "$dir/home/state/sd3.meta" > "$dir/m" && mv "$dir/m" "$dir/home/state/sd3.meta" ;;
+      not-done) printf 'working [at=%s]: fixing review findings\n' "$(date +%s)" >> "$dir/home/state/sd3.status" ;;
+      open-decision) printf 'needs-decision [at=%s] [key=q1]: which way\n' "$(date +%s)" >> "$dir/home/state/sd3.status" ;;
+      dirty) printf 'draft\n' > "$dir/wt/draft.txt" ;;
+      unpushed) git -C "$dir/wt" -c user.name=t -c user.email=t@t commit -q --allow-empty -m unpushed ;;
+      gone-unmarked)
+        # The window vanished without stand-down closing it, so nothing proves
+        # it absent rather than alive on a server this seat cannot address.
+        sed 's/^mode=.*/mode=no-mistakes/' "$dir/home/state/sd3.meta" > "$dir/m" && mv "$dir/m" "$dir/home/state/sd3.meta"
+        strand_endpoint "$dir" sd3
+        ;;
+      scout) sed 's/^kind=.*/kind=scout/' "$dir/home/state/sd3.meta" > "$dir/m" && mv "$dir/m" "$dir/home/state/sd3.meta" ;;
+    esac
+    out=$(run_control "$dir" sd3 stand-down); rc=$?
+    expect_code 1 "$rc" "stand-down must refuse ($what)"$'\n'"$out"
+    case "$what" in
+      no-pr) want="no recorded PR" ;;
+      not-done|open-decision) want="not done" ;;
+      dirty) want="uncommitted or untracked changes" ;;
+      unpushed) want="not on any remote-tracking branch" ;;
+      gone-unmarked) want="absence cannot be proven" ;;
+      scout) want="is a scout task" ;;
+    esac
+    assert_contains "$out" "$want" "the refusal should name why ($what)"
+    assert_absent "$dir/fake/killed-windows" "a refused stand-down must not close the endpoint ($what)"
+    [ -z "$(meta_field "$dir" sd3 endpoint_closed)" ] || fail "a refused stand-down must not mark the record ($what)"
+    assert_no_grep "/exit" "$dir/fake/literal" "a refused stand-down must leave the agent running ($what)"
+  done
+  pass "fm-control stand-down: no PR, not done, an open decision, uncommitted or unpushed work, an unproven gone endpoint, or a non-ship refuses"
+}
+
+test_stand_down_close_failure_keeps_the_endpoint_named() {
+  local dir out rc
+  dir=$(new_case standdown-close-fails sd5)
+  stage_done_ship "$dir" sd5
+  make_no_run_nm_stub "$dir"
+  out=$(FM_FAKE_KILL_FAIL=1 run_control "$dir" sd5 stand-down); rc=$?
+  expect_code 1 "$rc" "a close that leaves the window in place must fail"$'\n'"$out"
+  assert_contains "$out" "left in place" "the failure should say the endpoint is still there"
+  assert_grep "fm-sd5" "$dir/fake/windows" "the window really is still there"
+  [ -z "$(meta_field "$dir" sd5 endpoint_closed)" ] \
+    || fail "a failed close must not leave a marker claiming the endpoint is gone"
+  [ "$(meta_field "$dir" sd5 window)" = fmses:fm-sd5 ] || fail "the record must keep naming the surviving endpoint"
+  pass "fm-control stand-down: a close that leaves the window in place fails and drops its marker"
+}
+
+test_stand_down_refuses_an_active_validation_run() {
+  local dir out rc head
+  dir=$(new_case standdown-validating sd4)
+  stage_done_ship "$dir" sd4 no-mistakes
+  head=$(git -C "$dir/wt" rev-parse HEAD)
+  # The pipeline owns the branch and is still running: current state reads
+  # working however the status log ends.
+  cat > "$dir/fakebin/no-mistakes" <<SH
+#!/usr/bin/env bash
+case "\${1:-}" in
+  axi)
+    cat <<'RUN'
+run:
+  id: "01RUN"
+  branch: task-sd4
+  status: running
+  head: "$head"
+  pr: ""
+  findings: none
+  steps[2]{step,status,findings,duration_ms}:
+    intent,completed,0,0
+    review,running,0,0
+RUN
+    ;;
+  daemon) printf '%s\n' 'daemon running (pid 4242)' ;;
+esac
+exit 0
+SH
+  chmod +x "$dir/fakebin/no-mistakes"
+  out=$(run_control "$dir" sd4 stand-down); rc=$?
+  expect_code 1 "$rc" "stand-down must refuse while a validation run is active"$'\n'"$out"
+  assert_contains "$out" "state: working" "the refusal should name the active run's current state"
+  assert_absent "$dir/fake/killed-windows" "an active run's endpoint must never be closed"
+  assert_no_grep "/exit" "$dir/fake/literal" "an active run's worker must be left running"
+  pass "fm-control stand-down: an active validation run refuses before the agent is touched"
+}
+
 # --- herdr: a stopped server is not a destroyed endpoint --------------------
 #
 # Stopping and restarting a named Herdr server preserves workspace, tab, pane
@@ -2198,6 +2443,13 @@ test_relaunch_moves_a_drifted_item_back_in_flight() {
 }
 
 test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint
+test_stand_down_closes_a_done_ship_endpoint_and_keeps_the_task
+test_stand_down_relaunch_rebinds_a_fresh_tmux_window
+test_stand_down_refuses_unfinished_or_unlanded_work
+test_stand_down_refuses_an_active_validation_run
+test_stand_down_close_failure_keeps_the_endpoint_named
+test_stand_down_close_evidence_survives_unreadable_probe
+test_stand_down_relaunch_reuses_initial_session_window
 test_relaunch_refuses_before_exit_when_the_composer_holds_pending_text
 test_relaunch_refuses_before_exit_when_the_composer_state_is_unproven
 test_relaunch_from_linked_home_preserves_recorded_worktree
