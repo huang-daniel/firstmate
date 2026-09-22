@@ -93,7 +93,12 @@ run_spawn() {
   # explicitly (empty by default) instead of leaking the invoking shell's value,
   # which would make launch assertions depend on the developer's environment.
   # A test opts in to the set case via FM_TEST_CLAUDE_CONFIG_DIR.
+  # CLAUDE_CODE_ENABLE_FUNCTION_HOOKS is likewise pinned rather than leaking the
+  # invoking shell's value, so the Claude Calm mod flag (bin/fm-spawn.sh header,
+  # "Claude Calm mod for crewmates and scouts") only appears when a test opts in
+  # through FM_TEST_CLAUDE_CALM_HOOKS.
   CLAUDE_CONFIG_DIR="${FM_TEST_CLAUDE_CONFIG_DIR:-}" \
+    CLAUDE_CODE_ENABLE_FUNCTION_HOOKS="${FM_TEST_CLAUDE_CALM_HOOKS:-}" \
     FM_FAKE_LAUNCH_LOG="$launchlog" FM_FAKE_PI_VERSION="${FM_TEST_PI_VERSION:-0.84.0}" \
     FM_FAKE_CURSOR_MODELS="${FM_TEST_CURSOR_MODELS:-}" \
     FM_FAKE_CURSOR_LIST_STATUS="${FM_TEST_CURSOR_LIST_STATUS:-0}" \
@@ -1481,6 +1486,116 @@ test_non_claude_harness_ignores_claude_permission_mode() {
   pass "config/claude-permission-mode changes claude launches only"
 }
 
+# bin/fm-spawn.sh header, "Claude Calm mod for crewmates and scouts": a claude
+# ship or scout launch adds --plugin-dir <code root>/.claude/mods/firstmate-calm
+# only when both CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 and config/calm resolve
+# on at spawn time; otherwise the launch stays byte-identical to a spawn built
+# before this flag existed.
+claude_calm_flag() {
+  printf '%s' "--plugin-dir $(printf "'%s'" "${ROOT}/.claude/mods/firstmate-calm") "
+}
+
+claude_expected_launch_with_calm() {  # <home> <id> <permission-flag> <calm-flag>
+  local home=$1 id=$2 flag=$3 calm=$4
+  printf '%s' "export COMPACT_ADVISER_DISABLE=1; env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $flag --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' ${calm}$CLAUDE_CONTROL_CHANNEL_FLAG \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$home/data/$id/launch-brief.md')\""
+}
+
+test_claude_calm_mod_flag_loads_for_ship_launch() {
+  local rec id out status launch expected
+  id=calmmod-ship-z25
+  rec=$(make_spawn_case calmmod-ship claude "$id")
+  read_case_record "$rec"
+  printf 'on\n' > "$HOME_DIR/config/calm"
+
+  out=$(FM_TEST_CLAUDE_CALM_HOOKS=1 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "claude spawn with calm on and function hooks enabled should succeed"
+  launch=$(cat "$LAUNCH_LOG")
+  expected=$(claude_expected_launch_with_calm "$HOME_DIR" "$id" --dangerously-skip-permissions "$(claude_calm_flag)")
+  [ "$launch" = "$expected" ] || fail "calm-on ship launch did not carry the plugin-dir flag"$'\n'"expected: $expected"$'\n'"actual:   $launch"
+  pass "config/calm=on with function hooks enabled loads the firstmate-calm mod on a ship launch"
+}
+
+test_claude_calm_mod_flag_reaches_scout_launch() {
+  local rec id out status launch expected
+  id=calmmod-scout-z26
+  rec=$(make_spawn_case calmmod-scout claude "$id")
+  read_case_record "$rec"
+  printf 'on\n' > "$HOME_DIR/config/calm"
+
+  out=$(FM_TEST_CLAUDE_CALM_HOOKS=1 run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --scout)
+  status=$?
+  expect_code 0 "$status" "claude scout spawn with calm on and function hooks enabled should succeed"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "$(claude_calm_flag)" "scout launch did not carry the plugin-dir flag"
+  pass "config/calm=on with function hooks enabled reaches scout launches too"
+}
+
+test_claude_calm_mod_flag_legacy_max_value_loads_flag() {
+  local rec id out status launch
+  id=calmmod-max-z27
+  rec=$(make_spawn_case calmmod-max claude "$id")
+  read_case_record "$rec"
+  printf 'max\n' > "$HOME_DIR/config/calm"
+
+  out=$(FM_TEST_CLAUDE_CALM_HOOKS=1 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "claude spawn with legacy calm=max should succeed"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "$(claude_calm_flag)" "legacy config/calm=max did not load the plugin-dir flag"
+  pass "config/calm=max (legacy) reads as on and loads the firstmate-calm mod"
+}
+
+test_claude_calm_mod_flag_absent_without_function_hooks_env() {
+  local rec id out status launch expected
+  id=calmmod-nohooks-z28
+  rec=$(make_spawn_case calmmod-nohooks claude "$id")
+  read_case_record "$rec"
+  printf 'on\n' > "$HOME_DIR/config/calm"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "claude spawn with calm on but function hooks unset should succeed"
+  launch=$(cat "$LAUNCH_LOG")
+  expected=$(claude_expected_launch "$HOME_DIR" "$id" --dangerously-skip-permissions)
+  [ "$launch" = "$expected" ] || fail "an unset CLAUDE_CODE_ENABLE_FUNCTION_HOOKS must launch exactly as before this flag existed"$'\n'"expected: $expected"$'\n'"actual:   $launch"
+  pass "config/calm=on with function hooks unset launches byte-identical to before this flag existed"
+}
+
+test_claude_calm_mod_flag_absent_without_calm_config() {
+  local rec id out status launch expected
+  id=calmmod-nocalm-z29
+  rec=$(make_spawn_case calmmod-nocalm claude "$id")
+  read_case_record "$rec"
+
+  out=$(FM_TEST_CLAUDE_CALM_HOOKS=1 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "claude spawn with function hooks enabled but no config/calm should succeed"
+  launch=$(cat "$LAUNCH_LOG")
+  expected=$(claude_expected_launch "$HOME_DIR" "$id" --dangerously-skip-permissions)
+  [ "$launch" = "$expected" ] || fail "an absent config/calm must launch exactly as before this flag existed"$'\n'"expected: $expected"$'\n'"actual:   $launch"
+  pass "function hooks enabled with no config/calm launches byte-identical to before this flag existed"
+}
+
+test_claude_calm_mod_flag_omitted_for_secondmate_launch() {
+  local rec id sm out status launch
+  id=calmmod-secondmate-z30
+  rec=$(make_spawn_case calmmod-secondmate claude "$id")
+  read_case_record "$rec"
+  printf 'on\n' > "$HOME_DIR/config/calm"
+  sm="$CASE_DIR/secondmate-home"
+  make_seeded_secondmate_home "$sm" "$id"
+
+  out=$(FM_TEST_CLAUDE_CALM_HOOKS=1 FM_TEST_CLAUDE_CONFIG_DIR="$CASE_DIR/claude-work" \
+    run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate)
+  status=$?
+  expect_code 0 "$status" "secondmate claude spawn should succeed"$'\n'"$out"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_not_contains "$launch" "--plugin-dir" \
+    "a persistent secondmate launch must not carry the crewmate/scout plugin-dir flag"
+  pass "a persistent claude secondmate keeps loading Calm its own way, never through this flag"
+}
+
 test_worker_launch_delivers_role_scope
 test_no_profile_keeps_claude_profile_defaults
 test_non_cursor_launch_clears_inherited_cursor_markers
@@ -1524,6 +1639,12 @@ test_claude_permission_mode_auto_swaps_only_the_permission_flag
 test_claude_permission_mode_auto_reaches_scout_launch
 test_claude_permission_mode_invalid_refuses_before_endpoint_or_metadata
 test_non_claude_harness_ignores_claude_permission_mode
+test_claude_calm_mod_flag_loads_for_ship_launch
+test_claude_calm_mod_flag_reaches_scout_launch
+test_claude_calm_mod_flag_legacy_max_value_loads_flag
+test_claude_calm_mod_flag_absent_without_function_hooks_env
+test_claude_calm_mod_flag_absent_without_calm_config
+test_claude_calm_mod_flag_omitted_for_secondmate_launch
 test_non_claude_harness_ignores_config_dir
 test_claude_task_launch_carries_control_channel_authority
 test_claude_secondmate_launch_omits_task_control_channel_authority
