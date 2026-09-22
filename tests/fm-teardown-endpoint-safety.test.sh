@@ -1366,6 +1366,51 @@ test_already_gone_endpoint_still_completes_without_a_refusal() {
   pass "fm-teardown: an already-exited endpoint, and a server that is already gone, still complete cleanup silently"
 }
 
+# Stand-down closes a finished task's real tmux window through the backend's
+# own close primitive and leaves every record in place; the later cleanup then
+# meets an endpoint that is already gone and completes silently.
+test_stand_down_close_then_teardown_on_real_tmux() {
+  local dir socket session='stand down' id=stood-task
+  [ -n "$REAL_TMUX" ] || { echo "skip - tmux not installed"; return 0; }
+  dir=$(make_case stand-down-close)
+  socket=dedicated.sock
+  ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-session -d -s "$session" -n control )
+  ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-window -d -t "=$session:" -n "fm-$id" )
+  write_close_failing_tmux_shim "$dir" "$socket" "$REAL_TMUX"
+  isolated_tmux_window_exists "$dir" "$socket" "$session" "fm-$id" \
+    || fail "fixture did not create the task window"
+  write_endpoint_close_meta "$dir" "$id" "$session:fm-$id"
+  printf 'endpoint_closed=%s\n' "$session:fm-$id" >> "$dir/home/state/$id.meta"
+
+  # shellcheck disable=SC2016 # $1..$4 expand inside the isolated child shell.
+  env -u TMUX -u TMUX_PANE FM_RUNTIME_LOG="$dir/runtime.log" PATH="$dir/fakebin:$PATH" \
+    bash -c '. "$1/bin/fm-backend.sh"; fm_backend_close_task_endpoint tmux "$2" "$3" "$4" "$3/$4.meta"' \
+    _ "$ROOT" "$session:fm-$id" "$dir/home/state" "$id" \
+    > "$dir/close.out" 2> "$dir/close.err" \
+    || fail "the stand-down close of a live task window failed: $(cat "$dir/close.err")"
+  isolated_tmux_window_exists "$dir" "$socket" "$session" "fm-$id" \
+    && fail "the stand-down close left the task window open"
+  isolated_tmux_window_exists "$dir" "$socket" "$session" control \
+    || fail "the stand-down close removed an independent window"
+  assert_present "$dir/home/state/$id.meta" "the stand-down close must keep the task record"
+
+  env -u TMUX -u TMUX_PANE \
+    FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_RUNTIME_LOG="$dir/runtime.log" \
+    PATH="$dir/fakebin:$PATH" "$TEARDOWN" "$id" \
+    > "$dir/teardown.out" 2> "$dir/teardown.err" \
+    || fail "cleanup after a stand-down close refused: $(cat "$dir/teardown.err")"
+  assert_grep "teardown $id complete" "$dir/teardown.out" \
+    "cleanup after a stand-down close did not report a completed cleanup"
+  assert_no_grep "could not be closed" "$dir/teardown.err" \
+    "cleanup treated the endpoint stand-down already closed as a failed close"
+  assert_absent "$dir/home/state/$id.meta" "cleanup after a stand-down close left the task record behind"
+  isolated_tmux_window_exists "$dir" "$socket" "$session" control \
+    || fail "cleanup after a stand-down close removed an independent window"
+
+  ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" kill-server 2>/dev/null ) || true
+  pass "fm-teardown: a real tmux window closed at stand-down leaves its record, and the later cleanup completes silently"
+}
+
 test_invalid_endpoint_records_refuse_before_mutation
 test_control_lock_contention_refuses_before_mutation
 test_non_pool_teardown_ignores_task_set_lock
@@ -1381,6 +1426,7 @@ test_unreadable_close_read_refuses_while_a_definitive_absence_completes
 test_forced_secondmate_child_close_failure_still_refuses
 test_orca_close_failure_refuses_even_under_force
 test_already_gone_endpoint_still_completes_without_a_refusal
+test_stand_down_close_then_teardown_on_real_tmux
 test_bare_relative_origin_shares_project_lock_with_clone
 test_reused_pool_slot_refuses_before_touching_the_other_task
 test_cross_home_pool_slot_collision_refuses

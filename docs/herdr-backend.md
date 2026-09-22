@@ -302,6 +302,10 @@ Native registration still identifies Pi by name where tmux would see a generic i
 The session-start sweep uses this probe.
 Mid-session secondmate agent-process liveness is not implemented because idle secondmates are deliberately exempt from stale-pane escalation and need a separate periodic identity signal.
 
+`bin/fm-control.sh <id> stand-down` closes a finished ship's pane after proving its agent stopped ([agent-control.md](agent-control.md#standing-a-finished-worker-down) owns the contract).
+The close is `fm_backend_herdr_close_task_endpoint`, the same close teardown performs, under the same named-session presentation lock: a pane in a projected presentation space goes through the projection's focus-preserving close and retires its journal once the pane reads gone, and any other pane goes through the serialized task kill.
+It reports success only once the exact recorded pane reads structurally gone, so the task record, status log, and worktree are kept and a later `relaunch` rebinds the task to one fresh pane in the recorded session.
+
 ## Push events and polling fallback
 
 Protocol 16 can subscribe to `pane.agent_status_changed` over one bounded Unix-socket reader.
@@ -369,6 +373,7 @@ tests/fm-backend-herdr-agent-exit-shell-e2e.test.sh
 tests/fm-herdr-pi-stale-registration-live-e2e.test.sh
 tests/fm-backend-herdr-eventwait-smoke.test.sh
 tests/fm-control-herdr-smoke.test.sh
+tests/fm-control-herdr-standdown-smoke.test.sh
 tests/fm-herdr-session-cleanup.test.sh
 tests/fm-herdr-session-cleanup-e2e.test.sh
 tests/fm-herdr-attached-viewer-live-e2e.test.sh

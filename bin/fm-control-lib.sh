@@ -15,7 +15,9 @@
 # This file owns three capability tables plus their pure artifact-path tables,
 # and ONE named exception to that purity - fm_control_endpoint_absence_verdict,
 # the single owner of the per-backend endpoint-absence proof, which does run
-# backend reads. Everything else has no side effects, runs no backend command,
+# backend reads, together with the one task-record key that proof consults
+# (fm_control_endpoint_closed_at_standdown). Everything else has no side
+# effects, runs no backend command,
 # and reads no state, so sourcing this file is still free and the tables can be
 # read by a test as a pure contract:
 #
@@ -50,13 +52,14 @@ fm_control_verbs() {
   cat <<'EOF'
 interrupt
 exit
+stand-down
 relaunch
 EOF
 }
 
 fm_control_verb_allowed() {  # <verb>
   case "${1-}" in
-    interrupt|exit|relaunch) return 0 ;;
+    interrupt|exit|stand-down|relaunch) return 0 ;;
   esac
   return 1
 }
@@ -251,22 +254,32 @@ fm_control_backend_state_verified() {  # <backend>
 #     passes `--session <session>`, so the recheck starts and reads the session
 #     the RECORD names, through that session's own socket. The answer is about
 #     the task's endpoint and nothing else.
-#   tmux CANNOT. `list-windows -a` describes only the server the CURRENT
-#     process addresses (its TMUX_TMPDIR/socket), and a task's record does not
-#     carry the endpoint's socket identity - so a different but running server
-#     would answer "not anywhere" about a window it was never able to see.
-#     There is no read available here that closes that gap, so tmux always
-#     returns `unproven` and both verbs refuse. tmux is left exactly as
-#     deadlocked as it was before this change - no worse - but deliberately.
+#   tmux CANNOT from a read. `list-windows -a` describes only the server the
+#     CURRENT process addresses (its TMUX_TMPDIR/socket), and a task's record
+#     does not carry the endpoint's socket identity - so a different but
+#     running server would answer "not anywhere" about a window it was never
+#     able to see. There is no read available here that closes that gap, so a
+#     tmux `missing` returns `unproven` and both verbs refuse - with ONE
+#     exception that is not a read at all: the record itself saying firstmate
+#     closed this exact endpoint at stand-down
+#     (fm_control_endpoint_closed_at_standdown). stand-down closes a window
+#     only after proving its agent stopped, and every later launch into the
+#     task republishes the record without that marker, so a marker naming the
+#     recorded endpoint is positive evidence that no agent is there to
+#     duplicate.
 #
 # Both control-plane callers share this one implementation so the proof cannot
 # drift into two answers for the same endpoint.
-fm_control_endpoint_absence_verdict() {  # <backend> <target>
-  local backend=${1-} target=${2-}
+fm_control_endpoint_absence_verdict() {  # <backend> <target> [meta-file]
+  local backend=${1-} target=${2-} meta=${3-}
   fm_backend_source "$backend" \
     || { printf 'unproven\tbackend %s could not be loaded to prove anything about that endpoint' "'$backend'"; return 0; }
   case "$backend" in
     tmux)
+      if [ -n "$meta" ] && fm_control_endpoint_closed_at_standdown "$meta" "$target"; then
+        printf 'gone\t'
+        return 0
+      fi
       printf 'unproven\ttmux absence cannot be proven from a task record: the record does not carry the endpoint'"'"'s socket identity, and a server-wide window inventory only describes the tmux server this process addresses, so a window absent from it may still be alive on another'
       ;;
     herdr)
@@ -284,6 +297,23 @@ fm_control_endpoint_absence_verdict() {  # <backend> <target>
       printf 'unproven\tbackend %s has no recovery-grade classifier, so absence cannot be proven on it at all' "'$backend'"
       ;;
   esac
+}
+
+# fm_control_endpoint_closed_at_standdown: 0 when <meta-file> records that
+# `stand-down` closed exactly <target>. The marker is the `endpoint_closed=`
+# key bin/fm-control.sh writes before it closes a stood-down endpoint; it names
+# the endpoint it was written for, so a record that has since moved to another
+# endpoint never matches, and bin/fm-spawn.sh drops it whenever it republishes
+# the record for a new agent.
+fm_control_endpoint_closed_at_standdown() {  # <meta-file> <target>
+  local meta=${1-} target=${2-} line value=
+  [ -n "$target" ] && [ -f "$meta" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      endpoint_closed=*) value=${line#endpoint_closed=} ;;
+    esac
+  done < "$meta" 2>/dev/null || return 1
+  [ "$value" = "$target" ]
 }
 
 # The per-task wiring artifacts a harness leaves behind, so a relaunch that

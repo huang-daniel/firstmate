@@ -3399,6 +3399,59 @@ fm_backend_herdr_kill() {  # <target>
   fi
 }
 
+# fm_backend_herdr_close_task_endpoint: close one task's pane while every
+# durable record naming it stays in place - the stand-down close
+# (bin/fm-backend.sh's fm_backend_close_task_endpoint owns the contract). It is
+# the same focus-safe close teardown performs, under the same named-session
+# presentation lock: a pane that belongs to a projected presentation space is
+# closed through the projection's focus-preserving path and its journal retired
+# once the pane reads gone, and any other pane goes through the serialized
+# task kill. An already-gone pane is success. Returns 0 only when the exact
+# recorded pane is confirmed gone afterwards.
+fm_backend_herdr_close_task_endpoint() {  # <target> <state-dir> <task-id> <meta-file>
+  local target=$1 state=$2 id=$3 meta=$4 session pane lock_path journal workspace attempt=0 lock_held=0
+  fm_backend_herdr_parse_target "$target" || {
+    echo "error: herdr endpoint $target could not be parsed exactly" >&2
+    return 1
+  }
+  session=$FM_BACKEND_HERDR_SESSION
+  pane=$FM_BACKEND_HERDR_PANE
+  if ! declare -F fm_lock_try_acquire >/dev/null 2>&1; then
+    # shellcheck source=bin/fm-wake-lib.sh
+    . "$FM_BACKEND_HERDR_ROOT/bin/fm-wake-lib.sh"
+  fi
+  lock_path=$(fm_backend_herdr_presentation_session_lock_path "$session") || {
+    echo "error: the herdr session presentation lock for $target could not be resolved; refusing an unlocked pane close" >&2
+    return 1
+  }
+  while [ "$attempt" -lt 50 ]; do
+    if fm_lock_try_acquire "$lock_path"; then
+      lock_held=1
+      break
+    fi
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  if [ "$lock_held" != 1 ]; then
+    echo "error: the herdr session presentation lock for $target is held elsewhere; refusing an unlocked pane close" >&2
+    return 1
+  fi
+  journal=$(fm_backend_herdr_projection_journal_path "$state" "$id")
+  workspace=$(fm_meta_get "$meta" herdr_workspace_id)
+  if { [ -e "$journal" ] || [ -L "$journal" ]; } \
+     && [ -n "$workspace" ] \
+     && fm_backend_herdr_projection_endpoint_matches_journal "$session" "$workspace" "$journal" "$id"; then
+    fm_backend_herdr_projection_close_pane_focus_preserving "$session" "$pane" || true
+    if [ "$(fm_backend_herdr_pane_agent_state "$session" "$pane")" = dead ]; then
+      rm -f "$journal"
+    fi
+  else
+    fm_backend_herdr_kill_serialized "$session" "$pane" 2>/dev/null || true
+  fi
+  fm_lock_release "$lock_path" || true
+  fm_backend_herdr_endpoint_confirmed_gone "$target"
+}
+
 # fm_backend_herdr_endpoint_confirmed_gone: gate durable-record removal on
 # the exact recorded pane's structured presence
 # (fm_backend_herdr_pane_presence_state), read-only, so a refused, skipped,

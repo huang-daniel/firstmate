@@ -2424,6 +2424,33 @@ test_dead_window_ignores_stale_status_log() {
   pass "dead window ignores stale status log"
 }
 
+# A window stand-down closed on purpose is not a stale endpoint: stand-down
+# closes only a done task with nothing unlanded, so its status declaration is
+# still the current state. The marker must name the exact recorded endpoint.
+test_window_closed_at_stand_down_reads_its_status_log() {
+  reset_fakes
+  local d; d=$(new_case stood-down)
+  make_repo_on_branch "$d/wt" fm/feat-sd
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-sd.meta" "window=fm:fm-feat-sd" "worktree=$d/wt" "kind=ship" \
+    "endpoint_closed=fm:fm-feat-sd"
+  printf 'done: PR https://github.com/example/repo/pull/7\n' > "$d/state/feat-sd.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  FM_FAKE_TMUX_MISSING=1
+  local out; out=$(run_crew_state "$d" feat-sd)
+  assert_contains "$out" "state: done" "a window closed at stand-down keeps its done state"
+  assert_contains "$out" "source: status-log" "a window closed at stand-down reads its status log"
+  assert_contains "$out" "endpoint closed at stand-down" "the detail should say why the endpoint is gone"
+
+  fm_write_meta "$d/state/feat-sd.meta" "window=fm:fm-feat-sd" "worktree=$d/wt" "kind=ship" \
+    "endpoint_closed=fm:fm-other"
+  out=$(run_crew_state "$d" feat-sd)
+  assert_contains "$out" "state: unknown" "a marker naming another endpoint proves nothing about this one"
+  assert_contains "$out" "backend target gone" "an unmarked gone window keeps its death evidence"
+  pass "a window closed at stand-down reads its status log, and only for the endpoint the marker names"
+}
+
 # Regression (2026-09 G7 stale-claim incident, tmux half): the default backend
 # reached the same false-death path as herdr. A tmux that cannot answer at all
 # - a trimmed PATH, or any non-definitive error - made every live crew report
@@ -4749,6 +4776,7 @@ test_no_run_idle_pane_paused
 test_no_run_idle_pane_custom_paused_verb
 test_no_run_idle_secondmate_resolved_event_not_state
 test_dead_window_ignores_stale_status_log
+test_window_closed_at_stand_down_reads_its_status_log
 test_no_run_tmux_unreadable_reads_unreachable_not_gone
 test_dead_window_still_reports_terminal_run_step
 test_dead_window_still_reports_active_run_step

@@ -1637,12 +1637,13 @@ if [ "$RELAUNCH" -eq 1 ]; then
   #           survived the restart and is adopted after all; `alive` means the
   #           agent came back and refuses; only a second `missing` proves the
   #           pane itself did not survive.
-  #   tmux  - REFUSES, always. A task record carries no socket identity for its
-  #           endpoint, and a server-wide inventory describes only the server
-  #           this process addresses, so no read available here can tell "gone"
-  #           from "on a server I cannot see". A tmux `missing` therefore stays
-  #           as deadlocked as it was before this change - deliberately, and
-  #           with the reason stated rather than guessed past.
+  #   tmux  - REFUSES from any read. A task record carries no socket identity
+  #           for its endpoint, and a server-wide inventory describes only the
+  #           server this process addresses, so no read available here can
+  #           tell "gone" from "on a server I cannot see". The one tmux
+  #           `missing` that rebinds is an endpoint the record itself says
+  #           `fm-control stand-down` closed after proving its agent stopped
+  #           (the endpoint_closed= marker) - positive evidence, not a read.
   # Every transient or self-contradicting read stays `unreadable`/`ambiguous`
   # and refuses as it always did (bin/fm-backend.sh's fm_backend_agent_state
   # owns that vocabulary). The proof itself lives in one place for the whole
@@ -1650,7 +1651,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # `relaunch` cannot reach two different answers about one endpoint.
   RELAUNCH_STATE=$(fm_backend_agent_state "$BACKEND" "$RELAUNCH_TARGET")
   if [ "$RELAUNCH_STATE" = missing ]; then
-    RELAUNCH_ABSENCE=$(fm_control_endpoint_absence_verdict "$BACKEND" "$RELAUNCH_TARGET")
+    RELAUNCH_ABSENCE=$(fm_control_endpoint_absence_verdict "$BACKEND" "$RELAUNCH_TARGET" "$RELAUNCH_META")
     case "${RELAUNCH_ABSENCE%%$'\t'*}" in
       gone) RELAUNCH_STATE=missing ;;
       dead) RELAUNCH_STATE=dead ;;
@@ -3186,6 +3187,24 @@ if [ "$RELAUNCH" -eq 1 ]; then
     T=$RELAUNCH_TARGET
     WT_TARGET=$T
     SES=${T%%:*}
+  elif [ "$BACKEND" = tmux ]; then
+    # The recorded tmux window was closed by `fm-control stand-down` - the only
+    # tmux absence the gate above accepts - so create ONE fresh window for the
+    # same task, in the session the record names, opened directly in the
+    # recorded worktree. The record published below writes window= from these
+    # values and drops the stand-down marker, which is the whole rebind; the
+    # task id, brief, worktree, armed poll and status log are untouched. A
+    # window this rebind creates before a later refusal carries the task's own
+    # fm-<id> name, so the next relaunch reads it `dead` and adopts it.
+    SES=${RELAUNCH_TARGET%%:*}
+    if ! tmux has-session -t "=$SES" 2>/dev/null; then
+      tmux new-session -d -s "$SES" -c "$WT" || {
+        echo "error: task $ID's recorded tmux session '$SES' could not be re-created for its closed endpoint" >&2
+        exit 1
+      }
+    fi
+    WT_TARGET=$(fm_backend_tmux_create_task "$SES" "$W" "$WT") || exit 1
+    T="$SES:$W"
   else
     # The recorded endpoint is authoritatively gone, so there is nothing to
     # adopt: create ONE fresh endpoint for the same task, opened directly in the
@@ -3193,11 +3212,12 @@ if [ "$RELAUNCH" -eq 1 ]; then
     # ids) from these values, which is the whole rebind - the task id, brief,
     # worktree, armed poll and status log are untouched.
     #
-    # Herdr is the ONLY backend that reaches here: the gate above rebinds only
-    # on a PROVEN-gone endpoint, and absence is provable only on herdr, whose
-    # every read is scoped to the session the record names
-    # (fm_control_endpoint_absence_verdict owns that argument). tmux and every
-    # secondmate were already refused, so there is no dispatch left to make.
+    # Herdr is the only other backend that reaches here: the gate above
+    # rebinds only on a PROVEN-gone endpoint, absence is provable from a read
+    # only on herdr, whose every read is scoped to the session the record
+    # names, and the tmux stand-down case was handled above
+    # (fm_control_endpoint_absence_verdict owns that argument). Every
+    # secondmate was already refused, so there is no dispatch left to make.
     #
     # This deliberately uses the FLAT container shape rather than Herdr's
     # presentation projection: projection is a presentation-only layout that is
@@ -4490,7 +4510,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx endpoint_closed", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)

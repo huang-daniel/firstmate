@@ -816,6 +816,29 @@ fm_backend_kill() {  # <backend> <target>
   esac
 }
 
+# fm_backend_close_task_endpoint: close a stood-down task's endpoint while
+# every durable record naming it - the task record, status log, steering inbox,
+# merge poll, and the worktree - stays exactly where it is. Unlike
+# fm_backend_kill, which teardown calls on its way to removing those records,
+# this is the whole operation, so it returns 0 only when the endpoint is
+# confirmed gone afterwards, and an already-gone endpoint is success. The close
+# is the backend's own focus-safe path: tmux's exact-identity window close, and
+# Herdr's locked, focus-preserving pane close. Only tmux and herdr implement it;
+# every other backend refuses, because stand-down is defined only where the
+# control plane can prove the agent stopped first
+# (bin/fm-control-lib.sh's fm_control_backend_state_verified).
+fm_backend_close_task_endpoint() {  # <backend> <target> <state-dir> <task-id> <meta-file>
+  local backend=$1
+  shift
+  [ -n "${1:-}" ] || { echo "error: refusing empty endpoint close target" >&2; return 1; }
+  fm_backend_source "$backend" || return 1
+  case "$backend" in
+    tmux) fm_backend_tmux_kill "$1" ;;
+    herdr) fm_backend_herdr_close_task_endpoint "$@" ;;
+    *) echo "error: backend '$backend' has no stand-down endpoint close" >&2; return 1 ;;
+  esac
+}
+
 fm_backend_remove_worktree() {  # <backend> <worktree-id>
   local backend=$1
   shift

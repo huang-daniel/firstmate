@@ -1143,7 +1143,7 @@ fi
 # read as death - a backend that failed to answer is unknown, never death, for
 # both classifier-backed backends (tmux and herdr) - and every death-class
 # verdict reports unknown rather than trusting a possibly-stale status log as
-# the current state.
+# the current state, except an endpoint the record says stand-down closed.
 [ -n "$BACKEND_TARGET" ] || emit unknown none "no backend target recorded"
 if ! pane_readable "$BACKEND_TARGET"; then
   # A failed probe is not itself evidence the pane is gone: the herdr CLI can
@@ -1180,6 +1180,14 @@ if ! pane_readable "$BACKEND_TARGET"; then
     tmux:alive|herdr:alive)
       ;;
     tmux:missing|herdr:missing)
+      # bin/fm-control.sh stand-down closed this exact endpoint on purpose, and
+      # only from a done task with nothing unlanded, so the status declaration
+      # is still the current state rather than a stale one.
+      if [ "$(meta_value endpoint_closed)" = "$BACKEND_TARGET" ] && [ -n "$LOG_VERB" ]; then
+        LOG_STATE=$(map_log_state "$LOG_LINE")
+        [ "$LOG_STATE" = unknown ] \
+          || emit "$LOG_STATE" status-log "$(status_line_note "$LOG_LINE") (endpoint closed at stand-down)"
+      fi
       emit unknown none "backend target gone: $BACKEND_TARGET"
       ;;
     tmux:dead|herdr:dead)
