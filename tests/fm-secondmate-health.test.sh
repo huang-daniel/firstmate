@@ -282,6 +282,58 @@ SH
   pass "verify bounds local and remote probes"
 }
 
+test_startup_surfaces_determine_revision() {
+  local surface w file out pid expected rc
+  for surface in CLAUDE.md .claude .codex .cursor .grok .omp .opencode .pi; do
+    w=$(new_world "surface-$surface")
+    out=$(FM_HOME="$w/sm1-home" "$HEALTH" self)
+    assert_contains "$out" "$surface:none" "absent startup surface must have an explicit identity"
+    case "$surface" in
+      CLAUDE.md) file=CLAUDE.md ;;
+      .pi) file=.pi/extensions/fm-primary-pi-watch.ts ;;
+      *) file="$surface/startup" ;;
+    esac
+    mkdir -p "$(dirname "$w/sm1-home/$file")"
+    printf 'initial\n' > "$w/sm1-home/$file"
+    git -C "$w/sm1-home" add "$file"
+    git -C "$w/sm1-home" commit -qm startup
+    pid=$(session_start "$w")
+    out=$(health "$w" stale sm1)
+    assert_contains "$out" "current sm1" "record and self must agree on $surface"
+    printf 'updated\n' > "$w/sm1-home/$file"
+    git -C "$w/sm1-home" commit -qam updated
+    out=$(health "$w" stale sm1)
+    assert_contains "$out" "stale sm1" "$surface-only update must invalidate the running revision"
+    assert_contains "$out" "changed=$surface " "staleness must name only the changed startup surface"
+    if [ "$surface" = .pi ]; then
+      expected=$(FM_HOME="$w/sm1-home" "$HEALTH" self | sed -n 's/^head_instr=//p')
+      mkdir -p "$w/fakebin"
+      cat > "$w/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  list-windows) printf 'fm-sm1\n' ;;
+  display-message) printf 'claude\n' ;;
+esac
+SH
+      chmod +x "$w/fakebin/tmux"
+      out=$(PATH="$w/fakebin:$PATH" TMUX='' health "$w" verify sm1 --expect-instr "$expected" --wait 3); rc=$?
+      expect_code 3 "$rc" "old Pi runtime must fail replacement verification: $out"
+      assert_contains "$out" "instruction surface differs from the intended one (.pi)" "verification must compare the Pi runtime"
+      kill "$pid" 2>/dev/null
+      session_start "$w" >/dev/null
+      out=$(PATH="$w/fakebin:$PATH" TMUX='' health "$w" verify sm1 --prior-pid "$pid" --expect-instr "$expected" --wait 3); rc=$?
+      expect_code 0 "$rc" "new Pi runtime must verify: $out"
+    fi
+    git -C "$w/sm1-home" rm -q "$file"
+    git -C "$w/sm1-home" commit -qm removed
+    out=$(health "$w" stale sm1)
+    assert_contains "$out" "changed=$surface " "removing a loaded startup surface must invalidate its identity"
+  done
+  pass "all startup surfaces affect staleness and Pi replacement verification"
+}
+
+test_startup_surfaces_determine_revision
+
 test_record_preserves_same_session_revision
 test_verify_bounds_probes_and_sleep
 test_record_and_self_report_the_running_session

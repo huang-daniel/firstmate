@@ -10,7 +10,8 @@
 #                                       --expect-instr <identity> [--wait <seconds>]
 #
 # A running agent keeps the instruction surface it launched on (AGENTS.md,
-# bin/, .agents/skills/) no matter what later lands in its home, so "the home
+# CLAUDE.md, bin/, .agents/skills/, .claude/, .codex/, .cursor/, .grok/, .omp/,
+# .opencode/, .pi/) no matter what later lands in its home, so "the home
 # is current" says nothing about the agent. This command is the one owner of the
 # record that closes that gap and of every read built on it:
 #
@@ -70,12 +71,10 @@ usage() {
   sed -n '2,${/^#/!q;p;}' "$0" | sed 's/^# \{0,1\}//'
 }
 
-# The watched instruction surface, the same three paths bin/fm-ff-lib.sh's
-# changed_instr compares.
-FM_HEALTH_INSTR_PATHS="AGENTS.md bin .agents/skills"
+FM_HEALTH_INSTR_PATHS="AGENTS.md bin .agents/skills CLAUDE.md .claude .codex .cursor .grok .omp .opencode .pi"
 
 # Print <root>'s instruction-surface identity at <rev> as
-# `AGENTS.md:<id>,bin:<id>,.agents/skills:<id>` (`none` for an absent path).
+# comma-separated `<path>:<id>` entries (`none` for an absent path).
 instr_identity() {  # <root> [<rev>]
   local root=$1 rev=${2:-HEAD} p id out=""
   git -C "$root" rev-parse --verify -q "$rev^{commit}" >/dev/null 2>&1 || return 1
