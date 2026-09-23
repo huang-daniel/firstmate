@@ -1947,6 +1947,85 @@ test_hook_claude_mode_secondmate_reblocks_like_primary() {
   pass "fm-turnend-guard --claude: secondmate home re-blocks unclaimed and allows auto-arm-claimed stops"
 }
 
+# --- claude secondmate busy-state idle ---------------------------------------
+#
+# A claude secondmate's Stop idle is recorded by this guard (bin/fm-spawn.sh's
+# secondmate arm), because a Stop the guard blocks continues the same turn with
+# no new prompt. These drive the real guard from a harness-named process, with
+# the FM_SECONDMATE_BUSY_* binding a launch carries and the real busy writer.
+
+# arm_secondmate_busy <case-dir> <id>: a parent state dir holding a busy record.
+arm_secondmate_busy() {
+  local dir=$1 id=$2
+  mkdir -p "$dir/parent-state"
+  "$ROOT/bin/fm-busy-event.sh" arm "$dir/parent-state" "$id"
+}
+
+# run_secondmate_guard <home> <parent-state> <id> <gen> <own-lock:yes|no>
+run_secondmate_guard() {
+  local dir=$1 pstate=$2 id=$3 gen=$4 own=$5 home
+  home=$(cd "$dir" && pwd)
+  # shellcheck disable=SC2016 # the fake harness expands FM_HOME and OWN inside its child shell.
+  printf '{"session_id":"sess-sm-busy","stop_hook_active":false}\n' \
+    | FM_HOME="$home" OWN="$own" FM_CLAUDE_AUTOARM_SYNC_WAIT_MS=200 \
+      FM_SECONDMATE_BUSY_WRITER="$ROOT/bin/fm-busy-event.sh" FM_SECONDMATE_BUSY_STATE="$pstate" \
+      FM_SECONDMATE_BUSY_ID="$id" FM_SECONDMATE_BUSY_GEN="$gen" \
+      "$dir/fake-claude" -c '
+        [ "$OWN" != yes ] || printf "%s\n" "$$" > "$FM_HOME/state/.lock"
+        "$FM_HOME/bin/fm-turnend-guard.sh" --claude
+      ' 2>&1
+}
+
+secondmate_busy_verdict() {  # <parent-state> <id>
+  (. "$ROOT/bin/fm-busy-lib.sh"; fm_busy_classify tmux fake:w claude "$2" "$1")
+}
+
+test_hook_claude_secondmate_allowed_stop_records_idle() {
+  local dir gen out status
+  dir=$(make_secondmate_dir "$TMP_ROOT/hook-claude-sm-idle")
+  ln -s /bin/bash "$dir/fake-claude"
+  gen=$(arm_secondmate_busy "$dir" sm-test-1)
+  out=$(run_secondmate_guard "$dir" "$dir/parent-state" sm-test-1 "$gen" yes); status=$?
+  expect_code 0 "$status" "a secondmate stop with no supervision need must still be allowed: $out"
+  [ -z "$out" ] || fail "recording the secondmate idle must not print anything: $out"
+  assert_equals "idle claude-hook" "$(secondmate_busy_verdict "$dir/parent-state" sm-test-1)" \
+    "an allowed secondmate stop must record the mate idle"
+  assert_grep 'event=stop ' "$dir/parent-state/sm-test-1.busy-state" "the idle must name the stop event"
+  pass "fm-turnend-guard --claude: an allowed stop records a bound claude secondmate idle"
+}
+
+test_hook_claude_secondmate_blocked_stop_stays_busy() {
+  local dir gen out status
+  dir=$(make_secondmate_dir "$TMP_ROOT/hook-claude-sm-blocked")
+  ln -s /bin/bash "$dir/fake-claude"
+  : > "$dir/state/task1.meta"
+  gen=$(arm_secondmate_busy "$dir" sm-test-1)
+  out=$(run_secondmate_guard "$dir" "$dir/parent-state" sm-test-1 "$gen" yes); status=$?
+  expect_code 2 "$status" "an unsupervised secondmate stop must still be blocked: $out"
+  assert_contains "$out" "TURN WOULD END BLIND" "the block must keep its banner"
+  assert_equals "busy fm-spawn" "$(secondmate_busy_verdict "$dir/parent-state" sm-test-1)" \
+    "a blocked stop continues the turn, so the mate must stay busy"
+  pass "fm-turnend-guard --claude: a blocked stop leaves a claude secondmate busy"
+}
+
+test_hook_claude_secondmate_idle_requires_owner_and_marker() {
+  local dir gen out status
+  dir=$(make_secondmate_dir "$TMP_ROOT/hook-claude-sm-owner")
+  ln -s /bin/bash "$dir/fake-claude"
+  gen=$(arm_secondmate_busy "$dir" sm-test-1)
+  out=$(run_secondmate_guard "$dir" "$dir/parent-state" sm-test-1 "$gen" no); status=$?
+  expect_code 0 "$status" "a non-owner stop is still allowed: $out"
+  assert_equals "busy fm-spawn" "$(secondmate_busy_verdict "$dir/parent-state" sm-test-1)" \
+    "a session that does not hold the home lock must never speak for the mate"
+
+  gen=$(arm_secondmate_busy "$dir" sm-other)
+  out=$(run_secondmate_guard "$dir" "$dir/parent-state" sm-other "$gen" yes); status=$?
+  expect_code 0 "$status" "a mismatched-binding stop is still allowed: $out"
+  assert_equals "busy fm-spawn" "$(secondmate_busy_verdict "$dir/parent-state" sm-other)" \
+    "a binding naming another mate's id must not record idle from this home"
+  pass "fm-turnend-guard --claude: the secondmate idle needs the lock owner and a matching home marker"
+}
+
 # --- AWAY MODE: the daemon owns supervision ----------------------------------
 #
 # While state/.afk exists, bin/fm-supervise-daemon.sh owns supervision and runs
@@ -2264,6 +2343,9 @@ test_hook_claude_mode_away_mode_never_uses_stop_autoarm_fail_open
 test_hook_claude_mode_allow_resets_budget
 test_hook_claude_mode_waits_for_late_claim
 test_hook_claude_mode_secondmate_reblocks_like_primary
+test_hook_claude_secondmate_allowed_stop_records_idle
+test_hook_claude_secondmate_blocked_stop_stays_busy
+test_hook_claude_secondmate_idle_requires_owner_and_marker
 test_hook_away_daemon_allows_between_watcher_cycles
 test_hook_away_daemon_allows_over_dead_watcher_lock
 test_hook_away_mode_blocks_without_any_supervisor

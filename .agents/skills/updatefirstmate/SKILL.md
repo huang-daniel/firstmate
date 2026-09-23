@@ -78,7 +78,7 @@ This touches only the firstmate repo and its own worktrees, never anything under
      Never report one of these as a clean reload.
    - `unreached: <id>: <reason>` - no safe running outcome could be confirmed, including an ambiguous relaunch result or a replacement that could not take its home lock.
 
-   Containment was approved by firstmate on 2026-09-23 pending follow-up task `fm-secondmate-busy-state-arming`; deferral is expected for every local mate needing a restart until secondmate busy records are armed.
+   [`fm-secondmate-health.sh`](../../../bin/fm-secondmate-health.sh) owns the harness and placement limits of the idle verdict.
    A deferred mate stays stale until something restarts it.
    Before routing that home its first new piece of work after this update, run `FM_HOME=<this-firstmate-home> bin/fm-secondmate-health.sh stale <id>`; when it reads `stale` or `unknown`, rerun the restart command for that mate first, which defers again unless idle is proven.
 

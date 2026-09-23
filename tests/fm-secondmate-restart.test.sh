@@ -26,7 +26,9 @@
 #      persist or stopped, while a stale one is restarted.
 #   8. A provably busy mate is deferred after persisting and never restarted; a
 #      provably idle one is reported restarted while idle, and one with no busy
-#      record defers with idle not provable.
+#      record defers with idle not provable. A mate still finishing the turn
+#      that carried its answer is re-read for the settle window and restarted on
+#      the first proven idle; one busy for the whole window defers as before.
 #   9. `restarted` requires the replacement to be verified: alive, holding the
 #      home lock as a new session, and reporting the intended surface. A
 #      replacement refused the lock by a surviving session is an unknown
@@ -327,6 +329,7 @@ run_restart() {  # <case-dir> <args...>
     FM_FAKE_ROOT="$ROOT" FM_SPAWN_NO_GUARD=1 FM_SECONDMATE_PERSIST_POLL=1 \
     FM_SECONDMATE_VERIFY_WAIT="${FM_TEST_VERIFY_WAIT:-5}" FM_SECONDMATE_VERIFY_POLL=1 \
     FM_SECONDMATE_PERSIST_WAIT="${FM_TEST_PERSIST_WAIT:-30}" \
+    FM_SECONDMATE_IDLE_SETTLE="${FM_TEST_IDLE_SETTLE:-0}" \
     FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.05 \
     FM_SSH_BIN="${FM_TEST_SSH_BIN:-ssh}" \
     "$RESTART" "$@" 2>&1
@@ -991,6 +994,45 @@ test_busy_mate_is_deferred() {
 }
 
 # --- T20: a provably idle mate restarts and is reported as idle --------------
+test_mate_rewoken_during_checkpoint_defers() {
+  local dir out rc verdict
+  for verdict in busy unknown; do
+    dir=$(new_case "checkpoint-$verdict")
+    add_local_mate "$dir" sm1
+    arm_answer "$dir" sm1
+    command -v git > "$dir/fake/git-bin"
+    printf '%s\n' "$verdict" > "$dir/fake/checkpoint-verdict"
+    cat > "$dir/fakebin/git" <<'SH'
+#!/usr/bin/env bash
+if [ "$*" = "-C $(cat "$FM_FAKE_DIR/home.fm-sm1") status --porcelain" ]; then
+  if [ "$(cat "$FM_FAKE_DIR/checkpoint-verdict")" = busy ]; then
+    "$FM_FAKE_ROOT/bin/fm-busy-event.sh" apply "$FM_HOME/state" sm1 busy \
+      --current-gen --source claude-hook --event user-prompt-submit >/dev/null
+  else
+    rm -f "$FM_HOME/state/sm1.busy-state"
+  fi
+  : > "$FM_FAKE_DIR/checkpoint-reached"
+fi
+exec "$(cat "$FM_FAKE_DIR/git-bin")" "$@"
+SH
+    chmod +x "$dir/fakebin/git"
+
+    out=$(run_restart "$dir" sm1); rc=$?
+
+    expect_code 3 "$rc" "a mate no longer proven idle must defer: $out"
+    [ -f "$dir/fake/checkpoint-reached" ] || fail "the initial idle verdict never reached relaunch"
+    assert_contains "$out" "deferred: sm1: busy ($verdict " "the stop-boundary verdict must be reported"
+    assert_contains "$out" "all 1 mates deferred; 0 received re-read nudges, 0 were unreached" "the refusal must count as deferred"
+    assert_not_contains "$out" "restarted: sm1" "a refused relaunch must not claim a restart"
+    assert_no_grep '^/exit$' "$dir/fake/literal" "the agent must not receive an exit command"
+    assert_no_grep '^(C-c|Escape)$' "$dir/fake/keys" "the agent must not be interrupted"
+    assert_absent "$dir/fake/command.fmses:=fm-sm1" "the agent must not be replaced"
+    assert_absent "$dir/home/state/sm1.control-relaunch" "the refused transaction must be removed"
+    assert_absent "$dir/home/state/sm1.control-relaunch.meta-prior" "the transaction backup must be removed"
+  done
+  pass "a mate losing its idle proof during checkpoint is deferred without stopping"
+}
+
 test_idle_mate_restarts_while_idle() {
   local dir out rc
   dir=$(new_case idle)
@@ -1004,6 +1046,84 @@ test_idle_mate_restarts_while_idle() {
   assert_contains "$out" "restarted: sm1 (claude) while idle;" "an idle restart must say it was made while idle"
   assert_contains "$out" "1 of 1 restarted while idle" "the summary must separate idle restarts"
   pass "T20 a provably idle mate restarts and is reported as restarted while idle"
+}
+
+# settle_idle_after_answer <case-dir> <id> <seconds>: model a mate that writes
+# its persist answer mid-turn and ends that turn <seconds> later, the way a live
+# claude mate's record goes idle when its own turn-end guard lets the turn end.
+settle_idle_after_answer() {
+  local dir=$1 id=$2 delay=$3
+  cat > "$dir/fake/on-doorbell" <<SH
+#!/usr/bin/env bash
+[ ! -e "$dir/fake/settle-armed" ] || exit 0
+: > "$dir/fake/settle-armed"
+( /bin/sleep $delay
+  "$ROOT/bin/fm-busy-event.sh" apply "$dir/home/state" $id idle --current-gen \
+    --source claude-hook --event stop >/dev/null 2>&1 ) </dev/null >/dev/null 2>&1 &
+SH
+  chmod +x "$dir/fake/on-doorbell"
+}
+
+# --- T20b: a mate still finishing its answering turn restarts inside the window
+test_mate_going_idle_inside_settle_window_restarts() {
+  local dir out rc old_gen new_gen
+  dir=$(new_case settle-idle)
+  add_local_mate "$dir" sm1
+  arm_answer "$dir" sm1
+  arm_busy "$dir" sm1 busy
+  settle_idle_after_answer "$dir" sm1 3
+  old_gen=$(cat "$dir/home/state/sm1.busy-gen")
+
+  out=$(FM_TEST_IDLE_SETTLE=30 run_restart "$dir" sm1); rc=$?
+
+  expect_code 0 "$rc" "a mate that ends its answering turn inside the settle window should restart"$'\n'"$out"
+  assert_contains "$out" "restarted: sm1 (claude) while idle;" "the restart must be the proven-idle one"
+  assert_not_contains "$out" "deferred: sm1" "a mate proven idle inside the window must not be deferred"
+  new_gen=$(cat "$dir/home/state/sm1.busy-gen" 2>/dev/null || true)
+  [ -n "$new_gen" ] && [ "$new_gen" != "$old_gen" ] \
+    || fail "the replacement claude mate must be re-armed with a fresh busy generation (old=$old_gen new=$new_gen)"
+  assert_grep 'source=fm-spawn event=launch-brief' "$dir/home/state/sm1.busy-state" \
+    "the replacement's launch brief must seed its record busy"
+  pass "T20b a mate still finishing its answering turn restarts once it is proven idle inside the settle window"
+}
+
+# The counterfactual for T20b: the same mate with no settle window is read only
+# at the answer, while its turn is still running, so it defers. This is what
+# proves the answer really did land before the mate went idle.
+test_same_mate_without_settle_window_defers() {
+  local dir out rc
+  dir=$(new_case settle-zero)
+  add_local_mate "$dir" sm1
+  arm_answer "$dir" sm1
+  arm_busy "$dir" sm1 busy
+  settle_idle_after_answer "$dir" sm1 3
+
+  out=$(FM_TEST_IDLE_SETTLE=0 run_restart "$dir" sm1); rc=$?
+
+  expect_code 3 "$rc" "with no settle window the answering turn is still running"$'\n'"$out"
+  assert_contains "$out" "deferred: sm1: busy (claude-hook)" "a single read at the answer must see the turn still running"
+  assert_no_grep '^/exit$' "$dir/fake/literal" "a busy mate's agent must not be stopped"
+  pass "T20c without a settle window the same mate is read mid-turn and deferred"
+}
+
+# --- T20d: a mate busy for the whole window defers exactly as before ---------
+test_mate_busy_through_settle_window_defers() {
+  local dir out rc started elapsed
+  dir=$(new_case settle-busy)
+  add_local_mate "$dir" sm1
+  arm_answer "$dir" sm1
+  arm_busy "$dir" sm1 busy
+  started=$(date +%s)
+
+  out=$(FM_TEST_IDLE_SETTLE=3 run_restart "$dir" sm1); rc=$?
+
+  elapsed=$(($(date +%s) - started))
+  expect_code 3 "$rc" "a mate busy for the whole window is not a clean reload"$'\n'"$out"
+  assert_contains "$out" "deferred: sm1: busy (claude-hook), so it was not restarted" "the deferral wording must be unchanged"
+  assert_contains "$out" "all 1 mates deferred; 0 received re-read nudges" "the summary must be unchanged"
+  assert_no_grep '^/exit$' "$dir/fake/literal" "a busy mate's agent must not be stopped"
+  [ "$elapsed" -ge 3 ] || fail "a busy mate must be re-read for the whole settle window before it is deferred (elapsed ${elapsed}s)"
+  pass "T20d a mate busy for the whole settle window is deferred with the unchanged wording"
 }
 
 # --- T21: a lock collision after the relaunch is unknown, not restarted -------
@@ -1041,24 +1161,24 @@ test_missing_intended_identity_does_not_restart() {
   pass "missing intended identity prevents restart"
 }
 
-test_production_mate_reports_contained_deferral() {
+test_unarmed_mate_defers_with_a_nudge() {
   local dir out rc
-  dir=$(new_case production-unarmed)
+  dir=$(new_case unarmed)
   add_local_mate "$dir" sm1
   rm "$dir/home/state/sm1.busy-state" "$dir/home/state/sm1.busy-gen"
   arm_answer "$dir" sm1
   out=$(run_restart "$dir" sm1); rc=$?
-  expect_code 3 "$rc" "an unarmed production mate must defer: $out"
-  assert_contains "$out" "deferred: sm1: idle not provable (missing)" "production idle must remain unproven"
-  assert_contains "$out" "nudged: sm1:" "production mate must receive a re-read nudge"
-  assert_contains "$out" "summary: all 1 mates deferred; 1 received re-read nudges, 0 were unreached, and none were reloaded." "summary must make fleet containment explicit"
+  expect_code 3 "$rc" "a mate with no busy record must defer: $out"
+  assert_contains "$out" "deferred: sm1: idle not provable (missing)" "a missing record must never read idle"
+  assert_contains "$out" "nudged: sm1:" "an unarmed mate must receive a re-read nudge"
+  assert_contains "$out" "summary: all 1 mates deferred; 1 received re-read nudges, 0 were unreached, and none were reloaded." "the summary must say none were reloaded"
   assert_grep 're-read your AGENTS.md' "$dir/home/state/sm1.inbox/002.msg" "the nudge must actually be delivered"
   assert_no_grep '^/exit$' "$dir/fake/literal" "an unarmed mate must not stop"
   assert_absent "$dir/home/state/sm1.busy-state" "the pass must not arm busy records"
-  pass "production mate without a busy record reports containment and receives a nudge"
+  pass "a mate without a busy record, as on every harness but claude, defers and receives a nudge"
 }
 
-test_production_mate_reports_contained_deferral
+test_unarmed_mate_defers_with_a_nudge
 
 test_missing_intended_identity_does_not_restart
 test_persist_gates_and_asks_only_for_open_records
@@ -1084,6 +1204,10 @@ test_current_mate_is_not_restarted
 test_stale_unknown_mate_defers
 test_busy_mate_is_deferred
 test_idle_mate_restarts_while_idle
+test_mate_rewoken_during_checkpoint_defers
+test_mate_going_idle_inside_settle_window_restarts
+test_same_mate_without_settle_window_defers
+test_mate_busy_through_settle_window_defers
 test_lock_collision_after_relaunch_is_unknown
 
 echo "# all fm-secondmate-restart tests passed"

@@ -40,13 +40,15 @@
 #           launch revision is not provable (no live lock holder, no record from
 #           it, an unreadable or remote host without this command); callers treat
 #           it like stale, because a restart is still persist-gated and idle-gated.
-#   idle    `<busy|idle|unknown|dead> <source>` from the mate's existing semantic
-#           busy-state record, classified by bin/fm-busy-lib.sh. A second mate
-#           has no armed busy record today (bin/fm-spawn.sh arms none for
-#           kind=secondmate), so a local mate normally reads `unknown missing`
-#           and Herdr can prove busy but never idle; the idle read becomes
-#           provable once secondmate busy records are armed. A remote mate's
-#           record lives on its host and reads `unknown remote-idle-not-provable`.
+#   idle    `<busy|idle|unknown|dead> <source>` from the mate's semantic
+#           busy-state record, classified by bin/fm-busy-lib.sh. bin/fm-spawn.sh
+#           arms that record for a local claude mate, so it reads `idle
+#           claude-hook` once its turn has ended at the home's own turn-end
+#           guard. Every other secondmate harness keeps no record and reads
+#           `unknown missing` (Herdr can still prove busy, never idle), except
+#           grok, which bin/fm-busy-lib.sh classifies from its rendered tail.
+#           A remote mate's record would live on its host, so it always reads
+#           `unknown remote-idle-not-provable` here.
 #   verify  After a relaunch, poll up to --wait seconds (FM_SECONDMATE_VERIFY_WAIT,
 #           default 180; poll FM_SECONDMATE_VERIFY_POLL, default 5) until the
 #           replacement is proven healthy: its endpoint's agent is alive, the

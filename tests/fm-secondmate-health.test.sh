@@ -12,6 +12,7 @@
 #     recorded its revision (including a record left by a different session).
 #   - idle comes from the mate's semantic busy record: provable busy and idle
 #     are reported with their source, and a mate with no record reads unknown.
+#     An armed claude mate reads idle once its own turn-end guard ends a turn.
 #   - verify accepts only a new live lock holder reporting the intended surface,
 #     names a lock collision with the previous session, and reports anything it
 #     cannot prove as unknown.
@@ -153,6 +154,50 @@ SH
   out=$(PATH="$w/fakebin:$PATH" TMUX='' health "$w" idle sm1)
   assert_contains "$out" "idle claude-hook" "an idle record must read idle with its source"
   pass "idle: reads the semantic busy record and never promotes a missing one to idle"
+}
+
+# The armed record end to end: the spawn's launch-brief seed reads busy, and the
+# mate's own turn-end guard ending its turn is what makes the parent read idle.
+test_idle_is_proven_by_the_mates_own_turn_end() {
+  local w out gen smhome
+  w=$(new_world idle-armed)
+  smhome="$w/sm1-home"
+  mkdir -p "$w/fakebin"
+  cat > "$w/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  list-windows) printf '%s\n' fm-sm1 ;;
+  display-message) printf 'claude\n' ;;
+esac
+exit 0
+SH
+  chmod +x "$w/fakebin/tmux"
+  printf 'sm1\n' > "$smhome/.fm-secondmate-home"
+  cp -R "$ROOT/bin/." "$smhome/bin/"
+  cp -R "$ROOT/docs" "$smhome/docs"
+  ln -s /bin/bash "$w/fake-claude"
+
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$w/home/state" sm1) || fail "arming the mate's record failed"
+  out=$(PATH="$w/fakebin:$PATH" TMUX='' health "$w" idle sm1)
+  assert_contains "$out" "busy fm-spawn" "a freshly launched mate is inside its launch-brief turn"
+
+  # shellcheck disable=SC2016 # the fake harness expands FM_HOME inside its child shell.
+  printf '{"session_id":"sess-health","stop_hook_active":false}\n' \
+    | FM_HOME="$smhome" FM_ROOT_OVERRIDE='' FM_STATE_OVERRIDE='' \
+      FM_SECONDMATE_BUSY_WRITER="$ROOT/bin/fm-busy-event.sh" FM_SECONDMATE_BUSY_STATE="$w/home/state" \
+      FM_SECONDMATE_BUSY_ID=sm1 FM_SECONDMATE_BUSY_GEN="$gen" \
+      "$w/fake-claude" -c '
+        printf "%s\n" "$$" > "$FM_HOME/state/.lock"
+        "$FM_HOME/bin/fm-turnend-guard.sh" --claude
+      ' >/dev/null 2>&1 || fail "the mate's turn-end guard must allow an unsupervised idle turn to end"
+  out=$(PATH="$w/fakebin:$PATH" TMUX='' health "$w" idle sm1)
+  assert_contains "$out" "idle claude-hook" "a mate whose turn ended at its own guard must read idle"
+
+  fm_write_meta "$w/home/state/sm1.meta" window=fmses:fm-sm1 endpoint_task_id=sm1 \
+    "worktree=$smhome" "project=$smhome" harness=codex kind=secondmate "home=$smhome"
+  out=$(PATH="$w/fakebin:$PATH" TMUX='' health "$w" idle sm1)
+  assert_contains "$out" "unknown " "a harness that cannot prove idle must never read idle from another adapter's record"
+  pass "idle: an armed claude mate reads idle once its own turn-end guard ends the turn"
 }
 
 test_verify_proves_or_reports_unknown() {
@@ -339,6 +384,7 @@ test_verify_bounds_probes_and_sleep
 test_record_and_self_report_the_running_session
 test_stale_reads_current_stale_and_unknown
 test_idle_reads_the_busy_record
+test_idle_is_proven_by_the_mates_own_turn_end
 test_verify_proves_or_reports_unknown
 
 echo "# all fm-secondmate-health tests passed"
