@@ -2676,6 +2676,48 @@ EOF
   pass "session start rejects Pi loaded markers from previous sessions"
 }
 
+test_launch_revision_requires_new_lock() {
+  local rec root home fakebin out before parent
+  rec=$(new_world launch-revision)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  printf '# initial instructions\n' > "$root/AGENTS.md"
+  git -C "$root" add AGENTS.md
+  git -C "$root" commit -qm instructions
+  parent="${home%/home}/parent"
+  mkdir -p "$parent/state"
+  printf 'kind=secondmate\nhome=%s\n' "$home" > "$parent/state/sm1.meta"
+  out=$(run_named_harness_session_start claude "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "lock acquired" "fresh acquisition must succeed"
+  assert_present "$home/state/.session-revision" "fresh acquisition must record launch evidence"
+  before=$(cat "$home/state/.session-revision")
+  assert_contains "$before" "pid=$SESSION_START_TEST_HARNESS_PID" "record must name the new lock holder"
+  assert_contains "$before" "commit=$(git -C "$root" rev-parse HEAD)" "record must capture the launch revision"
+  printf '# updated instructions\n' > "$root/AGENTS.md"
+  git -C "$root" commit -qam updated
+  run_named_harness_session_start claude "$home" "$root" "$fakebin:$BASE_PATH" >/dev/null
+  [ "$(cat "$home/state/.session-revision")" = "$before" ] || fail "same-pid rerun rewrote launch evidence"
+  rm "$home/state/.session-revision"
+  run_named_harness_session_start claude "$home" "$root" "$fakebin:$BASE_PATH" >/dev/null
+  assert_absent "$home/state/.session-revision" "existing session must not create missing launch evidence"
+  out=$(PATH="$fakebin:$BASE_PATH" FM_FAKE_HARNESS_PID="$SESSION_START_TEST_HARNESS_PID" FM_HOME="$parent" "$ROOT/bin/fm-secondmate-health.sh" stale sm1)
+  assert_contains "$out" "has not recorded the revision it started on" "existing session without evidence must remain unknown"
+  printf '999999999\n' > "$home/state/.lock"
+  run_named_harness_session_start claude "$home" "$root" "$fakebin:$BASE_PATH" >/dev/null
+  assert_present "$home/state/.session-revision" "reclaimed dead holder must record launch evidence"
+  pass "session launch evidence requires fresh lock acquisition"
+}
+
+if [ "${1:-}" = launch-revision ]; then
+  test_launch_revision_requires_new_lock
+  exit 0
+fi
+
+test_launch_revision_requires_new_lock
+
 test_context_digest_absent_empty_present
 test_lock_refusal_read_only_path
 test_lock_write_failure_read_only_path

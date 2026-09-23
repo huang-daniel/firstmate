@@ -43,6 +43,8 @@
 #          syncs or inheritance failures for live secondmate homes, plus
 #          quarantine diagnostics for divergent shared captain-preference
 #          copies; no-op/current and successful updates stay quiet.
+#          FM_BOOTSTRAP_SECONDMATE_PREFLIGHT_WAIT bounds the home-lock read
+#          (default 10 seconds).
 #          FM_BOOTSTRAP_SECONDMATE_VERIFY_WAIT bounds replacement verification
 #          (default 15 seconds, within the startup network stage budget).
 #          SECONDMATE_LIVENESS lines report only actionable failures from the
@@ -710,15 +712,19 @@ secondmate_liveness_report_mateless() {  # <id> <line>
 }
 
 secondmate_home_report() {  # <meta> <id>
-  local meta=$1 id=$2 home remote_host
+  local meta=$1 id=$2 home remote_host preflight_wait
+  preflight_wait=${FM_BOOTSTRAP_SECONDMATE_PREFLIGHT_WAIT:-10}
+  case "$preflight_wait" in ''|*[!0-9]*) preflight_wait=10 ;; esac
+  [ "$preflight_wait" -gt 0 ] 2>/dev/null || preflight_wait=10
+  . "$SCRIPT_DIR/fm-timeout-lib.sh"
   remote_host=$(fm_meta_get "$meta" remote_host)
   if [ -n "$remote_host" ]; then
-    "$SCRIPT_DIR/fm-on.sh" "$id" fm-secondmate-health.sh self < /dev/null 2>/dev/null
+    fm_run_timed "$preflight_wait" "$SCRIPT_DIR/fm-on.sh" "$id" fm-secondmate-health.sh self < /dev/null 2>/dev/null
   else
     home=$(fm_meta_get "$meta" home)
     [ -n "$home" ] && [ -d "$home" ] || return 1
     FM_HOME="$home" FM_STATE_OVERRIDE='' FM_ROOT_OVERRIDE='' \
-      "$SCRIPT_DIR/fm-secondmate-health.sh" self 2>/dev/null
+      fm_run_timed "$preflight_wait" "$SCRIPT_DIR/fm-secondmate-health.sh" self 2>/dev/null
   fi
 }
 

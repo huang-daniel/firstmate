@@ -15,7 +15,8 @@
 # record that closes that gap and of every read built on it:
 #
 #   record  Run by bin/fm-session-start.sh in every home, right after a locked
-#           (non-re-emit) start. Writes state/.session-revision: the lock-holding
+#           (non-re-emit) start that acquired a different lock pid. Same-pid
+#           reruns without evidence stay unknown. Writes state/.session-revision: the lock-holding
 #           session pid, the code root it runs from, that root's HEAD commit, and
 #           the instruction-surface identity at that commit. The session that
 #           holds the home lock is thereby the one that reports its revision.

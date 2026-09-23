@@ -665,6 +665,34 @@ test_sweep_refuses_unreadable_home_lock() {
   pass "sweep: unreadable lock refuses relaunch"
 }
 
+test_sweep_bounds_preflight() {
+  local w fb log out start elapsed real_git
+  w=$(new_world blocked-preflight)
+  add_sm_home "$w" sm1 firstmate:fm-sm1
+  fb=$(make_toolchain "$w"); make_liveness_tmux "$w" >/dev/null
+  real_git=$(command -v git)
+  cat > "$fb/git" <<'SH'
+#!/usr/bin/env bash
+if [ "${FM_HOME:-}" = "$FM_TEST_BLOCKED_HOME" ] && [ "${1:-}" = -C ] && [ "${3:-}" = rev-parse ]; then
+  : > "$FM_TEST_BLOCKED_MARKER"
+  sleep 20
+fi
+exec "$FM_TEST_REAL_GIT" "$@"
+SH
+  chmod +x "$fb/git"
+  log="$w/calls.log"; : > "$log"
+  start=$(date +%s)
+  out=$(run_bootstrap "$fb" "$w/home" missing "$log" FM_BOOTSTRAP_SECONDMATE_PREFLIGHT_WAIT=1 \
+    FM_TEST_BLOCKED_HOME="$w/sm1" FM_TEST_BLOCKED_MARKER="$w/blocked" FM_TEST_REAL_GIT="$real_git")
+  elapsed=$(($(date +%s) - start))
+  assert_present "$w/blocked" "preflight must reach the blocking probe"
+  [ "$elapsed" -lt 15 ] || fail "blocked preflight exceeded its bound: $elapsed seconds"
+  assert_contains "$out" "lock collision: its home lock could not be checked" "timeout must refuse relaunch"
+  [ ! -s "$log" ] || fail "timed-out preflight relaunched the mate"
+  assert_contains "$(cat "$w/home/state/.wake-queue")" "check: secondmate-liveness sm1: lock collision" "timeout must queue a wake"
+  pass "sweep bounds preflight and surfaces its timeout"
+}
+
 test_sweep_requires_verified_replacement() {
   local w fb log out
   w=$(new_world no-replacement)
@@ -692,6 +720,7 @@ test_sweep_wake_keys_are_exact() {
   pass "sweep: wake keys match whole lines"
 }
 
+test_sweep_bounds_preflight
 test_sweep_refuses_unreadable_home_lock
 test_sweep_requires_verified_replacement
 test_sweep_wake_keys_are_exact
