@@ -1,0 +1,6 @@
+Real quota snapshot: quota-axi --json
+CLI ['claude:default', 'codex:default']: 50 repetitions; exit=0, stdout='codex default\n', stderr=''
+CLI ['claude:default']: 50 repetitions; exit=1, stdout='none\n', stderr=''
+CLI ['claude:default', 'bogus:default']: 50 repetitions; exit=2, stdout='', stderr='error: unknown harness: bogus\n'
+CLI ['codex:default', 'rovo:default']: 50 repetitions; exit=2, stdout='', stderr='error: unknown harness: rovo\n'
+All 13 registered names accepted; empty, omitted, unknown, case and prefix variants rejected across 1000 iterations.

@@ -1,0 +1,3 @@
+Synthetic delayed registry producer; not a live scenario. Same probe for base and target.
+base: exit=0, stdout='membership exit=0\n', stderr='bash: line 386: printf: write error: Broken pipe\n'
+target: exit=0, stdout='membership exit=0\n', stderr=''

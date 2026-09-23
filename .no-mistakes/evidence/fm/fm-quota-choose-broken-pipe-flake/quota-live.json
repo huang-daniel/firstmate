@@ -1,0 +1,177 @@
+{
+  "generatedAt": "2026-09-23T00:43:22.012Z",
+  "schemaVersion": 5,
+  "providers": [
+    {
+      "provider": "claude",
+      "windows": [],
+      "state": {
+        "status": "auth_required",
+        "stale": false,
+        "error": "Claude sign-in required"
+      },
+      "quotaSemantics": {
+        "status": "unknown",
+        "effectiveAvailability": []
+      }
+    },
+    {
+      "provider": "codex",
+      "plan": "prolite",
+      "windows": [
+        {
+          "id": "weekly",
+          "label": "week",
+          "kind": "weekly",
+          "resetsAt": "2026-09-29T16:00:54.000Z",
+          "percentRemaining": 75,
+          "pace": {
+            "status": "ahead",
+            "reservePercentPoints": -19.8168,
+            "burnMultiple": 4.8233
+          }
+        }
+      ],
+      "credits": {
+        "remaining": 0,
+        "unlimited": false,
+        "unit": "credits"
+      },
+      "state": {
+        "status": "fresh",
+        "stale": false
+      },
+      "quotaSemantics": {
+        "status": "known",
+        "effectiveAvailability": [
+          {
+            "scope": "all_models",
+            "status": "known",
+            "effectivePercentRemaining": 75,
+            "boundedBy": [
+              "weekly"
+            ],
+            "limitingWindowIds": [
+              "weekly"
+            ],
+            "pace": {
+              "status": "ahead",
+              "aheadWindowIds": [
+                "weekly"
+              ],
+              "worstReservePercentPoints": -19.8168,
+              "worstReserveWindowId": "weekly"
+            },
+            "runway": {
+              "status": "projected_exhaustion",
+              "usableRunwaySeconds": 94044,
+              "projectedExhaustedAt": "2026-09-24T02:50:46.048Z",
+              "limitingWindowId": "weekly",
+              "projectionConfidence": "early"
+            },
+            "selection": {
+              "status": "known",
+              "spendPriority": -4.0323
+            }
+          }
+        ]
+      }
+    },
+    {
+      "provider": "cursor",
+      "windows": [],
+      "state": {
+        "status": "error",
+        "stale": false,
+        "error": "sqlite3_unavailable"
+      },
+      "quotaSemantics": {
+        "status": "unknown",
+        "effectiveAvailability": []
+      }
+    },
+    {
+      "provider": "copilot",
+      "windows": [],
+      "state": {
+        "status": "auth_required",
+        "stale": false,
+        "error": "GitHub Copilot sign-in required"
+      },
+      "quotaSemantics": {
+        "status": "unknown",
+        "effectiveAvailability": [],
+        "unresolvedWindowIds": []
+      }
+    },
+    {
+      "provider": "grok",
+      "windows": [
+        {
+          "id": "credits",
+          "label": "credits",
+          "kind": "credits",
+          "percentRemaining": 100,
+          "resetsAt": "2026-07-29T00:00:00.000Z",
+          "pace": {
+            "status": "unknown",
+            "reason": "stale"
+          }
+        }
+      ],
+      "state": {
+        "status": "stale",
+        "stale": true,
+        "error": "Grok sign-in required",
+        "authStatus": "unusable"
+      },
+      "credits": {
+        "remaining": 0,
+        "unit": "credits"
+      },
+      "quotaSemantics": {
+        "status": "unknown",
+        "effectiveAvailability": [
+          {
+            "scope": "all_products",
+            "status": "unknown",
+            "boundedBy": [
+              "credits"
+            ],
+            "runway": {
+              "status": "unknown",
+              "unmeasurableWindowIds": [
+                "credits"
+              ]
+            },
+            "selection": {
+              "status": "unknown",
+              "unmeasurableWindowIds": [
+                "credits"
+              ]
+            },
+            "pace": {
+              "status": "unknown",
+              "unknownWindowIds": [
+                "credits"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "provider": "kimi",
+      "windows": [],
+      "state": {
+        "status": "auth_required",
+        "stale": false,
+        "error": "kimi_credential_unavailable"
+      },
+      "quotaSemantics": {
+        "status": "unknown",
+        "effectiveAvailability": []
+      }
+    }
+  ]
+}
