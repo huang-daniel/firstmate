@@ -27,7 +27,7 @@
 # A missing, malformed, identity-mismatched, or past-end classified position reads
 # from byte 0, preferring a bounded duplicate over a lost event.
 #
-# There are three documented exceptions. The absorb classification
+# There are four documented exceptions. The absorb classification
 # (crew_absorb_class and its working/paused wrappers) is NOT a pure status-file
 # read: it reuses bin/fm-crew-state.sh, which may make a bounded no-mistakes call,
 # to decide whether a crew that just stopped its turn or went stale is working,
@@ -39,7 +39,10 @@
 # stays bounded by new appends instead of re-reading each task's whole lifetime
 # log every time. crew_worktree_written_since reads the task's meta file and walks
 # a bounded slice of its worktree instead of a status file, so callers run it only
-# at the moment they would otherwise escalate.
+# at the moment they would otherwise escalate. status_retain_task_timeline
+# writes the sanitized per-task timeline that cleanup keeps as
+# data/<task-id>/timeline.tsv; its own comment owns that file's fields and
+# sanitization rule.
 
 # Directory of this library, used to locate the sibling fm-crew-state.sh reader.
 # Resolved at source time from BASH_SOURCE so it works whether sourced by a
@@ -1589,8 +1592,89 @@ status_presentation_marker_commit() {
   printf 'v2\t%s\t%s' "$reported" "$classified" > "$marker"
 }
 
-status_retire_presentation_task() {  # <state> <task-id>
-  local state=$1 task=$2 lock manifest tmp data row_task ident offset backstop extra rc=0 found=0
+# Sanitized task timeline retained at cleanup. The status log is removed with
+# the task's other runtime state, so before that removal
+# status_retire_presentation_task, given the home's data directory, keeps
+# <data>/<task-id>/timeline.tsv (creating that directory when absent) so later
+# delivery-efficiency checkpoints can still read the task's event times.
+# Header lines start with "# " and carry task, project (the recorded project's
+# basename), kind, mode, model, and effort from state/<task-id>.meta, each
+# reduced to "-" unless it is a short plain token. Then comes the column row
+# "epoch event key pr" and one tab-separated row per nonblank status line:
+#   epoch  the line's [at=] stamp, or - when absent or malformed
+#   event  working, needs-decision, resolved, blocked, paused, done, or failed;
+#          slot-granted, slot-wait, or slot-lapsed for the fixed lines
+#          bin/fm-validation-slot.sh writes; other for any other verb
+#   key    the line's well-formed decision key, or -
+#   pr     on a done or "PR ready" line only, the first https pull-request or
+#          merge-request URL of plain path segments; otherwise -
+# No other byte of a status line survives: notes, paths, commands, finding
+# text, and anything else that could carry a value are dropped. A failure to
+# write the copy is reported on stderr and never changes cleanup's outcome.
+status_retain_task_timeline() {  # <state> <data> <task-id>
+  local state=$1 data=$2 task=$3 f meta dir tmp line verb event epoch key note pr field value project
+  f="$state/$task.status"
+  meta="$state/$task.meta"
+  [ -e "$f" ] || [ -L "$f" ] || return 0
+  if [ ! -f "$f" ] || [ -L "$f" ] || [ ! -r "$f" ]; then
+    echo "warning: task $task timeline not retained: status log is not a readable regular file" >&2
+    return 1
+  fi
+  dir="$data/$task"
+  if ! mkdir -p -- "$dir" 2>/dev/null; then
+    echo "warning: task $task timeline not retained: cannot create $dir" >&2
+    return 1
+  fi
+  tmp="$dir/.timeline.tsv.tmp.$$"
+  {
+    for field in task project kind mode model effort; do
+      if [ "$field" = task ]; then
+        value=$task
+      else
+        value=$(grep -m1 "^$field=" "$meta" 2>/dev/null) || value=
+        value=${value#*=}
+        [ "$field" != project ] || { project=${value%/}; value=${project##*/}; }
+      fi
+      case "$value" in ''|*[!A-Za-z0-9._:+/-]*) value=- ;; esac
+      [ "${#value}" -le 100 ] || value=-
+      printf '# %s=%s\n' "$field" "$value"
+    done
+    printf 'epoch\tevent\tkey\tpr\n'
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in *[![:space:]]*) ;; *) continue ;; esac
+      status_line_verb "$line" verb
+      note=$(status_line_note "$line")
+      case "$verb" in
+        working|needs-decision|resolved|blocked|paused|done|failed) event=$verb ;;
+        *) event=other ;;
+      esac
+      case "$verb:$note" in
+        "working:validation slot granted ("*) event=slot-granted ;;
+        "paused:waiting for a validation slot ("*) event=slot-wait ;;
+        "note:validation slot grant lapsed unconsumed after "*) event=slot-lapsed ;;
+      esac
+      _fm_status_at_epoch "$line" epoch || epoch=-
+      key=$(_fm_decision_key "$line") || key=-
+      [ "$key" != default ] || key=-
+      [ "${#key}" -le 100 ] || key=-
+      pr=-
+      case "$verb:$line" in
+        done:*|*"PR ready"*)
+          if [[ "$note" =~ (^|[^A-Za-z0-9])(https://[A-Za-z0-9.-]+(/[A-Za-z0-9._-]+)+/(pull|-/merge_requests)/[0-9]+)([^A-Za-z0-9_/-]|$) ]]; then
+            pr=${BASH_REMATCH[2]}
+          fi
+          ;;
+      esac
+      printf '%s\t%s\t%s\t%s\n' "$epoch" "$event" "$key" "$pr"
+    done < "$f"
+  } > "$tmp" 2>/dev/null && mv -f -- "$tmp" "$dir/timeline.tsv" 2>/dev/null && return 0
+  rm -f -- "$tmp" 2>/dev/null
+  echo "warning: task $task timeline not retained: cannot write $dir/timeline.tsv" >&2
+  return 1
+}
+
+status_retire_presentation_task() {  # <state> <task-id> [<data>]
+  local state=$1 task=$2 retain_data=${3:-} lock manifest tmp data row_task ident offset backstop extra rc=0 found=0
   local signal_marker heartbeat_marker daemon_marker
   lock="$state/.status-presentation-lock"
   manifest="$state/.status-presentation-cursor"
@@ -1655,6 +1739,7 @@ EOF
     fi
   fi
   if [ "$rc" -eq 0 ]; then
+    [ -z "$retain_data" ] || status_retain_task_timeline "$state" "$retain_data" "$task" || true
     rm -f -- "$state/$task.status" "$state/.$task.open-decisions-cursor" \
       "$signal_marker" "$heartbeat_marker" "$daemon_marker" || rc=1
   fi

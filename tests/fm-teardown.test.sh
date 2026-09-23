@@ -852,6 +852,70 @@ test_no_mistakes_origin_remote_allows() {
   pass "no-mistakes worktree with HEAD on origin is torn down (no regression)"
 }
 
+# A landed no-mistakes task whose status log carries free text, a path, and a
+# connection-string-shaped value. Echoes the case dir.
+make_timeline_case() {
+  local case_dir
+  case_dir=$(make_case "$1")
+  write_meta "$case_dir" no-mistakes ship
+  printf '%s\n' model=claude-opus-5-5 effort=high >> "$case_dir/state/task-x1.meta"
+  wt_commit "$case_dir" "shippable work"
+  git -C "$case_dir/wt" push -q origin fm/task-x1
+  git -C "$case_dir/project" fetch -q origin
+  cat > "$case_dir/state/task-x1.status" <<'STATUS'
+working [at=1700000000]: setup done in /home/someone/private/checkout
+paused [at=1700000100]: waiting for a validation slot (2 of 2 occupied)
+working [at=1700000200]: validation slot granted (1 of 2 occupied)
+needs-decision [at=1700000300] [key=nm-run1-review]: ask-user findings=f1 file=/tmp/findings.txt
+resolved [at=1700000400] [key=nm-run1-review]: use postgres://admin:hunter2@db.example.com:5432/prod
+
+note: DATABASE_URL=postgres://admin:hunter2@db.example.com/prod
+line with no colon and a free-text secret
+done [at=1700000500]: PR https://github.com/example/repo/pull/7 checks green, token=hunter2
+STATUS
+  printf '%s\n' "$case_dir"
+}
+
+test_teardown_retains_a_sanitized_timeline() {
+  local case_dir timeline expected leaked
+  case_dir=$(make_timeline_case timeline-retained)
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "timeline-retained: teardown failed: $(cat "$case_dir/stderr")"
+  assert_absent "$case_dir/state/task-x1.status" "timeline-retained: cleanup left the live status log behind"
+  timeline="$case_dir/data/task-x1/timeline.tsv"
+  assert_present "$timeline" "timeline-retained: cleanup did not create the task data directory's timeline"
+  expected=$(printf '%s\n' '# task=task-x1' '# project=project' '# kind=ship' '# mode=no-mistakes' \
+    '# model=claude-opus-5-5' '# effort=high' \
+    "epoch	event	key	pr" \
+    "1700000000	working	-	-" \
+    "1700000100	slot-wait	-	-" \
+    "1700000200	slot-granted	-	-" \
+    "1700000300	needs-decision	nm-run1-review	-" \
+    "1700000400	resolved	nm-run1-review	-" \
+    "-	other	-	-" \
+    "-	other	-	-" \
+    "1700000500	done	-	https://github.com/example/repo/pull/7")
+  assert_equals "$expected" "$(cat "$timeline")" "timeline-retained: retained rows differ"
+  for leaked in hunter2 postgres admin /home/someone /tmp/findings setup findings= secret token; do
+    assert_no_grep "$leaked" "$timeline" "timeline-retained: '$leaked' survived sanitization"
+  done
+  pass "cleanup retains a sanitized task timeline and still removes the live status log"
+}
+
+test_timeline_write_failure_is_reported_without_blocking_cleanup() {
+  local case_dir
+  case_dir=$(make_timeline_case timeline-unwritable)
+  # A plain file where the task's data directory belongs makes the write fail.
+  : > "$case_dir/data/task-x1"
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "timeline-unwritable: a failed timeline write aborted cleanup: $(cat "$case_dir/stderr")"
+  assert_grep "task task-x1 timeline not retained" "$case_dir/stderr" \
+    "timeline-unwritable: cleanup did not report the failed timeline write"
+  assert_absent "$case_dir/state/task-x1.status" "timeline-unwritable: cleanup left the live status log behind"
+  assert_absent "$case_dir/state/task-x1.meta" "timeline-unwritable: cleanup left the task record behind"
+  pass "a failed timeline write is reported and cleanup still completes"
+}
+
 test_no_mistakes_truly_unpushed_refuses() {
   local case_dir rc
   case_dir=$(make_case nm-unpushed)
@@ -3948,6 +4012,8 @@ test_teardown_manual_backend_leaves_the_backlog_to_the_operator
 test_local_only_truly_unpushed_refuses
 test_local_only_merged_to_local_main_allows
 test_no_mistakes_origin_remote_allows
+test_teardown_retains_a_sanitized_timeline
+test_timeline_write_failure_is_reported_without_blocking_cleanup
 test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed
 test_secondmate_pr_registration_publishes_ready_line
