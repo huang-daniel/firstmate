@@ -17,6 +17,9 @@
 #   4. Gemini is a crewmate/scout adapter only: it has no primary supervision
 #      protocol, so its control mechanics are verified while a secondmate launch
 #      on it is refused.
+#   5. The running turn's `(esc to cancel, <n>s)` status row is gemini's own
+#      delivery-footer row, and no other harness's row matches it or is matched
+#      by it.
 set -u
 
 # shellcheck source=tests/fixtures.sh
@@ -26,6 +29,8 @@ set -u
 . "$ROOT/bin/fm-control-lib.sh"
 # shellcheck source=bin/fm-gemini-lib.sh
 . "$ROOT/bin/fm-gemini-lib.sh"
+# shellcheck source=bin/fm-composer-lib.sh
+. "$ROOT/bin/fm-composer-lib.sh"
 
 HARNESS="$ROOT/bin/fm-harness.sh"
 TMP_ROOT=$(fm_test_tmproot fm-gemini-harness)
@@ -262,6 +267,33 @@ test_gemini_wiring_stays_outside_the_worktree() {
   pass "fm-control-lib.sh: gemini's wiring stays outside the project worktree"
 }
 
+# The rows below are the status rows captured live mid-turn on gemini-cli
+# 0.58.0 (docs/verification/runtime-backends.md "Gemini"): model-generated
+# phase text and a braille spinner beside the one stable token.
+test_gemini_busy_footer_is_its_own_row() {
+  local row
+  for row in \
+    ' ⠸ Thinking... (esc to cancel, 1s)' \
+    ' ⠸ Begin Counting Methodically (esc to cancel, 9s)' \
+    ' ⠇ Continue Enumerating Concepts (esc to cancel, 11s)'; do
+    printf '%s\n' "$row" | fm_busy_lines_match gemini \
+      || fail "harness=gemini must match its own live busy row: '$row'"
+    printf '%s\n' "$row" | fm_busy_lines_match grok \
+      && fail "harness=grok must never borrow gemini's busy row" || true
+    printf '%s\n' "$row" | fm_busy_lines_match kimi \
+      && fail "harness=kimi must never borrow gemini's busy row" || true
+  done
+  printf 'esc to cancel\n' | fm_busy_lines_match gemini \
+    && fail "harness=gemini must never borrow agy's bare esc token" || true
+  printf 'Ctrl+c:cancel\n' | fm_busy_lines_match gemini \
+    && fail "harness=gemini must never borrow grok's token" || true
+  printf '✻ Baking… (esc to interrupt)\n' | fm_busy_lines_match gemini \
+    && fail "harness=gemini must never borrow claude's footer" || true
+  printf 'Type your message or @path/to/file\n YOLO Ctrl+Y\n' | fm_busy_lines_match gemini \
+    && fail "an idle gemini pane must not read busy" || true
+  pass "fm-composer-lib.sh: gemini's busy row matches only its own live status row"
+}
+
 test_gemini_marker_outranks_inherited_claudecode
 test_gemini_does_not_claim_inherited_ai_agent
 test_gemini_ancestry_matches_only_a_native_command_name
@@ -272,3 +304,4 @@ test_gemini_process_identity_preserves_whitespace_in_script_path
 test_gemini_control_mechanics_are_the_verified_ones
 test_gemini_is_crewmate_and_scout_only
 test_gemini_wiring_stays_outside_the_worktree
+test_gemini_busy_footer_is_its_own_row

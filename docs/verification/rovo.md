@@ -218,6 +218,7 @@ This is recorded as a known Herdr-side integration gap rather than a firstmate b
 rovo's skill loader rejects every firstmate skill because `metadata.internal` is a boolean in firstmate's frontmatter and rovo's schema wants a string.
 This blocks `/no-mistakes` and every other firstmate skill invocation inside a rovo worker until firstmate's `SKILL.md` frontmatter is made rovo-compatible, a separate deferred follow-up that touches every skill file and the installer contract (`.agents/skills/firstmate-coding-guidelines/SKILL.md`).
 A `no-mistakes`-mode rovo ship crewmate is blocked by this gap; a rovo scout, which invokes no skill, is unaffected.
+Closing this gap also owes rovo's typed-plane mid-turn refusal row; `.agents/skills/harness-adapters/references/harness/rovo.md` "Skill-loading interop gap" owns that requirement.
 
 ## quota-axi provider mapping: not established
 

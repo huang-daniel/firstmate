@@ -9,7 +9,7 @@ Verified as a CREWMATE and SCOUT adapter only; `../../../../../bin/fm-spawn.sh` 
 | Fact | Value |
 |---|---|
 | Busy state | Semantic `gemini-hook`: `BeforeAgent` opens a turn, `AfterAgent` and `SessionEnd` close it. `AfterAgent` also fires on a manual interrupt, so a cancelled turn closes its own record. |
-| Rendered tail | Not a state source, but the running turn's status row is the one ASCII busy token: `(esc to cancel, <n>s)`, absent when idle. The phase text beside it is model-generated and varies per turn, and the spinner is braille; neither is ever a signal. |
+| Rendered tail | Not a state source, but the running turn's status row is the one ASCII busy token: `(esc to cancel, <n>s)`, absent when idle. The phase text beside it is model-generated and varies per turn, and the spinner is braille; neither is ever a signal. That token is gemini's own delivery-footer row in `../../../../../bin/fm-composer-lib.sh`, which lets the typed-plane mid-turn refusal decline a `/` invocation while a turn runs. |
 | Turn end | `AfterAgent` fires once per turn after the final response, carrying `cwd`, `session_id`, `prompt`, `prompt_response`, `stop_hook_active`, and `transcript_path`. On a cancelled turn `prompt_response` is `[no response text]`. |
 | Exit | `/quit` (alias `/exit`), one Enter, exit status 0; prints `To resume this session: gemini --resume <session-id>`. `Ctrl+C` cancels or quits on empty input and `Ctrl+D` exits on an empty buffer. |
 | Interrupt | Single `Escape`, which prints `ℹ Request cancelled.` and leaves the agent running. The composer does not repollute; it returns to its `Type your message or @path/to/file` placeholder. |

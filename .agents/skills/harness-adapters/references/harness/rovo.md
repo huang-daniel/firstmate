@@ -68,6 +68,8 @@ Treat the ~1h access-token lifetime as an ordinary operational fact, not a non-n
 rovo's skill loader rejects every firstmate skill: `Invalid skill definition in .../SKILL.md: 'metadata -> internal': Input should be a valid string`, because firstmate's `metadata.internal` is a boolean and rovo's schema wants a string.
 This blocks `/no-mistakes` and every other firstmate skill invocation inside a rovo worker until firstmate's `SKILL.md` frontmatter is made rovo-compatible (a separate, deferred follow-up - it touches every skill file and the installer contract, per `../../firstmate-coding-guidelines/SKILL.md`).
 A `no-mistakes`-mode rovo ship crewmate is blocked by this gap; a rovo scout, which invokes no skill, is unaffected.
+Because no firstmate skill invocation can start a run here, the [typed-plane busy rail](../../../../../bin/fm-send.sh) deliberately adds no rovo-specific busy check; the shared native backend check still applies.
+The change that closes this gap must also register rovo's verified `Rovo is thinking` busy row in `fm_busy_lines_match` ([`fm-composer-lib.sh`](../../../../../bin/fm-composer-lib.sh)) with a mid-turn refusal case in [`fm-send-strict.test.sh`](../../../../../tests/fm-send-strict.test.sh), because from then on `/no-mistakes` can reach a mid-turn rovo worker.
 
 ## ACP as a future upgrade
 

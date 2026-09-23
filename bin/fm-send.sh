@@ -97,7 +97,7 @@
 # marked, and the target is PROVEN busy by the ladder below - either a `busy`
 # verdict from the backend's own native agent-state, or, whenever that verdict
 # is anything else, a registered and verified busy signature matching the
-# captured tail.
+# captured tail, or, for muse alone, its semantic session-log busy verdict.
 # A command STARTS something, so
 # letting one queue behind a run already under way is how a second run gets
 # started against a branch the first already owns. Text that merely queues is
@@ -114,10 +114,17 @@
 # whatever harness the meta records. Everywhere else the rail reads the
 # rendered busy footer from a captured tail, matched only against the recorded
 # harness's own registered and verified signature: claude, codex, opencode,
-# pi/pi-signed, omp, grok, kimi, cursor. A recorded harness outside that set is
-# not classified busy by the tail rung, and registering its verified signature
-# is how a harness joins the set. A target this home records no harness for is
-# not classified by either rung and keeps taking typed sends.
+# pi/pi-signed, omp, grok, agy, kimi, cursor, gemini. A recorded harness outside
+# that set is not classified busy by the tail rung, and registering its verified
+# signature is how a harness joins the set. muse, which has no verified rendered
+# footer, is classified instead by the exact `busy muse-session-log` verdict
+# from the semantic owner, bin/fm-busy-lib.sh; idle, unknown, and a missing
+# binding do not prove busy. rovo has no harness-specific rung; its exclusion
+# and the requirement when skill loading is fixed are owned by
+# .agents/skills/harness-adapters/references/harness/rovo.md
+# ("Skill-loading interop gap"). The native backend rung still applies.
+# A target this home records no harness for is not
+# classified by any rung and keeps taking typed sends.
 # Each refusal names which of the two conditions fired and the target, says
 # nothing was sent, and says this plane has no durable record behind it. It
 # refuses rather than deferring because there is no durable record to defer to;
@@ -316,6 +323,8 @@ fi
 . "$SCRIPT_DIR/fm-task-inbox-lib.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
+# shellcheck source=bin/fm-busy-lib.sh
+. "$SCRIPT_DIR/fm-busy-lib.sh"
 
 FM_GUARD_CONTINUE_LINE='This is a supervision warning only; the requested message WILL still be sent.' "$SCRIPT_DIR/fm-guard.sh" || true
 
@@ -894,39 +903,29 @@ fm_send_executes_as_command() {  # <pre-marker-text>
   return 1
 }
 
-# The resolved target's busy verdict, on the same ladder the fleet already runs
-# in bin/fm-pending-reply-lib.sh and bin/fm-supervise-daemon.sh. Its two rungs
-# prove different things, so the rule differs between them.
-# Before either rung: a target this home records no harness for is not
-# classified at all. A foreign pane must keep taking a typed send, because
-# there is no override flag to get past a refusal, and without a recorded
-# harness its tail could only be matched against the union of every vendor's
-# busy token, which is evidence about no target in particular.
-# Rung one, where the backend exposes native agent-state (herdr today): a
-# `busy` verdict is the backend's own reading of that exact pane, so it is
-# taken as it comes and never consults the signature table.
-# Rung two, everywhere else: the rendered busy footer from a captured tail,
-# matched only against the recorded harness's own registered and verified
-# signature - claude, codex, opencode, pi/pi-signed, omp, grok, kimi, cursor
-# (bin/fm-composer-lib.sh). A recorded harness outside that set is not
-# classified busy here; registering its verified signature in that table is how
-# it joins. That table is a delivery guard rather than a worker-state source
-# (its own header draws that boundary and names bin/fm-busy-lib.sh as the
-# semantic owner), so what this rung proves is that the pane is rendering its
-# harness's turn-in-flight signal, not what firstmate records that worker to be
-# doing.
-# Only a PROVEN busy verdict succeeds. A native verdict that is not `busy`
-# settles nothing and falls through to the tail: herdr's own adapter records
-# that live Claude keeps agent_status idle through a whole landed turn, which
-# is the exact state this rail exists to catch.
+# The typed-plane busy ladder is owned by this script's header.
+# A native verdict other than busy must fall through: herdr can report idle
+# through a live Claude turn, so that verdict cannot rule out a busy footer.
+# Keep the semantic fallback muse-only: other harnesses can retain a busy
+# record after an interrupt, which would cause a refusal with no override.
 fm_send_target_is_busy() {
   local native tail40
   [ -n "$TARGET_HARNESS" ] || return 1
   native=$(fm_backend_busy_state "$TARGET_BACKEND" "$T" 2>/dev/null) || native=unknown
   [ "$native" != busy ] || return 0
-  tail40=$(fm_backend_capture "$TARGET_BACKEND" "$T" 40 "$EXPECTED_LABEL" 2>/dev/null) || return 1
-  printf '%s' "$tail40" | grep -v '^[[:space:]]*$' | tail -12 \
-    | fm_busy_lines_match "$TARGET_HARNESS"
+  if tail40=$(fm_backend_capture "$TARGET_BACKEND" "$T" 40 "$EXPECTED_LABEL" 2>/dev/null) \
+    && printf '%s' "$tail40" | grep -v '^[[:space:]]*$' | tail -12 \
+      | fm_busy_lines_match "$TARGET_HARNESS"; then
+    return 0
+  fi
+  case "$TARGET_HARNESS" in
+    muse)
+      [ -n "$TARGET_META" ] || return 1
+      [ "$(fm_busy_classify_meta "$TARGET_META" "$(fm_send_id_from_meta "$TARGET_META")" "$STATE" 2>/dev/null)" \
+        = "busy muse-session-log" ]
+      ;;
+    *) return 1 ;;
+  esac
 }
 
 if [ "${1:-}" = "--key" ]; then
@@ -1306,7 +1305,8 @@ else
   # will EXECUTE as a command, the send is not marked, and the target reads busy
   # on the ladder above - a `busy` verdict from the backend's own agent-state,
   # or, whenever that verdict is anything else, the recorded harness's
-  # registered busy signature matching the captured tail. Each is something known to be true, never a heuristic and
+  # registered busy signature matching the captured tail, or muse's semantic
+  # session-log busy verdict. Each is something known to be true, never a heuristic and
   # never an absence of evidence, because this refusal has no override flag.
   # The hazard behind it is that a command starts something, so letting one
   # queue behind a run already under way is how a second pipeline run gets
