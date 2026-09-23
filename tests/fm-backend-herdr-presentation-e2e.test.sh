@@ -151,6 +151,28 @@ if [ "${1:-} ${2:-}" = "pane get" ] && [ -d "$ACTIVE_SEEDED_CONTROL" ] \
 fi
 before=
 [ -z "$mutation" ] || before=$(focus_snapshot || printf ambiguous/ambiguous)
+# An abort fixture's own create first records whether its peer's task pane is
+# still alive, which is what proves the two abort cleanups were serialized: an
+# idle bare-shell task pane is closed by ending its shell rather than a
+# `pane close` call, so a close call alone cannot show the order.
+if [ "$mutation" = workspace-create ] && [ -d "$POST_CREATE_ABORT_CONTROL" ]; then
+  case "$label" in
+    $'└ abort-a · p:'*|$'└ abort-b · p:'*)
+      self=${label#$'└ '}; self=${self%% *}
+      for peer_dir in "$POST_CREATE_ABORT_CONTROL"/abort-*; do
+        peer=${peer_dir##*/}
+        [ "$peer" != "$self" ] && [ -s "$peer_dir/task-pane" ] || continue
+        if env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" \
+          pane get "$(cat "$peer_dir/task-pane")" >/dev/null 2>&1; then
+          peer_state=alive
+        else
+          peer_state=gone
+        fi
+        printf 'abort-peer\t%s\t%s\t%s\n' "$self" "$peer" "$peer_state" >> "$FOCUS_AUDIT_LOG"
+      done
+      ;;
+  esac
+fi
 if out=$(env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"); then
   status=0
 else
@@ -1045,11 +1067,15 @@ ABORT_SEQUENCE=$(sed -n "$((ABORT_FOCUS_START + 1)),\$p" "$FOCUS_AUDIT_LOG" | aw
   $1 == "workspace-create" && $4 ~ /^└ abort-b · p:/ { print "create-b" }
   $1 == "pane-close" && $4 == a { print "close-a" }
   $1 == "pane-close" && $4 == b { print "close-b" }
+  $1 == "abort-peer" { print $3 "-" $4 }
 ')
-case "$ABORT_SEQUENCE" in
-  $'create-a\nclose-a\ncreate-b\nclose-b'|$'create-b\nclose-b\ncreate-a\nclose-a') ;;
-  *) fail "concurrent post-create abort cleanup interleaved outside the presentation lock: $ABORT_SEQUENCE" ;;
-esac
+# Each task pane is closed either by an explicit close call or, for an idle
+# bare shell, by ending that shell; either way the first task's pane must be
+# gone before the second task's workspace is created.
+ABORT_ORDER_A=$'^create-a\n(close-a\n)?abort-a-gone\ncreate-b(\nclose-b)?$'
+ABORT_ORDER_B=$'^create-b\n(close-b\n)?abort-b-gone\ncreate-a(\nclose-a)?$'
+[[ "$ABORT_SEQUENCE" =~ $ABORT_ORDER_A ]] || [[ "$ABORT_SEQUENCE" =~ $ABORT_ORDER_B ]] \
+  || fail "concurrent post-create abort cleanup interleaved outside the presentation lock: $ABORT_SEQUENCE"
 ABORT_UNRESTORED=$(sed -n "$((ABORT_FOCUS_START + 1)),\$p" "$FOCUS_AUDIT_LOG" | awk -F '\t' -v a="$ABORT_A_PANE" -v b="$ABORT_B_PANE" '
   ($1 == "workspace-create" || $1 == "tab-create" || $1 == "workspace-move" || ($1 == "pane-close" && $4 != a && $4 != b)) && $2 != $3 { print }
 ')
