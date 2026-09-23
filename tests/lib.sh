@@ -360,6 +360,36 @@ SH
   done
 }
 
+# fm_fake_treehouse_lease <fakebin> [lease-path]
+# Spawn-world treehouse: `get --lease` prints the leased worktree path, taken
+# from FM_FAKE_TREEHOUSE_LEASE_PATH, else the lease-path baked in here, else
+# FM_FAKE_PANE_PATH (the path the fake pane then reports), so a spawn that cds
+# its pane into the lease settles where it was told to. Every other subcommand
+# succeeds silently. When FM_FAKE_TREEHOUSE_LOG is set, each invocation's
+# arguments are appended to it one invocation per line.
+fm_fake_treehouse_lease() {
+  local fakebin=$1 baked=${2:-}
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'baked=%q\n' "$baked"
+    cat <<'SH'
+if [ -n "${FM_FAKE_TREEHOUSE_LOG:-}" ]; then
+  printf '%s\n' "$*" >> "$FM_FAKE_TREEHOUSE_LOG"
+fi
+if [ "${1:-}" = get ]; then
+  for arg in "$@"; do
+    if [ "$arg" = --lease ]; then
+      printf '%s\n' "${FM_FAKE_TREEHOUSE_LEASE_PATH:-${baked:-${FM_FAKE_PANE_PATH:-}}}"
+      break
+    fi
+  done
+fi
+exit 0
+SH
+  } > "$fakebin/treehouse"
+  chmod +x "$fakebin/treehouse"
+}
+
 # fm_fake_gh_pr_merged <fakebin> [head]
 # A gh stub in which every pull request reads back as merged at <head>.
 # bin/fm-teardown.sh refuses to clear a task whose recorded pr= it cannot read

@@ -80,6 +80,8 @@
 #              treats the already-gone endpoint as an ordinary silent close
 #              while still running its full landed-work test. Idempotent: a
 #              task already stood down reports `already-closed`.
+#              Pool-slot retention and legacy process-lease compatibility are
+#              owned by bin/fm-spawn.sh's durable-lease contract.
 #   relaunch   Transactionally replace the running agent with a new one, in the
 #              SAME worktree - and the same endpoint whenever that endpoint
 #              still exists - on the same or a newly chosen

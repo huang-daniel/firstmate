@@ -10,8 +10,8 @@
 #     every other home's and nested inside none of them;
 #   - each home launches from a copy of its own clone;
 #   - each home refuses a copy of another home's clone without claiming it.
-# When an installed treehouse supports --root, the exact acquisition command a
-# spawn sends is also run against the real treehouse from each home's clone,
+# When an installed treehouse supports --root, the exact durable lease a spawn
+# takes is also run against the real treehouse from each home's clone,
 # alongside the shared-root counterfactual that reproduces the original defect.
 set -u
 
@@ -74,7 +74,7 @@ run_home_spawn() {  # <home-name> <pane-path> <task-id>
   local name=$1 pane=$2 id=$3 home
   home=$(home_dir "$name")
   fm_test_spawn_brief "$home" "$id"
-  FM_TEST_SPAWN_USER_HOME="$USER_HOME" FM_FAKE_PANE_LOG="$TMP_ROOT/$id.pane" \
+  FM_TEST_SPAWN_USER_HOME="$USER_HOME" FM_FAKE_TREEHOUSE_LOG="$TMP_ROOT/$id.treehouse" \
     fm_test_run_spawn "$home" "$pane" "$FAKEBIN" "$id" "$(clone_dir "$name")" --scout
 }
 
@@ -105,10 +105,10 @@ test_each_home_launches_from_its_own_clone() {
     assert_grep "worktree=$slot" "$(home_dir "$name")/state/$id.meta" \
       "home $name did not record its own copy"
     root=$(home_root "$name")
-    sent=$(grep -F 'treehouse get' "$TMP_ROOT/$id.pane" || true)
-    [ "$sent" = "treehouse get --root '$root'" ] \
-      || fail "home $name did not ask Treehouse for a copy from its own pool root (sent: ${sent:-nothing})"
-    printf '%s\n' "$sent" > "$TMP_ROOT/$name.acquire"
+    sent=$(grep -F 'get --lease' "$TMP_ROOT/$id.treehouse" || true)
+    [ "$sent" = "get --lease --root $root --lease-holder $id" ] \
+      || fail "home $name did not lease a copy from its own pool root (ran: ${sent:-nothing})"
+    printf '%s\n' "$root" > "$TMP_ROOT/$name.root"
     printf '%s\n' "$slot" > "$TMP_ROOT/$name.slot"
   done
   pass "each home launches from a copy of its own clone, acquired from its own pool root"
@@ -132,9 +132,11 @@ test_each_home_refuses_another_homes_copy() {
       if [ -e "$claim" ]; then
         grep -Fx "task=$id" "$claim" >/dev/null && fail "home $name claimed home $other's copy"
       fi
+      grep -Fx "return --force --if-lease-holder $id $foreign" "$TMP_ROOT/$id.treehouse" >/dev/null \
+        || fail "home $name's aborted spawn did not return the lease it took: $(cat "$TMP_ROOT/$id.treehouse" 2>/dev/null)"
     done
   done
-  pass "each home refuses a copy of another home's clone, with no record and no claim"
+  pass "each home refuses a copy of another home's clone, with no record, no claim, and its lease returned"
 }
 
 is_copy_of() {  # <clone> <worktree>
@@ -146,11 +148,10 @@ treehouse_supports_root() {
   treehouse get --help 2>&1 | grep -Eq '(^|[^[:alnum:]_-])--root([^[:alnum:]_-]|$)'
 }
 
-# Run an interactive acquisition the way a pane does and print where its
-# subshell landed.
-real_acquire() {  # <clone> <command>
-  ( cd "$1" && printf 'pwd -P\nexit\n' \
-      | HOME="$USER_HOME" SHELL=/bin/bash TREEHOUSE_NO_UPDATE_CHECK=1 bash -c "$2" 2>/dev/null ) \
+# Take the durable lease a spawn takes, from <clone>, and print the leased copy.
+real_acquire() {  # <clone> <root> <holder>
+  ( cd "$1" && HOME="$USER_HOME" TREEHOUSE_NO_UPDATE_CHECK=1 \
+      treehouse get --lease --root "$2" --lease-holder "$3" 2>/dev/null ) \
     | tail -n 1
 }
 
@@ -161,7 +162,7 @@ test_real_treehouse_gives_each_home_its_own_clone() {
     return 0
   fi
   for name in $HOMES; do
-    got=$(real_acquire "$(clone_dir "$name")" "$(cat "$TMP_ROOT/$name.acquire")")
+    got=$(real_acquire "$(clone_dir "$name")" "$(cat "$TMP_ROOT/$name.root")" "real-$name")
     [ -n "$got" ] && [ "$got" != "$(cd "$(clone_dir "$name")" && pwd -P)" ] \
       || fail "the real treehouse gave home $name no copy (landed in '${got:-nothing}')"
     is_copy_of "$(clone_dir "$name")" "$got" \
@@ -175,8 +176,13 @@ test_real_treehouse_gives_each_home_its_own_clone() {
   # Counterfactual: one shared root reproduces the original defect, so the
   # per-home assertions above cannot pass vacuously.
   shared_root="$TMP_ROOT/shared-root"
-  first=$(real_acquire "$(clone_dir primary)" "treehouse get --root '$shared_root'")
-  second=$(real_acquire "$(clone_dir oas-ops)" "treehouse get --root '$shared_root'")
+  first=$(real_acquire "$(clone_dir primary)" "$shared_root" shared-primary)
+  # Hand the primary's copy back so the pool reissues it, as it would once that
+  # task is torn down.
+  ( cd "$(clone_dir primary)" && HOME="$USER_HOME" TREEHOUSE_NO_UPDATE_CHECK=1 \
+      treehouse return --force "$first" >/dev/null 2>&1 ) \
+    || fail "the shared-root counterfactual could not return the primary's copy: $first"
+  second=$(real_acquire "$(clone_dir oas-ops)" "$shared_root" shared-oas-ops)
   is_copy_of "$(clone_dir primary)" "$first" \
     || fail "the shared-root counterfactual did not start from the primary's clone: $first"
   is_copy_of "$(clone_dir primary)" "$second" \
