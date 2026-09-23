@@ -25,6 +25,10 @@
 # destructive call.
 # Provision records the running default session as a fleet-state tripwire and
 # teardown requires that record to be identical afterward.
+# Prepare refuses an existing session of the requested name. When no such
+# session exists but a tripwire record remains from a run that never completed
+# teardown, prepare reclaims that record, printing one line, only when its
+# recorded fleet state is identical to the current one; otherwise it refuses.
 # The viewer command attaches or detaches one real foreground Herdr client on
 # an owned lab session over a fixed 40-row by 120-column pty;
 # bin/fm-herdr-lab-viewer.py owns the pty mechanics.
@@ -88,6 +92,24 @@ fm_herdr_lab_fleet_state() { # <session>
   printf '%s\n' "$snapshot"
 }
 
+# A tripwire left by a run that ended without a completed teardown blocks every
+# later prepare of that name. The caller has already confirmed no session of
+# that name exists, so the record is reclaimed only when it is a regular file
+# whose recorded fleet state is identical to the current one, the same
+# comparison teardown makes; any other record stays as evidence.
+fm_herdr_lab_reclaim_stale_tripwire() { # <session> <tripwire>
+  local name=$1 tripwire=$2 recorded current
+  [ -f "$tripwire" ] && [ ! -L "$tripwire" ] || return 1
+  recorded=$(cat "$tripwire") || return 1
+  current=$(fm_herdr_lab_fleet_state "$name") || return 1
+  [ -n "$recorded" ] && [ "$recorded" = "$current" ] || {
+    fm_herdr_lab_error "recorded fleet state for '$name' differs from the current default session"
+    return 1
+  }
+  rm -f "$tripwire" || return 1
+  echo "fm-herdr-lab: reclaimed stale fleet-state tripwire for '$name' (no such session, recorded fleet state unchanged)" >&2
+}
+
 fm_herdr_lab_prepare() { # <session>
   local name=$1 sessions state_dir tripwire
   fm_herdr_lab_validate_name "$name" || return 1
@@ -106,10 +128,12 @@ fm_herdr_lab_prepare() { # <session>
   state_dir=$(fm_herdr_lab_state_dir)
   tripwire=$(fm_herdr_lab_tripwire_path "$name")
   mkdir -p "$state_dir" || return 1
-  [ ! -e "$tripwire" ] || {
-    fm_herdr_lab_error "tripwire already exists for '$name'; refusing ambiguous ownership"
-    return 1
-  }
+  if [ -e "$tripwire" ]; then
+    fm_herdr_lab_reclaim_stale_tripwire "$name" "$tripwire" || {
+      fm_herdr_lab_error "tripwire already exists for '$name'; refusing ambiguous ownership"
+      return 1
+    }
+  fi
   fm_herdr_lab_fleet_state "$name" > "$tripwire" || {
     rm -f "$tripwire"
     return 1
