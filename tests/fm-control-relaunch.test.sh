@@ -25,6 +25,8 @@ set -u
 . "$ROOT/bin/fm-control-lib.sh"
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-trace-context-lib.sh"
+# shellcheck source=/dev/null
+. "$ROOT/bin/fm-pr-lib.sh"
 
 CONTROL="$ROOT/bin/fm-control.sh"
 SPAWN="$ROOT/bin/fm-spawn.sh"
@@ -1857,6 +1859,48 @@ stage_done_ship() {
   : > "$dir/home/state/$id.pr-poll"
 }
 
+# stage_done_ship_with_authenticated_pr <case-dir> <id> <pr-url> [mode]: a
+# claude ship task that reported done, its branch pushed, and its merge watch
+# registered through the real bin/fm-pr-check.sh - the same authenticated
+# poll (fm_pr_poll_artifacts_valid, bin/fm-pr-lib.sh) the watcher dispatches -
+# rather than stage_done_ship's synthetic pr=/empty-sidecar shortcut. PATH is
+# restricted to real coreutils plus this fixture's tmux stub so no ambient gh
+# or glab install is reached; without gh on PATH the registration simply
+# records no pr_head, which fm-pr-check.sh treats as optional.
+stage_done_ship_with_authenticated_pr() {
+  local dir=$1 id=$2 pr_url=$3 mode=${4:-direct-PR} out rc
+  add_ship_task "$dir" "$id" claude
+  sed "s/^mode=.*/mode=$mode/" "$dir/home/state/$id.meta" > "$dir/home/state/$id.meta.tmp"
+  mv "$dir/home/state/$id.meta.tmp" "$dir/home/state/$id.meta"
+  git -C "$dir/wt" push -q origin "task-$id"
+  # A worker that reported done has ended its turn: its busy record reads
+  # idle. Recorded before fm-pr-check.sh so pr=/pr_head= stay the record's
+  # trailing lines (fm_pr_meta_trailer_key, bin/fm-pr-lib.sh) exactly as a
+  # real done report orders them.
+  printf 'busy_gen=%s\n' "$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" "$id" --state idle)" \
+    >> "$dir/home/state/$id.meta"
+  out=$(FM_HOME="$dir/home" PATH="$dir/fakebin:/usr/bin:/bin:/usr/sbin:/sbin" \
+    "$ROOT/bin/fm-pr-check.sh" "$id" "$pr_url" 2>&1); rc=$?
+  [ "$rc" -eq 0 ] || fail "fixture setup: fm-pr-check.sh could not register the merge watch"$'\n'"$out"
+  mkdir -p "$dir/home/state/$id.inbox/handled"
+  printf 'done [at=%s]: PR %s\n' "$(date +%s)" "$pr_url" > "$dir/home/state/$id.status"
+}
+
+# assert_authenticated_merge_watch <case-dir> <id> <pr-url> <failure-message>:
+# the poll's exact provenance, hash, and file-identity binding still proves
+# out (fm_pr_poll_artifacts_valid) and the task record's own pr= identity
+# still parses (fm_pr_metadata_identity_parse) - together the same
+# authentication the watcher's dispatch requires before it will act on a
+# merge poll.
+assert_authenticated_merge_watch() {
+  local dir=$1 id=$2 pr_url=$3 message=$4
+  fm_pr_poll_artifacts_valid "$dir/home/state" "$id" "$ROOT/bin/fm-pr-poll.sh" \
+    || fail "$message (poll provenance)"
+  fm_pr_metadata_identity_parse "$dir/home/state/$id.meta" \
+    && [ "$FM_PR_META_URL" = "$pr_url" ] \
+    || fail "$message (task record identity)"
+}
+
 # A no-mistakes stub that reports no run for this worktree, so the task's current
 # state comes from its pane and status log exactly as a direct-PR task's does.
 make_no_run_nm_stub() {  # <case-dir>
@@ -2001,6 +2045,72 @@ test_stand_down_relaunch_rebinds_a_fresh_tmux_window() {
   [ -n "$(meta_field "$dir" sd2 pr)" ] || fail "the recorded PR must survive the relaunch"
   assert_grep "encode launch-brief" "$dir/fake/literal" "the replacement should have been launched"
   pass "fm-control stand-down: a stood-down tmux task relaunches into a fresh window and drops its marker"
+}
+
+# A stand-down or relaunch that rewrites the record's endpoint_closed= or
+# control_relaunch_tx= field after the meta's pr=/pr_head= trailer silently
+# invalidates fm_pr_metadata_identity_parse, so the watcher's authenticated
+# merge poll starts refusing the task right after either lifecycle action -
+# reported from a live home where re-registering with fm-pr-check.sh was the
+# only way to restore it. These pin that the watch survives both actions.
+test_stand_down_preserves_an_authenticated_merge_watch() {
+  local dir out rc pr_url
+  dir=$(new_case standdown-pr-watch sdp1)
+  pr_url=https://github.com/example/repo/pull/501
+  stage_done_ship_with_authenticated_pr "$dir" sdp1 "$pr_url"
+  assert_authenticated_merge_watch "$dir" sdp1 "$pr_url" \
+    "the merge watch must already be authenticated before stand-down"
+  make_no_run_nm_stub "$dir"
+
+  out=$(run_control "$dir" sdp1 stand-down); rc=$?
+  expect_code 0 "$rc" "a done ship with an authenticated merge watch should stand down"$'\n'"$out"
+  assert_authenticated_merge_watch "$dir" sdp1 "$pr_url" \
+    "stand-down must not invalidate the task's authenticated merge watch"
+  pass "fm-control stand-down: an authenticated merge watch survives closing the endpoint"
+}
+
+test_relaunch_preserves_an_authenticated_merge_watch() {
+  local dir out rc pr_url trace_mode traceparent
+  for trace_mode in off on; do
+    dir=$(new_case "relaunch-pr-watch-$trace_mode" sdp2)
+    pr_url=https://github.com/example/repo/pull/502
+    stage_done_ship_with_authenticated_pr "$dir" sdp2 "$pr_url"
+    assert_authenticated_merge_watch "$dir" sdp2 "$pr_url" \
+      "the merge watch must already be authenticated before relaunch"
+    make_no_run_nm_stub "$dir"
+    printf '%s\n' "$$" > "$dir/home/state/.lock"
+    printf '%s %s\n' "$$" "$trace_mode" > "$dir/home/state/.trace-context-effective"
+
+    out=$(run_control "$dir" sdp2 relaunch --note "the PR needs a follow-up fix"); rc=$?
+    expect_code 0 "$rc" "relaunch should succeed with tracing $trace_mode"$'\n'"$out"
+    traceparent=$(meta_field "$dir" sdp2 traceparent)
+    if [ "$trace_mode" = on ]; then
+      fm_trace_context_valid "$traceparent" || fail "trace-enabled relaunch must publish a valid carrier"
+    else
+      [ -z "$traceparent" ] || fail "trace-disabled relaunch must not publish a carrier"
+    fi
+    assert_authenticated_merge_watch "$dir" sdp2 "$pr_url" \
+      "relaunch with tracing $trace_mode must not invalidate the task's authenticated merge watch"
+    pass "fm-control relaunch: an authenticated merge watch survives replacing the agent with tracing $trace_mode"
+  done
+}
+
+# The trailer contract stays a genuine refusal: a hand edit that appends an
+# unrecognised field after the meta's pr= line - the same shape a rogue writer
+# would produce - must still fail authentication, never be tolerated the way a
+# guarded lifecycle script's own trailer-preserving rewrite now is.
+test_tampered_trailing_meta_field_still_refuses_the_merge_watch() {
+  local dir pr_url
+  dir=$(new_case tampered-pr-watch sdp3)
+  pr_url=https://github.com/example/repo/pull/503
+  stage_done_ship_with_authenticated_pr "$dir" sdp3 "$pr_url"
+  assert_authenticated_merge_watch "$dir" sdp3 "$pr_url" \
+    "the merge watch must already be authenticated before the tamper"
+
+  printf 'injected=unexpected\n' >> "$dir/home/state/sdp3.meta"
+  fm_pr_metadata_identity_parse "$dir/home/state/sdp3.meta" \
+    && fail "a hand-appended field after pr= must still refuse authentication"
+  pass "an unrecognised field appended after the meta pr= trailer still refuses authentication"
 }
 
 test_stand_down_close_evidence_survives_unreadable_probe() {
@@ -2532,6 +2642,9 @@ test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint
 test_stand_down_closes_a_done_ship_endpoint_and_keeps_the_task
 test_stood_down_ship_keeps_its_leased_slot_until_teardown
 test_stand_down_relaunch_rebinds_a_fresh_tmux_window
+test_stand_down_preserves_an_authenticated_merge_watch
+test_relaunch_preserves_an_authenticated_merge_watch
+test_tampered_trailing_meta_field_still_refuses_the_merge_watch
 test_stand_down_refuses_unfinished_or_unlanded_work
 test_stand_down_refuses_an_active_validation_run
 test_stand_down_close_failure_keeps_the_endpoint_named

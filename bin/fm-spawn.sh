@@ -4648,13 +4648,26 @@ else
   SPAWN_FRESH_COMMIT_PENDING=1
 fi
 SPAWN_META_PATH=$SPAWN_META_TMP
-preserve_relaunch_meta() {
-  awk -F= '
+# Split preserved fields around new lifecycle fields to honor the trailer
+# contract owned by fm_pr_meta_trailer_keys in bin/fm-pr-lib.sh.
+preserve_relaunch_meta_body() {
+  awk -F= -v trailer_keys="$(fm_pr_meta_trailer_keys)" '
     BEGIN {
       split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx endpoint_closed", keys, " ")
       for (i in keys) owned[keys[i]] = 1
+      n = split(trailer_keys, tkeys, " ")
+      for (i = 1; i <= n; i++) owned[tkeys[i]] = 1
     }
     !($1 in owned)
+  ' "$RELAUNCH_META"
+}
+preserve_relaunch_meta_trailer() {
+  awk -F= -v trailer_keys="$(fm_pr_meta_trailer_keys)" '
+    BEGIN {
+      n = split(trailer_keys, tkeys, " ")
+      for (i = 1; i <= n; i++) keep[tkeys[i]] = 1
+    }
+    ($1 in keep)
   ' "$RELAUNCH_META"
 }
 {
@@ -4700,10 +4713,13 @@ preserve_relaunch_meta() {
     echo "projects=$SECONDMATE_PROJECTS"
   fi
   if [ "$RELAUNCH" -eq 1 ]; then
-    preserve_relaunch_meta
+    preserve_relaunch_meta_body
   fi
   if [ "$SPAWN_CONTROL_PARENT" = 1 ] && [ -n "${FM_CONTROL_RELAUNCH_TX:-}" ]; then
     echo "control_relaunch_tx=$FM_CONTROL_RELAUNCH_TX"
+  fi
+  if [ "$RELAUNCH" -eq 1 ]; then
+    preserve_relaunch_meta_trailer
   fi
 } >"$SPAWN_META_PATH" || {
   echo "error: task record for $ID could not be prepared at $SPAWN_META_PATH" >&2
@@ -4918,8 +4934,19 @@ spawn_record_traceparent() {
   fi
   SPAWN_META_TMP="$STATE/.$ID.meta.trace.${BASHPID:-$$}"
   if [ ! -f "$meta" ] || [ ! -w "$meta" ] ||
-    ! awk -F= '$1 != "traceparent"' "$meta" >"$SPAWN_META_TMP" ||
-    ! printf 'traceparent=%s\n' "$SPAWN_TRACEPARENT" >>"$SPAWN_META_TMP" ||
+    ! awk -F= -v trailer_keys="$(fm_pr_meta_trailer_keys)" -v carrier="$SPAWN_TRACEPARENT" '
+      BEGIN {
+        n = split(trailer_keys, keys, " ")
+        for (i = 1; i <= n; i++) trailer[keys[i]] = 1
+      }
+      $1 == "traceparent" { next }
+      !inserted && ($1 in trailer) {
+        print "traceparent=" carrier
+        inserted = 1
+      }
+      { print }
+      END { if (!inserted) print "traceparent=" carrier }
+    ' "$meta" >"$SPAWN_META_TMP" ||
     ! fm_backlog_atomic_transition publish "$SPAWN_META_TMP" "$meta" "task record" "$STATE"; then
     status=1
     rm -f "$SPAWN_META_TMP" 2>/dev/null || true
