@@ -6,7 +6,7 @@
 #        fm-control.sh <task-id> exit
 #        fm-control.sh <task-id> stand-down
 #        fm-control.sh <task-id> relaunch [--harness <name>] [--model <name>]
-#                                         [--effort <level>]
+#                                         [--effort <level>] [--require-idle]
 #                                         (--note <text> | --note-file <path>)
 #
 # Why this exists, and how it differs from fm-send.sh. bin/fm-send.sh is the
@@ -103,6 +103,11 @@
 #              inherits the local copy but none of the conversation; a
 #              secondmate reconciles its own home's records at startup, so its
 #              standing charter is never rewritten.
+#              --require-idle rechecks semantic busy state at the stop boundary
+#              after checkpointing. Any verdict other than idle refuses with
+#              exit status 4 and `idle-required: <verdict>`, without stopping
+#              the agent; the refused transaction is rolled back and removed.
+#              Callers without this flag retain the ordinary exit behavior.
 #              Records a durable checkpoint and that note, exits the old agent,
 #              then delegates the launch to its single owner,
 #              bin/fm-spawn.sh --relaunch. A failure before publication keeps
@@ -259,6 +264,7 @@ MODEL_SET=0
 EFFORT_SET=0
 NOTE=
 NOTE_SET=0
+REQUIRE_IDLE=0
 control_want_value=
 for control_arg in "$@"; do
   if [ -n "$control_want_value" ]; then
@@ -280,6 +286,7 @@ for control_arg in "$@"; do
     continue
   fi
   case "$control_arg" in
+    --require-idle) REQUIRE_IDLE=1 ;;
     --harness) control_want_value=harness ;;
     --harness=*) NEW_HARNESS=${control_arg#--harness=}; HARNESS_SET=1 ;;
     --model) control_want_value=model ;;
@@ -303,8 +310,8 @@ if [ -n "$control_want_value" ]; then
 fi
 
 if [ "$VERB" != relaunch ]; then
-  [ "$HARNESS_SET" = 0 ] && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] && [ "$NOTE_SET" = 0 ] \
-    || die "--harness, --model, --effort, and --note apply to 'relaunch' only"
+  [ "$HARNESS_SET" = 0 ] && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] && [ "$NOTE_SET" = 0 ] && [ "$REQUIRE_IDLE" = 0 ] \
+    || die "--harness, --model, --effort, --note, and --require-idle apply to 'relaunch' only"
 fi
 [ "$HARNESS_SET" = 0 ] || [ -n "$NEW_HARNESS" ] || die "--harness requires a non-empty value"
 [ "$MODEL_SET" = 0 ] || [ -n "$NEW_MODEL" ] || die "--model requires a non-empty value"
@@ -512,6 +519,13 @@ do_exit() {
   local state cmd verdict composer_state cancel absence interrupt_result=not-needed
   require_state_verified_backend exit
   state=$(agent_state)
+  if [ "$REQUIRE_IDLE" = 1 ]; then
+    verdict=$(busy_verdict) || verdict="unknown unreadable"
+    if [ "${verdict%% *}" != idle ]; then
+      printf 'idle-required: %s\n' "$verdict" >&2
+      return 4
+    fi
+  fi
   case "$state" in
     dead)
       printf 'already-stopped'
@@ -555,7 +569,10 @@ do_exit() {
     *) die "task $ID's endpoint reads '$state' rather than a positively classified state; refusing to send a lifecycle command into an unattributed endpoint" ;;
   esac
   # A busy agent is interrupted first before the exit command is submitted.
-  case "$(busy_verdict)" in
+  if [ "$REQUIRE_IDLE" = 0 ]; then
+    verdict=$(busy_verdict) || verdict="unknown unreadable"
+  fi
+  case "$verdict" in
     busy*)
       cancel=$(deliver_interrupt) || return $?
       state=$(agent_state)
@@ -1046,7 +1063,7 @@ record_note() {
 }
 
 do_relaunch() {
-  local exit_result state note_line
+  local exit_result exit_rc state note_line
   local -a spawn_args
 
   require_state_verified_backend relaunch
@@ -1084,7 +1101,15 @@ do_relaunch() {
   journal_write noted "${CHECKPOINT_LINES[@]}" "$note_line"
 
   journal_write stopping "${CHECKPOINT_LINES[@]}" "$note_line"
-  exit_result=$(do_exit)
+  exit_result=$(do_exit) || {
+    exit_rc=$?
+    if [ "$exit_rc" -eq 4 ]; then
+      RELAUNCH_PHASE=noted
+      relaunch_rollback
+      rm -f "$JOURNAL" "$META_PRIOR" "$BRIEF_PRIOR" "$NOTE_FILE"
+    fi
+    return "$exit_rc"
+  }
   journal_write exited "${CHECKPOINT_LINES[@]}" "$note_line" "exit_result=$exit_result"
 
   # The launch owner (fm-spawn --relaunch) clears the previous incarnation's

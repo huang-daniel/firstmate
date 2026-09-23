@@ -190,11 +190,15 @@ report_unreached() {  # <id> <reason>
   printf 'unreached: %s: %s\n' "$1" "$2"
 }
 
+report_busy_deferred() {
+  printf 'deferred: %s: busy (%s), so it was not restarted; its open work is written down and it keeps running until a later pass finds it idle\n' "$1" "$2"
+}
+
 restart_mate() {  # <array-index>
   local i=$1 id restart_out restart_rc restart_reason ran_on verify_out
   id=${IDS[$i]}
   restart_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-    "$SCRIPT_DIR/fm-control.sh" "$id" relaunch 2>&1)
+    "$SCRIPT_DIR/fm-control.sh" "$id" relaunch --require-idle 2>&1)
   restart_rc=$?
   if [ "$restart_rc" -eq 0 ]; then
     ran_on=$(printf '%s\n' "$restart_out" | sed -n 's/^relaunched .* harness=\([^ ]*\).*/\1/p' | tail -1)
@@ -210,6 +214,12 @@ restart_mate() {  # <array-index>
     fi
     printf 'restarted: %s (%s) while idle; %s\n' "$id" "$ran_on" \
       "$(first_reported_line "$verify_out")"
+    return
+  fi
+
+  if [ "$restart_rc" -eq 4 ]; then
+    restart_reason=$(first_reported_line "$restart_out")
+    report_busy_deferred "$id" "${restart_reason#idle-required: }"
     return
   fi
 
@@ -246,8 +256,7 @@ restart_if_idle() {  # <array-index>
         return
       fi
       deferred_count=$((deferred_count + 1))
-      printf 'deferred: %s: busy (%s), so it was not restarted; its open work is written down and it keeps running until a later pass finds it idle\n' \
-        "${IDS[$i]}" "${verdict#* }"
+      report_busy_deferred "${IDS[$i]}" "${verdict#* }"
       PLAN[i]="done"
       ;;
     dead)
@@ -307,6 +316,7 @@ harvest_restarts() {
       restarted:*)
         restarted_count=$((restarted_count + 1))
         ;;
+      deferred:*) deferred_count=$((deferred_count + 1)) ;;
       nudged:*) nudged_count=$((nudged_count + 1)) ;;
       *) unreached_count=$((unreached_count + 1)) ;;
     esac

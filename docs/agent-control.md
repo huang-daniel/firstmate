@@ -88,6 +88,9 @@ The marker is what keeps a stood-down task recoverable from its records alone:
 
 ## Transactional relaunch
 
+The update-and-restart pass opts into `relaunch --require-idle`, whose stop-boundary check and distinct refusal status are documented in [fm-control.sh](../bin/fm-control.sh).
+A refusal defers the mate without stopping it or leaving an open restart transaction.
+
 `relaunch` replaces the agent and republishes the task record, so it runs as a transaction with a journal at `state/<id>.control-relaunch`, the prior record preserved beside it, and a ship or scout's prior instructions preserved when a progress note is appended.
 
 1. **Resolve the profile.**

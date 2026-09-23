@@ -994,6 +994,45 @@ test_busy_mate_is_deferred() {
 }
 
 # --- T20: a provably idle mate restarts and is reported as idle --------------
+test_mate_rewoken_during_checkpoint_defers() {
+  local dir out rc verdict
+  for verdict in busy unknown; do
+    dir=$(new_case "checkpoint-$verdict")
+    add_local_mate "$dir" sm1
+    arm_answer "$dir" sm1
+    command -v git > "$dir/fake/git-bin"
+    printf '%s\n' "$verdict" > "$dir/fake/checkpoint-verdict"
+    cat > "$dir/fakebin/git" <<'SH'
+#!/usr/bin/env bash
+if [ "$*" = "-C $(cat "$FM_FAKE_DIR/home.fm-sm1") status --porcelain" ]; then
+  if [ "$(cat "$FM_FAKE_DIR/checkpoint-verdict")" = busy ]; then
+    "$FM_FAKE_ROOT/bin/fm-busy-event.sh" apply "$FM_HOME/state" sm1 busy \
+      --current-gen --source claude-hook --event user-prompt-submit >/dev/null
+  else
+    rm -f "$FM_HOME/state/sm1.busy-state"
+  fi
+  : > "$FM_FAKE_DIR/checkpoint-reached"
+fi
+exec "$(cat "$FM_FAKE_DIR/git-bin")" "$@"
+SH
+    chmod +x "$dir/fakebin/git"
+
+    out=$(run_restart "$dir" sm1); rc=$?
+
+    expect_code 3 "$rc" "a mate no longer proven idle must defer: $out"
+    [ -f "$dir/fake/checkpoint-reached" ] || fail "the initial idle verdict never reached relaunch"
+    assert_contains "$out" "deferred: sm1: busy ($verdict " "the stop-boundary verdict must be reported"
+    assert_contains "$out" "all 1 mates deferred; 0 received re-read nudges, 0 were unreached" "the refusal must count as deferred"
+    assert_not_contains "$out" "restarted: sm1" "a refused relaunch must not claim a restart"
+    assert_no_grep '^/exit$' "$dir/fake/literal" "the agent must not receive an exit command"
+    assert_no_grep '^(C-c|Escape)$' "$dir/fake/keys" "the agent must not be interrupted"
+    assert_absent "$dir/fake/command.fmses:=fm-sm1" "the agent must not be replaced"
+    assert_absent "$dir/home/state/sm1.control-relaunch" "the refused transaction must be removed"
+    assert_absent "$dir/home/state/sm1.control-relaunch.meta-prior" "the transaction backup must be removed"
+  done
+  pass "a mate losing its idle proof during checkpoint is deferred without stopping"
+}
+
 test_idle_mate_restarts_while_idle() {
   local dir out rc
   dir=$(new_case idle)
@@ -1165,6 +1204,7 @@ test_current_mate_is_not_restarted
 test_stale_unknown_mate_defers
 test_busy_mate_is_deferred
 test_idle_mate_restarts_while_idle
+test_mate_rewoken_during_checkpoint_defers
 test_mate_going_idle_inside_settle_window_restarts
 test_same_mate_without_settle_window_defers
 test_mate_busy_through_settle_window_defers
