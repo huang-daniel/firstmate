@@ -73,6 +73,8 @@ fm_control_harnesses() {
 
 fm_control_harness_supported() {  # <harness>
   local harness supported=1
+  # Drain the registry even after a match: an early return can break the
+  # producer's pipe and contaminate the caller's stderr with diagnostics.
   while read -r harness; do
     if [ "$harness" = "${1-}" ]; then
       supported=0
