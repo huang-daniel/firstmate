@@ -188,6 +188,14 @@ SH
   expect_code 3 "$rc" "a replacement on another revision is not verified"
   assert_contains "$out" "whose instruction surface differs from the intended one" \
     "verify must report a revision mismatch as unknown"
+  out=$(PATH="$w/fakebin:$PATH" TMUX='' health "$w" verify sm1 --wait 0); rc=$?
+  expect_code 3 "$rc" "missing intended identity must not verify"
+  assert_contains "$out" "intended instruction identity is missing" "missing identity must be explicit"
+  sed '/^instr=/d' "$w/sm1-home/state/.session-revision" > "$w/revision"
+  mv "$w/revision" "$w/sm1-home/state/.session-revision"
+  out=$(PATH="$w/fakebin:$PATH" TMUX='' health "$w" verify sm1 --expect-instr "$instr" --wait 0); rc=$?
+  expect_code 3 "$rc" "missing reported identity must not verify"
+  assert_contains "$out" "has not reported its revision" "missing report must be explicit"
   pass "verify: accepts only a new live lock holder on the intended surface, names a collision"
 }
 

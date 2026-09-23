@@ -7,7 +7,7 @@
 #        fm-secondmate-health.sh stale <secondmate-id>
 #        fm-secondmate-health.sh idle <secondmate-id>
 #        fm-secondmate-health.sh verify <secondmate-id> [--prior-pid <pid>]
-#                                       [--expect-instr <identity>] [--wait <seconds>]
+#                                       --expect-instr <identity> [--wait <seconds>]
 #
 # A running agent keeps the instruction surface it launched on (AGENTS.md,
 # bin/, .agents/skills/) no matter what later lands in its home, so "the home
@@ -42,13 +42,13 @@
 #           kind=secondmate), so a local mate normally reads `unknown missing`
 #           and Herdr can prove busy but never idle; the idle read becomes
 #           provable once secondmate busy records are armed. A remote mate's
-#           record lives on its host and reads `unknown remote`.
+#           record lives on its host and reads `unknown remote-idle-not-provable`.
 #   verify  After a relaunch, poll up to --wait seconds (FM_SECONDMATE_VERIFY_WAIT,
 #           default 180; poll FM_SECONDMATE_VERIFY_POLL, default 5) until the
 #           replacement is proven healthy: its endpoint's agent is alive, the
 #           home lock is held by a live harness pid other than --prior-pid, that
 #           pid's own record reports the revision, and its instruction identity
-#           equals --expect-instr when given. Prints `verified <id> pid=<p>
+#           equals the required nonempty --expect-instr. Prints `verified <id> pid=<p>
 #           commit=<c>` and exits 0, or `unknown <id>: <last reason>` and exits 3.
 #           A live --prior-pid still holding the lock is named as a lock
 #           collision: the replacement cannot take the lock and would run
@@ -131,8 +131,11 @@ cmd_self() {
   [ -d "$STATE" ] || { echo "error: state dir '$STATE' is missing" >&2; return 1; }
   # shellcheck source=bin/fm-session-lock-lib.sh
   . "$SCRIPT_DIR/fm-session-lock-lib.sh"
-  lock_pid=$(sed -n '1p' "$STATE/.lock" 2>/dev/null || true)
-  case "$lock_pid" in ''|*[!0-9]*) lock_pid="" ;; esac
+  lock_pid=""
+  if [ -e "$STATE/.lock" ] || [ -L "$STATE/.lock" ]; then
+    lock_pid=$(sed -n '1p' "$STATE/.lock" 2>/dev/null) || return 1
+    case "$lock_pid" in ''|*[!0-9]*) return 1 ;; esac
+  fi
   if [ -n "$lock_pid" ] && fm_harness_pid_alive "$lock_pid"; then
     lock_live=yes
   fi
@@ -226,7 +229,7 @@ cmd_idle() {
   parent_state
   mate_meta "$id"
   if [ -n "$MATE_REMOTE" ]; then
-    echo "unknown remote"
+    echo "unknown remote-idle-not-provable"
     return 0
   fi
   # shellcheck source=bin/fm-busy-lib.sh
@@ -264,6 +267,10 @@ cmd_verify() {
   done
   case "$wait" in ''|*[!0-9]*) echo "error: --wait must be a non-negative integer" >&2; exit 2 ;; esac
   case "$poll" in ''|*[!0-9.]*) poll=5 ;; esac
+  if [ -z "$expect" ]; then
+    echo "unknown $id: the intended instruction identity is missing"
+    return 3
+  fi
   parent_state
   mate_meta "$id"
   deadline=$(($(date +%s) + wait))
@@ -284,9 +291,9 @@ cmd_verify() {
         reason="no live session has taken its home lock"
       elif [ -n "$prior" ] && [ "$lock_pid" = "$prior" ]; then
         reason="lock collision: its home lock is still held by the previous session (pid $prior), so the replacement cannot take it and would run read-only"
-      elif [ "$session_pid" != "$lock_pid" ]; then
+      elif [ "$session_pid" != "$lock_pid" ] || [ -z "$session_instr" ]; then
         reason="the session holding its home lock (pid $lock_pid) has not reported its revision"
-      elif [ -n "$expect" ] && [ "$session_instr" != "$expect" ]; then
+      elif [ "$session_instr" != "$expect" ]; then
         reason="the replacement reports revision ${session_commit:-unknown}, whose instruction surface differs from the intended one ($(instr_changed "$session_instr" "$expect"))"
       else
         echo "verified $id pid=$lock_pid commit=${session_commit:-unknown}"

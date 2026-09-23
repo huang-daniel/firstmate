@@ -43,12 +43,10 @@
 #      idle). A provably busy mate is never restarted: it is reported
 #      `deferred` and keeps running untouched, and a later staleness read - the
 #      next update pass or the primary's check before that home's next
-#      dispatch - picks it up again. Idle restarts at once. No semantic busy
-#      record is armed for a second mate yet, so the read is usually unknown;
-#      the mate's own correlated persist answer is then the turn boundary that
-#      stands in for idle, and the restart is reported as made with idle not
-#      provable rather than as made while idle. The idle read becomes provable
-#      once secondmate busy records are armed.
+#      dispatch - picks it up again. Only a proven idle verdict permits restart.
+#      Unknown, unreadable, and remote-unknown states defer with a re-read nudge.
+#      Idle becomes provable for local mates once secondmate busy records are
+#      armed, which is the filed follow-up.
 #   C. VERIFY. A relaunch is reported `restarted` only after
 #      fm-secondmate-health.sh verify proves the replacement's agent alive, the
 #      home lock held by a new live session, and that session reporting the
@@ -60,12 +58,9 @@
 # clean reload. Once a relaunch is attempted, any failed or ambiguous result is
 # reported as unknown rather than attributing it to either incarnation.
 #
-# Placement changes the transport and nothing else. A local mate is restarted
-# with bin/fm-control.sh <id> relaunch; a remote mate is restarted by running THAT
-# SAME command on its host over bin/fm-on.sh, through the host-local
-# fm-remote-secondmate-control.sh relaunch verb. The restart decision, the
-# profile, the request text, the bound, the failure vocabulary, and this report
-# are all computed here in the primary and are identical for both.
+# Local mates restart through bin/fm-control.sh <id> relaunch. Remote mates
+# receive persistence requests and re-read nudges over their host transport;
+# their unknown idle state defers restart.
 #
 # Nothing here forces, stashes, or discards anything. bin/fm-control.sh owns the
 # restart transaction, its checkpoint, its journal, and its rollback; a refusal
@@ -82,8 +77,7 @@
 #   replacement verification (bin/fm-secondmate-health.sh owns them).
 #
 # Per-mate lines: `current:`, `restarted: <id> (<harness>) while idle`,
-# `restarted: <id> (<harness>) after its persist answer; idle not provable
-# (<source>)`, `deferred:`, `nudged:`, or `unreached:`, then one `summary:` line.
+# `deferred:`, `nudged:`, or `unreached:`, then one `summary:` line.
 #
 # Exit status: 0 every named mate restarted or was already current; 3 at least
 # one was deferred, nudged, or left unreached and every mate was still accounted
@@ -145,19 +139,13 @@ PLAN=()
 REASON=()
 CORR=()
 DEADLINE=()
-PLACEMENT=()
-HOST=()
 HARNESS=()
-MODEL=()
-EFFORT=()
 RESTART_PID=()
 RESTART_RESULT=()
 PRIOR_PID=()
 EXPECT_INSTR=()
-IDLE_READ=()
 
 restarted_count=0
-restarted_idle_count=0
 current_count=0
 deferred_count=0
 nudged_count=0
@@ -191,37 +179,24 @@ report_unreached() {  # <id> <reason>
 }
 
 restart_mate() {  # <array-index>
-  local i=$1 id restart_out restart_rc restart_reason ran_on where verify_out how
+  local i=$1 id restart_out restart_rc restart_reason ran_on verify_out
   id=${IDS[$i]}
-  if [ "${PLACEMENT[i]}" = remote ]; then
-    restart_out=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-on.sh" "$id" \
-      fm-remote-secondmate-control.sh relaunch \
-      "$id" "${HARNESS[i]}" "${MODEL[i]:-default}" "${EFFORT[i]:-default}" < /dev/null 2>&1)
-    restart_rc=$?
-  else
-    restart_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-      "$SCRIPT_DIR/fm-control.sh" "$id" relaunch 2>&1)
-    restart_rc=$?
-  fi
+  restart_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "$SCRIPT_DIR/fm-control.sh" "$id" relaunch 2>&1)
+  restart_rc=$?
   if [ "$restart_rc" -eq 0 ]; then
     ran_on=$(printf '%s\n' "$restart_out" | sed -n 's/^relaunched .* harness=\([^ ]*\).*/\1/p' | tail -1)
     [ -n "$ran_on" ] || ran_on=${HARNESS[i]}
-    where=""
-    [ "${PLACEMENT[i]}" != remote ] || where=" on ${HOST[i]}"
     if ! verify_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
       "$SCRIPT_DIR/fm-secondmate-health.sh" verify "$id" \
       ${PRIOR_PID[i]:+--prior-pid "${PRIOR_PID[i]}"} \
-      ${EXPECT_INSTR[i]:+--expect-instr "${EXPECT_INSTR[i]}"} 2>&1); then
+      --expect-instr "${EXPECT_INSTR[i]}" 2>&1); then
       restart_reason=$(first_reported_line "$verify_out")
       restart_reason=${restart_reason#"unknown $id: "}
-      report_unreached "$id" "the restart outcome is unknown: it was relaunched$where, but the replacement was not verified healthy: ${restart_reason:-no reason reported}"
+      report_unreached "$id" "the restart outcome is unknown: it was relaunched, but the replacement was not verified healthy: ${restart_reason:-no reason reported}"
       return
     fi
-    case "${IDLE_READ[i]%% *}" in
-      idle) how="while idle" ;;
-      *) how="after its persist answer; idle not provable (${IDLE_READ[i]#* })" ;;
-    esac
-    printf 'restarted: %s%s (%s) %s; %s\n' "$id" "$where" "$ran_on" "$how" \
+    printf 'restarted: %s (%s) while idle; %s\n' "$id" "$ran_on" \
       "$(first_reported_line "$verify_out")"
     return
   fi
@@ -242,15 +217,11 @@ launch_restart() {  # <array-index>
   restart_active_count=$((restart_active_count + 1))
 }
 
-# The persist answer has landed; read the mate's busy state before spending its
-# conversation. A provable busy never restarts; the header owns why an unknown
-# read proceeds after the answer.
-restart_if_not_busy() {  # <array-index>
+restart_if_idle() {  # <array-index>
   local i=$1 verdict
   verdict=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
     "$SCRIPT_DIR/fm-secondmate-health.sh" idle "${IDS[$i]}" 2>/dev/null | head -1) || verdict=""
   [ -n "$verdict" ] || verdict="unknown unreadable"
-  IDLE_READ[i]=$verdict
   case "${verdict%% *}" in
     busy)
       deferred_count=$((deferred_count + 1))
@@ -262,7 +233,13 @@ restart_if_not_busy() {  # <array-index>
       report_unreached "${IDS[$i]}" "its endpoint is gone (${verdict#* }), so there is no agent to restart; startup recovery owns it"
       PLAN[i]="done"
       ;;
-    *) launch_restart "$i" ;;
+    idle) launch_restart "$i" ;;
+    *)
+      deferred_count=$((deferred_count + 1))
+      printf 'deferred: %s: idle not provable (%s), so it was not restarted\n' "${IDS[$i]}" "${verdict#* }"
+      fall_back_to_nudge "${IDS[$i]}" "idle not provable (${verdict#* })"
+      PLAN[i]="done"
+      ;;
   esac
 }
 
@@ -299,7 +276,6 @@ harvest_restarts() {
     case "$out" in
       restarted:*)
         restarted_count=$((restarted_count + 1))
-        case "$out" in *') while idle;'*) restarted_idle_count=$((restarted_idle_count + 1)) ;; esac
         ;;
       nudged:*) nudged_count=$((nudged_count + 1)) ;;
       *) unreached_count=$((unreached_count + 1)) ;;
@@ -321,14 +297,9 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
   REASON[i]=""
   CORR[i]=""
   DEADLINE[i]=""
-  PLACEMENT[i]=""
-  HOST[i]=""
   HARNESS[i]=""
-  MODEL[i]=""
-  EFFORT[i]=""
   PRIOR_PID[i]=""
   EXPECT_INSTR[i]=""
-  IDLE_READ[i]=""
   # Staleness first: a mate already running its home's current instruction
   # surface has nothing to gain from spending its conversation.
   stale_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
@@ -348,30 +319,12 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
     i=$((i + 1))
     continue
   fi
-  PLACEMENT[i]=$FM_SECONDMATE_RESTART_PLACEMENT
-  HOST[i]=$FM_SECONDMATE_RESTART_HOST
-  HARNESS[i]=$FM_SECONDMATE_RESTART_HARNESS
-  if [ "${PLACEMENT[i]}" = remote ]; then
-    # A local relaunch re-resolves this home's durable secondmate pin on its own,
-    # which is the one owner of that resolution. A remote one cannot: it runs in
-    # a home whose config/secondmate-harness is deliberately NOT inherited, so
-    # the file on that host belongs to a different home and re-resolving there
-    # would silently move the mate onto another runtime. Resolve the pin here and
-    # pass it explicitly, so both placements land on the same decision.
-    HARNESS[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate 2>/dev/null || true)
-    [ -n "${HARNESS[i]}" ] || HARNESS[i]=$FM_SECONDMATE_RESTART_HARNESS
-    MODEL[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model 2>/dev/null || true)
-    EFFORT[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort 2>/dev/null || true)
-    case "${EFFORT[i]}" in
-      ''|low|medium|high|xhigh|max|ultra) ;;
-      *) EFFORT[i]="" ;;
-    esac
-    if [ "${EFFORT[i]}" = ultra ] && ! "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "${HARNESS[i]}" "${MODEL[i]}" "${EFFORT[i]}"; then
-      REASON[i]="the configured Ultra profile does not select native Codex through Pi"
-      i=$((i + 1))
-      continue
-    fi
+  if [ -z "${EXPECT_INSTR[i]}" ]; then
+    REASON[i]="the intended instruction identity could not be read, so it was not restarted"
+    i=$((i + 1))
+    continue
   fi
+  HARNESS[i]=$FM_SECONDMATE_RESTART_HARNESS
 
   if ! corr=$(fm_pending_reply_create "$FM_HOME" "$STATE" "$id" \
     "$FM_SECONDMATE_PERSIST_REQUEST"); then
@@ -428,7 +381,7 @@ while [ "$((pending_count + restart_active_count))" -gt 0 ]; do
     if [ "${PLAN[i]}" = persisted-pending ] \
       && fm_pending_reply_try_resolve "$STATE" "${CORR[i]}"; then
       pending_count=$((pending_count - 1))
-      restart_if_not_busy "$i"
+      restart_if_idle "$i"
     fi
     i=$((i + 1))
   done
@@ -443,7 +396,7 @@ while [ "$((pending_count + restart_active_count))" -gt 0 ]; do
       # timeout decision so an answer already on disk wins over the fallback.
       if fm_pending_reply_try_resolve "$STATE" "${CORR[i]}"; then
         pending_count=$((pending_count - 1))
-        restart_if_not_busy "$i"
+        restart_if_idle "$i"
       else
         fall_back_to_nudge "${IDS[$i]}" \
           "it did not confirm within ${PERSIST_WAIT}s that its open work is written down, so its conversation was not spent"
@@ -462,9 +415,8 @@ done
 
 # --- summary ---------------------------------------------------------------
 
-printf 'summary: %d of %d restarted (%d while idle, %d with idle not provable), %d already current, %d deferred busy, %d nudged, %d unreached\n' \
-  "$restarted_count" "${#IDS[@]}" "$restarted_idle_count" \
-  "$((restarted_count - restarted_idle_count))" "$current_count" "$deferred_count" \
+printf 'summary: %d of %d restarted while idle, %d already current, %d deferred, %d nudged, %d unreached\n' \
+  "$restarted_count" "${#IDS[@]}" "$current_count" "$deferred_count" \
   "$nudged_count" "$unreached_count"
 [ "$((deferred_count + nudged_count + unreached_count))" -eq 0 ] || exit 3
 exit 0

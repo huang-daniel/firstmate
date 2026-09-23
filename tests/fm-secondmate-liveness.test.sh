@@ -169,7 +169,7 @@ test_herdr_agent_state_preserves_husk_classifier() {
   for row in 'dead missing' 'no-agent dead' 'live alive' 'unknown unreadable'; do
     pane_state=${row%% *}
     expected=${row#* }
-    out=$(FM_TEST_PANE_STATE="$pane_state" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_pane_agent_state() { printf "%s" "$FM_TEST_PANE_STATE"; }; fm_backend_herdr_agent_state "sess:p1"' "$ROOT")
+    out=$(FM_TEST_PANE_STATE="$pane_state" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_pane_agent_state() { printf "%s" "$FM_TEST_PANE_STATE"; }; fm_backend_herdr_server_running_state() { printf "unknown"; }; fm_backend_herdr_agent_state "sess:p1"' "$ROOT")
     [ "$out" = "$expected" ] || fail "Herdr pane state $pane_state should map to $expected, got '$out'"
   done
 
@@ -275,6 +275,7 @@ make_liveness_tmux() {
 #!/usr/bin/env bash
 set -u
 mode=${FM_TEST_PANE_CMD:-zsh}
+[ ! -f "${FM_TMUX_CALL_LOG}.started" ] || mode=claude
 case "${1:-}" in
   display-message)
     for a in "$@"; do
@@ -304,6 +305,27 @@ case "${1:-}" in
     [ "${1:-}" = new-window ] && rm -f "${FM_TMUX_CALL_LOG}.killed"
     exit 0
     ;;
+  send-keys)
+    payload=${5:-}
+    case "$payload" in
+      ". '"*"'")
+        staged=${payload#". '"}; staged=${staged%"'"}
+        payload=$(cat "$staged")
+        ;;
+    esac
+    case "$payload" in
+      *'encode launch-brief'*)
+        [ "${FM_TEST_NO_SESSION_START:-0}" != 1 ] || exit 0
+        home=$(sed -n 's/^home=//p' "$FM_HOME/state/sm1.meta")
+        bash -c 'exec -a claude /bin/sleep 600' </dev/null >/dev/null 2>&1 &
+        pid=$!
+        printf '%s\n' "$pid" >> "$FM_TEST_HARNESS_PIDS"
+        printf '%s\n' "$pid" > "$home/state/.lock"
+        FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_STATE_OVERRIDE='' "$FM_TEST_ROOT/bin/fm-secondmate-health.sh" record
+        : > "${FM_TMUX_CALL_LOG}.started"
+        ;;
+    esac
+    exit 0 ;;
   has-session) exit 0 ;;
 esac
 exit 0
@@ -330,10 +352,6 @@ new_world() {
   printf '%s\n' "$w"
 }
 
-# add_sm_home <w> <id> <window>: a plain (non-git) secondmate home - the
-# probe/respawn machinery under test never requires the home to be a real
-# worktree; a non-git home just makes the unrelated fast-forward sweep log a
-# harmless "not a git repo" skip.
 add_sm_home() {
   local w=$1 id=$2 window=$3 harness=${4:-claude}
   local home="$w/$id"
@@ -341,6 +359,9 @@ add_sm_home() {
   printf '%s\n' "$id" > "$home/.fm-secondmate-home"
   printf '# Firstmate\n' > "$home/AGENTS.md"
   printf 'charter\n' > "$home/data/charter.md"
+  git -C "$home" init -q
+  git -C "$home" add AGENTS.md
+  git -C "$home" commit -qm initial
   {
     printf 'window=%s\n' "$window"
     printf 'kind=secondmate\n'
@@ -353,6 +374,7 @@ run_bootstrap() {  # <fakebin> <home> <pane-cmd> <call-log> [extra env...] -> st
   local fb=$1 home=$2 cmd=$3 log=$4; shift 4
   PATH="$fb:$BASE_PATH" TMUX='' FM_BACKEND=tmux FM_HOME="$home" \
     FM_TEST_PANE_CMD="$cmd" FM_TMUX_CALL_LOG="$log" \
+    FM_TEST_ROOT="$ROOT" FM_TEST_HARNESS_PIDS="$FAKE_HARNESS_PIDS" FM_BOOTSTRAP_SECONDMATE_VERIFY_WAIT=0 \
     env "$@" "$ROOT/bin/fm-bootstrap.sh" 2>&1
 }
 
@@ -365,7 +387,7 @@ test_sweep_respawns_confirmed_dead_secondmate() {
 
   out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log")
 
-  assert_not_contains "$out" "SECONDMATE_LIVENESS: secondmate sm1: respawned" \
+  assert_not_contains "$out" "SECONDMATE_LIVENESS: secondmate sm1:" \
     "a successfully respawned secondmate should be handled silently"
   assert_contains "$(cat "$log")" "kill-window -t =firstmate:=fm-sm1" \
     "the stale endpoint must be killed before respawn (tmux refuses a same-named window over a live one)"
@@ -629,6 +651,50 @@ test_tmux_agent_state_classifies
 test_tmux_agent_state_rejects_malformed_targets_before_probe
 test_herdr_agent_state_preserves_husk_classifier
 test_agent_state_dispatcher_and_compatibility
+test_sweep_refuses_unreadable_home_lock() {
+  local w fb log out
+  w=$(new_world unreadable-lock)
+  add_sm_home "$w" sm1 firstmate:fm-sm1
+  mkdir "$w/sm1/state/.lock"
+  fb=$(make_toolchain "$w"); make_liveness_tmux "$w" >/dev/null
+  log="$w/calls.log"; : > "$log"
+  out=$(run_bootstrap "$fb" "$w/home" missing "$log")
+  assert_contains "$out" "lock collision: its home lock could not be checked" "unreadable check must refuse"
+  [ ! -s "$log" ] || fail "unreadable lock caused relaunch"
+  assert_contains "$(cat "$w/home/state/.wake-queue")" "check: secondmate-liveness sm1: lock collision" "refusal must queue wake"
+  pass "sweep: unreadable lock refuses relaunch"
+}
+
+test_sweep_requires_verified_replacement() {
+  local w fb log out
+  w=$(new_world no-replacement)
+  add_sm_home "$w" sm1 firstmate:fm-sm1
+  fb=$(make_toolchain "$w"); make_liveness_tmux "$w" >/dev/null
+  log="$w/calls.log"; : > "$log"
+  out=$(run_bootstrap "$fb" "$w/home" missing "$log" FM_TEST_NO_SESSION_START=1 FM_BOOTSTRAP_VERBOSE_FACTS=1)
+  assert_contains "$out" "SECONDMATE_LIVENESS: secondmate sm1: unknown after" "spawn alone must not prove success"
+  assert_not_contains "$out" "BOOTSTRAP_INFO: secondmate sm1 relaunched" "unverified spawn cannot report success"
+  assert_contains "$(cat "$w/home/state/.wake-queue")" "check: secondmate-liveness sm1: unknown" "unverified replacement must queue wake"
+  pass "sweep: spawn success without replacement is unknown"
+}
+
+test_sweep_wake_keys_are_exact() {
+  local w fb log out holder
+  w=$(new_world exact-keys)
+  add_sm_home "$w" web firstmate:fm-web
+  holder=$(start_fake_harness)
+  printf '%s\n' "$holder" > "$w/web/state/.lock"
+  FM_HOME="$w/home" FM_STATE_OVERRIDE="$w/home/state" bash -c '. "$1/bin/fm-wake-lib.sh"; fm_wake_append check secondmate-liveness-web-admin "check: existing"' _ "$ROOT"
+  fb=$(make_toolchain "$w"); make_liveness_tmux "$w" >/dev/null
+  log="$w/calls.log"; : > "$log"
+  out=$(run_bootstrap "$fb" "$w/home" missing "$log")
+  assert_contains "$(cat "$w/home/state/.wake-queue")" "check: secondmate-liveness web: lock collision" "prefix key must not suppress wake"
+  pass "sweep: wake keys match whole lines"
+}
+
+test_sweep_refuses_unreadable_home_lock
+test_sweep_requires_verified_replacement
+test_sweep_wake_keys_are_exact
 test_sweep_respawns_confirmed_dead_secondmate
 test_sweep_leaves_alive_secondmate_untouched
 test_sweep_respawns_authoritatively_missing_pi_secondmate
