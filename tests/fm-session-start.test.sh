@@ -356,7 +356,7 @@ case "${1:-}" in
     fi
     if [ -e "$spawned" ]; then
       case "$format" in
-        *pane_current_command*) printf '%s\n' node ;;
+        *pane_current_command*) printf '%s\n' pi ;;
         *) printf '%%1\n' ;;
       esac
       exit 0
@@ -399,6 +399,9 @@ case "${1:-}" in
   new-window)
     printf '%s\n' "$*" >> "$log"
     : > "$spawned"
+    printf '%s\n' "$FM_FAKE_HARNESS_PID" > "$FM_FAKE_SECOND_MATE_HOME/state/.lock"
+    FM_HOME="$FM_FAKE_SECOND_MATE_HOME" FM_STATE_OVERRIDE='' FM_ROOT_OVERRIDE="$FM_FAKE_SECOND_MATE_HOME" \
+      "$FM_FAKE_HEALTH_SCRIPT" record || exit 1
     printf '%%1\n'
     exit 0
     ;;
@@ -444,6 +447,9 @@ case "${1:-} ${2:-}" in
     ;;
   "tab create")
     : > "$spawned"
+    printf '%s\n' "$FM_FAKE_HARNESS_PID" > "$FM_FAKE_SECOND_MATE_HOME/state/.lock"
+    FM_HOME="$FM_FAKE_SECOND_MATE_HOME" FM_STATE_OVERRIDE='' FM_ROOT_OVERRIDE="$FM_FAKE_SECOND_MATE_HOME" \
+      "$FM_FAKE_HEALTH_SCRIPT" record || exit 1
     printf '%s\n' '{"result":{"tab":{"tab_id":"t-new"},"root_pane":{"pane_id":"p-new"}}}'
     ;;
   "pane list")
@@ -465,6 +471,9 @@ case "${1:-} ${2:-}" in
       printf '%s\n' '{"error":{"code":"pane_not_found"}}' >&2
       exit 1
     fi
+    ;;
+  "pane process-info")
+    printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":%s,"foreground_processes":[{"pid":%s,"name":"pi","argv":["pi"]}]}}}\n' "${4:-}" "$FM_FAKE_HARNESS_PID" "$FM_FAKE_HARNESS_PID"
     ;;
   "agent get")
     if [ "${3:-}" = p-new ] && [ -e "$spawned" ]; then
@@ -558,6 +567,11 @@ EOF
   mate="$w/secondmate-$id"
   log="$w/tmux.log"
   spawned="$w/tmux.spawned"
+  printf '# Firstmate\n' > "$root/AGENTS.md"
+  printf 'data/\nstate/\nconfig/\nprojects/\n.fm-secondmate-home\n' > "$root/.gitignore"
+  git -C "$root" add AGENTS.md .gitignore
+  git -C "$root" commit -qm 'seed instruction surface'
+  git -C "$root" worktree add -q --detach "$mate" HEAD
   mkdir -p "$mate/bin" "$mate/data" "$mate/state" "$mate/config" "$mate/projects"
   printf '%s\n' "$id" > "$mate/.fm-secondmate-home"
   printf '# Firstmate\n' > "$mate/AGENTS.md"
@@ -585,7 +599,7 @@ run_session_start_secondmate() {
   TMUX='' FM_BACKEND=tmux FM_FAKE_TMUX_MODE="$mode" FM_FAKE_TMUX_LOG="$log" \
     FM_FAKE_TMUX_SPAWNED="$spawned" FM_FAKE_SECOND_MATE_HOME="$mate" \
     FM_FAKE_SECOND_MATE_ID="$SESSION_START_SECOND_MATE_ID" \
-    FM_FAKE_HARNESS_PID=$$ \
+    FM_FAKE_HARNESS_PID=$$ FM_FAKE_HEALTH_SCRIPT="$ROOT/bin/fm-secondmate-health.sh" \
     run_session_start "$home" "$root" "$fakebin:$BASE_PATH"
 }
 
@@ -599,6 +613,11 @@ EOF
   mate="$w/secondmate-$id"
   log="$w/herdr.log"
   state="$w/herdr.state"
+  printf '# Firstmate\n' > "$root/AGENTS.md"
+  printf 'data/\nstate/\nconfig/\nprojects/\n.fm-secondmate-home\n' > "$root/.gitignore"
+  git -C "$root" add AGENTS.md .gitignore
+  git -C "$root" commit -qm 'seed instruction surface'
+  git -C "$root" worktree add -q --detach "$mate" HEAD
   mkdir -p "$mate/bin" "$mate/data" "$mate/state" "$mate/config" "$mate/projects"
   printf '%s\n' "$id" > "$mate/.fm-secondmate-home"
   printf '# Firstmate\n' > "$mate/AGENTS.md"
@@ -630,8 +649,8 @@ EOF
 run_session_start_herdr_secondmate() {
   local root=$1 home=$2 fakebin=$3 mate=$4 log=$5 state=$6
   FM_BACKEND=herdr FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_STATE="$state" \
-    FM_FAKE_SECOND_MATE_ID="$SESSION_START_HERDR_SECOND_MATE_ID" \
-    FM_FAKE_HARNESS_PID=$$ \
+    FM_FAKE_SECOND_MATE_ID="$SESSION_START_HERDR_SECOND_MATE_ID" FM_FAKE_SECOND_MATE_HOME="$mate" \
+    FM_FAKE_HARNESS_PID=$$ FM_FAKE_HEALTH_SCRIPT="$ROOT/bin/fm-secondmate-health.sh" \
     run_session_start "$home" "$root" "$fakebin:$BASE_PATH"
 }
 

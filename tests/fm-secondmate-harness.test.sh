@@ -2507,7 +2507,7 @@ test_config_reread_bootstrap_path_and_spawn_flexibility() {
 }
 
 test_bootstrap_respawns_before_config_reread() {
-  local w head fakebin log report stale
+  local w head fakebin log report stale out
   w=$(new_world config-reread-respawn-order)
   head=$(git -C "$w/main" rev-parse HEAD)
   add_sm_worktree "$w" sm "$head"
@@ -2530,13 +2530,19 @@ cat > "$w/main/bin/fm-spawn.sh" <<SH
 printf '%s' spawn >> '$log'
 printf '%s' codex > '$w/sm/config/crew-harness'
 printf '%s\n' 7500 > '$w/sm/config/startup-memory-budget'
+printf 'worktree=%s\nproject=%s\n' '$w/sm' '$w/sm' >> '$w/home/state/sm.meta'
+printf '%s\n' '$$' > '$w/sm/state/.lock'
+FM_HOME='$w/sm' FM_STATE_OVERRIDE='' FM_ROOT_OVERRIDE='$w/sm' \
+  '$ROOT/bin/fm-secondmate-health.sh' record
 SH
   chmod +x "$w/main/bin/fm-spawn.sh"
   fakebin=$(make_fake_toolchain "$w")
   cat > "$fakebin/tmux" <<SH
 #!/usr/bin/env bash
 case "\$*" in
-  *display-message*'#{pane_current_command}'*) printf '%s' zsh ;;
+  list-windows*) printf '%s\n' fm-sm ;;
+  *display-message*'#{pane_current_command}'*)
+    if [ -f '$w/sm/state/.session-revision' ]; then printf '%s' codex; else printf '%s' zsh; fi ;;
   *display-message*'#{pane_id}'*) printf '%s' '%1' ;;
   *display-message*'#{cursor_y}'*) printf '%s' 0 ;;
   *capture-pane*) printf '❯\n'
@@ -2545,9 +2551,12 @@ case "\$*" in
 esac
 SH
   chmod +x "$fakebin/tmux"
-  PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
+  printf '#!/usr/bin/env bash\nprintf "codex\\n"\n' > "$fakebin/ps"
+  chmod +x "$fakebin/ps"
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
     FM_SEND_SETTLE=0 FM_FAKE_TMUX_LOG="$log" \
-    "$ROOT/bin/fm-bootstrap.sh" >/dev/null 2>&1
+    "$ROOT/bin/fm-bootstrap.sh" 2>&1)
+  assert_not_contains "$out" "SECONDMATE_LIVENESS:" "the replacement must pass health verification"
   assert_contains "$(cat "$log")" "spawn" \
     "bootstrap did not respawn the dead secondmate"
   assert_not_contains "$(cat "$log")" "send-keys" \

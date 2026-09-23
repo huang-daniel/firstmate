@@ -716,6 +716,7 @@ secondmate_home_report() {  # <meta> <id>
   preflight_wait=${FM_BOOTSTRAP_SECONDMATE_PREFLIGHT_WAIT:-10}
   case "$preflight_wait" in ''|*[!0-9]*) preflight_wait=10 ;; esac
   [ "$preflight_wait" -gt 0 ] 2>/dev/null || preflight_wait=10
+  # shellcheck source=bin/fm-timeout-lib.sh
   . "$SCRIPT_DIR/fm-timeout-lib.sh"
   remote_host=$(fm_meta_get "$meta" remote_host)
   if [ -n "$remote_host" ]; then

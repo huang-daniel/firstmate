@@ -288,6 +288,7 @@ cmd_verify() {
   fi
   parent_state
   mate_meta "$id"
+  # shellcheck source=bin/fm-timeout-lib.sh
   . "$SCRIPT_DIR/fm-timeout-lib.sh"
   deadline=$(($(date +%s) + wait))
   reason=""
