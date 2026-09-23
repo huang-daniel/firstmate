@@ -2070,17 +2070,29 @@ test_stand_down_preserves_an_authenticated_merge_watch() {
 }
 
 test_relaunch_preserves_an_authenticated_merge_watch() {
-  local dir out rc pr_url
-  dir=$(new_case relaunch-pr-watch sdp2)
-  pr_url=https://github.com/example/repo/pull/502
-  stage_done_ship_with_authenticated_pr "$dir" sdp2 "$pr_url"
-  make_no_run_nm_stub "$dir"
+  local dir out rc pr_url trace_mode traceparent
+  for trace_mode in off on; do
+    dir=$(new_case "relaunch-pr-watch-$trace_mode" sdp2)
+    pr_url=https://github.com/example/repo/pull/502
+    stage_done_ship_with_authenticated_pr "$dir" sdp2 "$pr_url"
+    assert_authenticated_merge_watch "$dir" sdp2 "$pr_url" \
+      "the merge watch must already be authenticated before relaunch"
+    make_no_run_nm_stub "$dir"
+    printf '%s\n' "$$" > "$dir/home/state/.lock"
+    printf '%s %s\n' "$$" "$trace_mode" > "$dir/home/state/.trace-context-effective"
 
-  out=$(run_control "$dir" sdp2 relaunch --note "the PR needs a follow-up fix"); rc=$?
-  expect_code 0 "$rc" "relaunch should succeed"$'\n'"$out"
-  assert_authenticated_merge_watch "$dir" sdp2 "$pr_url" \
-    "relaunch must not invalidate the task's authenticated merge watch"
-  pass "fm-control relaunch: an authenticated merge watch survives replacing the agent"
+    out=$(run_control "$dir" sdp2 relaunch --note "the PR needs a follow-up fix"); rc=$?
+    expect_code 0 "$rc" "relaunch should succeed with tracing $trace_mode"$'\n'"$out"
+    traceparent=$(meta_field "$dir" sdp2 traceparent)
+    if [ "$trace_mode" = on ]; then
+      fm_trace_context_valid "$traceparent" || fail "trace-enabled relaunch must publish a valid carrier"
+    else
+      [ -z "$traceparent" ] || fail "trace-disabled relaunch must not publish a carrier"
+    fi
+    assert_authenticated_merge_watch "$dir" sdp2 "$pr_url" \
+      "relaunch with tracing $trace_mode must not invalidate the task's authenticated merge watch"
+    pass "fm-control relaunch: an authenticated merge watch survives replacing the agent with tracing $trace_mode"
+  done
 }
 
 # The trailer contract stays a genuine refusal: a hand edit that appends an
