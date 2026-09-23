@@ -1,0 +1,28 @@
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+contributions: jq unavailable; coverage is unconfirmed
+armed: state/livewatch.check.sh
+Authenticated merge watch: https://github.com/huang-daniel/firstmate/pull/1
+stood-down livewatch endpoint=closed backend=tmux closed=lab:fm-livewatch worktree=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M379ASV52RQ0VH46GGWQ0Y0V/.live-pr-watch/wt
+Authenticated merge watch: https://github.com/huang-daniel/firstmate/pull/1
+stood-down livewatch endpoint=already-closed backend=tmux closed=lab:fm-livewatch worktree=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M379ASV52RQ0VH46GGWQ0Y0V/.live-pr-watch/wt
+Authenticated merge watch: https://github.com/huang-daniel/firstmate/pull/1
+window=lab:fm-livewatch
+endpoint_task_id=livewatch
+worktree=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M379ASV52RQ0VH46GGWQ0Y0V/.live-pr-watch/wt
+project=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M379ASV52RQ0VH46GGWQ0Y0V/.live-pr-watch/project
+harness=claude
+kind=ship
+mode=direct-PR
+yolo=off
+backend=tmux
+model=default
+effort=default
+endpoint_closed=lab:fm-livewatch
+pr=https://github.com/huang-daniel/firstmate/pull/1
+Malformed trailing metadata rejected.

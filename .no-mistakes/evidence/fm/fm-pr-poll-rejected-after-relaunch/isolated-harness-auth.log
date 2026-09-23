@@ -1,0 +1,8 @@
+{
+  "loggedIn": false,
+  "authMethod": "none",
+  "apiProvider": "firstParty",
+  "analyticsDisabled": false,
+  "projectsDirectory": "/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M379ASV52RQ0VH46GGWQ0Y0V/.auth-probe/projects",
+  "configDirectory": "/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M379ASV52RQ0VH46GGWQ0Y0V/.auth-probe"
+}
