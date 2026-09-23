@@ -634,6 +634,9 @@ case "\$cmd \$sub" in
       exit 0
     fi
     ;;
+  "pane process-info")
+    printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":%s,"foreground_processes":[{"pid":%s,"name":"claude","argv":["claude"]}]}}}\n' "\${4:-}" "$$" "$$"
+    ;;
   "agent get")
     if [ "\$arg" = "${stale#*:}" ]; then
       printf '{"error":{"code":"agent_not_found","message":"gone"}}\n' >&2
@@ -674,6 +677,7 @@ test_nudge_retry_uses_fresh_herdr_endpoint_after_respawn() {
     printf 'home=%s/sm-instr\n' "$w"
   } > "$meta"
 
+  mkdir -p "$w/sm-instr/state"
   spawn_stub="$w/spawn-stub.sh"
   cat > "$spawn_stub" <<SH
 #!/usr/bin/env bash
@@ -684,12 +688,26 @@ meta="\$FM_HOME/state/\$id.meta"
 sed -i.bak "s/^window=.*/window=$fresh/" "\$meta" 2>/dev/null || \
   sed -i "s/^window=.*/window=$fresh/" "\$meta"
 rm -f "\$meta.bak"
+cat >> "\$meta" <<'META'
+worktree=$w/sm-instr
+project=$w/sm-instr
+endpoint_task_id=sm-instr
+herdr_session=default
+herdr_workspace_id=wA
+herdr_tab_id=t2
+herdr_pane_id=${fresh#*:}
+META
+printf '%s\n' '$$' > '$w/sm-instr/state/.lock'
+FM_HOME='$w/sm-instr' FM_STATE_OVERRIDE='' FM_ROOT_OVERRIDE='$w/sm-instr' \
+  '$ROOT/bin/fm-secondmate-health.sh' record
 exit 0
 SH
   chmod +x "$spawn_stub"
   cp "$spawn_stub" "$w/main/bin/fm-spawn.sh"
 
   herdrfb=$(make_nudge_herdr_fake "$w/herdr" "$stale" "$fresh")
+  printf '#!/usr/bin/env bash\nprintf "claude\\n"\n' > "$herdrfb/ps"
+  chmod +x "$herdrfb/ps"
   toolchain=$(make_fake_toolchain "$w")
   if ! add_real_jq "$toolchain"; then
     pass "T8b nudge selector herdr respawn skipped without jq"
@@ -699,6 +717,8 @@ SH
     FM_SEND_SETTLE=0 \
     FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
     "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+
+  assert_not_contains "$out" "SECONDMATE_LIVENESS:" "the replacement must pass health verification"
 
   # The nudge now rides the durable inbox: a stale endpoint can only swallow
   # the best-effort doorbell, never the steer itself, so the nudge is SENT

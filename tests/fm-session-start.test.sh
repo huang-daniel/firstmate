@@ -356,7 +356,7 @@ case "${1:-}" in
     fi
     if [ -e "$spawned" ]; then
       case "$format" in
-        *pane_current_command*) printf '%s\n' node ;;
+        *pane_current_command*) printf '%s\n' pi ;;
         *) printf '%%1\n' ;;
       esac
       exit 0
@@ -399,6 +399,9 @@ case "${1:-}" in
   new-window)
     printf '%s\n' "$*" >> "$log"
     : > "$spawned"
+    printf '%s\n' "$FM_FAKE_HARNESS_PID" > "$FM_FAKE_SECOND_MATE_HOME/state/.lock"
+    FM_HOME="$FM_FAKE_SECOND_MATE_HOME" FM_STATE_OVERRIDE='' FM_ROOT_OVERRIDE="$FM_FAKE_SECOND_MATE_HOME" \
+      "$FM_FAKE_HEALTH_SCRIPT" record || exit 1
     printf '%%1\n'
     exit 0
     ;;
@@ -444,6 +447,9 @@ case "${1:-} ${2:-}" in
     ;;
   "tab create")
     : > "$spawned"
+    printf '%s\n' "$FM_FAKE_HARNESS_PID" > "$FM_FAKE_SECOND_MATE_HOME/state/.lock"
+    FM_HOME="$FM_FAKE_SECOND_MATE_HOME" FM_STATE_OVERRIDE='' FM_ROOT_OVERRIDE="$FM_FAKE_SECOND_MATE_HOME" \
+      "$FM_FAKE_HEALTH_SCRIPT" record || exit 1
     printf '%s\n' '{"result":{"tab":{"tab_id":"t-new"},"root_pane":{"pane_id":"p-new"}}}'
     ;;
   "pane list")
@@ -465,6 +471,9 @@ case "${1:-} ${2:-}" in
       printf '%s\n' '{"error":{"code":"pane_not_found"}}' >&2
       exit 1
     fi
+    ;;
+  "pane process-info")
+    printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":%s,"foreground_processes":[{"pid":%s,"name":"pi","argv":["pi"]}]}}}\n' "${4:-}" "$FM_FAKE_HARNESS_PID" "$FM_FAKE_HARNESS_PID"
     ;;
   "agent get")
     if [ "${3:-}" = p-new ] && [ -e "$spawned" ]; then
@@ -558,6 +567,11 @@ EOF
   mate="$w/secondmate-$id"
   log="$w/tmux.log"
   spawned="$w/tmux.spawned"
+  printf '# Firstmate\n' > "$root/AGENTS.md"
+  printf 'data/\nstate/\nconfig/\nprojects/\n.fm-secondmate-home\n' > "$root/.gitignore"
+  git -C "$root" add AGENTS.md .gitignore
+  git -C "$root" commit -qm 'seed instruction surface'
+  git -C "$root" worktree add -q --detach "$mate" HEAD
   mkdir -p "$mate/bin" "$mate/data" "$mate/state" "$mate/config" "$mate/projects"
   printf '%s\n' "$id" > "$mate/.fm-secondmate-home"
   printf '# Firstmate\n' > "$mate/AGENTS.md"
@@ -585,7 +599,7 @@ run_session_start_secondmate() {
   TMUX='' FM_BACKEND=tmux FM_FAKE_TMUX_MODE="$mode" FM_FAKE_TMUX_LOG="$log" \
     FM_FAKE_TMUX_SPAWNED="$spawned" FM_FAKE_SECOND_MATE_HOME="$mate" \
     FM_FAKE_SECOND_MATE_ID="$SESSION_START_SECOND_MATE_ID" \
-    FM_FAKE_HARNESS_PID=$$ \
+    FM_FAKE_HARNESS_PID=$$ FM_FAKE_HEALTH_SCRIPT="$ROOT/bin/fm-secondmate-health.sh" \
     run_session_start "$home" "$root" "$fakebin:$BASE_PATH"
 }
 
@@ -599,6 +613,11 @@ EOF
   mate="$w/secondmate-$id"
   log="$w/herdr.log"
   state="$w/herdr.state"
+  printf '# Firstmate\n' > "$root/AGENTS.md"
+  printf 'data/\nstate/\nconfig/\nprojects/\n.fm-secondmate-home\n' > "$root/.gitignore"
+  git -C "$root" add AGENTS.md .gitignore
+  git -C "$root" commit -qm 'seed instruction surface'
+  git -C "$root" worktree add -q --detach "$mate" HEAD
   mkdir -p "$mate/bin" "$mate/data" "$mate/state" "$mate/config" "$mate/projects"
   printf '%s\n' "$id" > "$mate/.fm-secondmate-home"
   printf '# Firstmate\n' > "$mate/AGENTS.md"
@@ -630,8 +649,8 @@ EOF
 run_session_start_herdr_secondmate() {
   local root=$1 home=$2 fakebin=$3 mate=$4 log=$5 state=$6
   FM_BACKEND=herdr FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_STATE="$state" \
-    FM_FAKE_SECOND_MATE_ID="$SESSION_START_HERDR_SECOND_MATE_ID" \
-    FM_FAKE_HARNESS_PID=$$ \
+    FM_FAKE_SECOND_MATE_ID="$SESSION_START_HERDR_SECOND_MATE_ID" FM_FAKE_SECOND_MATE_HOME="$mate" \
+    FM_FAKE_HARNESS_PID=$$ FM_FAKE_HEALTH_SCRIPT="$ROOT/bin/fm-secondmate-health.sh" \
     run_session_start "$home" "$root" "$fakebin:$BASE_PATH"
 }
 
@@ -1894,9 +1913,9 @@ EOF
 # the command still exits 0 so the session can open.
 
 # make_hanging_tool <fakebin> <name>: a real, unkillable-by-timeout-alone
-# subprocess of the digest. `git` is the honest choice - the bootstrap stage
-# shells out to it - and it also proves the bound reaches a GRANDCHILD, because
-# bootstrap runs it inside its own command substitution.
+# subprocess of the digest. `git` first runs while the lock stage records the
+# launch revision, before bootstrap, and proves the bound reaches a GRANDCHILD
+# because the health recorder runs it inside its own command substitution.
 make_hanging_tool() {
   local fakebin=$1 name=$2
   cat > "$fakebin/$name" <<'SH'
@@ -1956,13 +1975,13 @@ EOF
 
   expect_code 0 "$status" "a truncated session start must still exit 0 so the session can open"
   assert_contains "$out" "SESSION START - $home" "the truncated digest lost the output it had already produced"
-  assert_contains "$out" "LOCK" "the truncated digest lost a stage that had completed"
+  assert_contains "$out" "lock acquired" "the truncated digest lost its completed lock acquisition"
   assert_contains "$out" "STARTUP TRUNCATED - SESSION START HIT ITS" "a truncated session start did not say so"
   assert_contains "$out" "RUNTIME BOUND" "the truncation banner did not name the bound it hit"
-  assert_contains "$out" 'stopped during the "bootstrap" stage' "the truncation banner did not name the incomplete stage"
+  assert_contains "$out" 'stopped during the "lock" stage' "the truncation banner did not name the incomplete stage"
   assert_contains "$out" "RECONCILE these stages" "the truncation banner did not tell the agent what to reconcile"
-  assert_contains "$out" "wake-queue supervision-instructions read-once fleet-state network-checks context next-step" \
-    "the truncation banner did not list every stage that never ran"
+  assert_contains "$out" "lock bootstrap wake-queue supervision-instructions read-once fleet-state network-checks context next-step" \
+    "the truncation banner did not list every unfinished stage"
   assert_not_contains "$out" "NEXT STEP" "a truncated digest claimed to have reached its closing reminder"
   assert_absent "$home/state/.session-start-complete" \
     "a truncated startup recorded itself as complete"
@@ -2675,6 +2694,48 @@ EOF
 
   pass "session start rejects Pi loaded markers from previous sessions"
 }
+
+test_launch_revision_requires_new_lock() {
+  local rec root home fakebin out before parent
+  rec=$(new_world launch-revision)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  printf '# initial instructions\n' > "$root/AGENTS.md"
+  git -C "$root" add AGENTS.md
+  git -C "$root" commit -qm instructions
+  parent="${home%/home}/parent"
+  mkdir -p "$parent/state"
+  printf 'kind=secondmate\nhome=%s\n' "$home" > "$parent/state/sm1.meta"
+  out=$(run_named_harness_session_start claude "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "lock acquired" "fresh acquisition must succeed"
+  assert_present "$home/state/.session-revision" "fresh acquisition must record launch evidence"
+  before=$(cat "$home/state/.session-revision")
+  assert_contains "$before" "pid=$SESSION_START_TEST_HARNESS_PID" "record must name the new lock holder"
+  assert_contains "$before" "commit=$(git -C "$root" rev-parse HEAD)" "record must capture the launch revision"
+  printf '# updated instructions\n' > "$root/AGENTS.md"
+  git -C "$root" commit -qam updated
+  run_named_harness_session_start claude "$home" "$root" "$fakebin:$BASE_PATH" >/dev/null
+  [ "$(cat "$home/state/.session-revision")" = "$before" ] || fail "same-pid rerun rewrote launch evidence"
+  rm "$home/state/.session-revision"
+  run_named_harness_session_start claude "$home" "$root" "$fakebin:$BASE_PATH" >/dev/null
+  assert_absent "$home/state/.session-revision" "existing session must not create missing launch evidence"
+  out=$(PATH="$fakebin:$BASE_PATH" FM_FAKE_HARNESS_PID="$SESSION_START_TEST_HARNESS_PID" FM_HOME="$parent" "$ROOT/bin/fm-secondmate-health.sh" stale sm1)
+  assert_contains "$out" "has not recorded the revision it started on" "existing session without evidence must remain unknown"
+  printf '999999999\n' > "$home/state/.lock"
+  run_named_harness_session_start claude "$home" "$root" "$fakebin:$BASE_PATH" >/dev/null
+  assert_present "$home/state/.session-revision" "reclaimed dead holder must record launch evidence"
+  pass "session launch evidence requires fresh lock acquisition"
+}
+
+if [ "${1:-}" = launch-revision ]; then
+  test_launch_revision_requires_new_lock
+  exit 0
+fi
+
+test_launch_revision_requires_new_lock
 
 test_context_digest_absent_empty_present
 test_lock_refusal_read_only_path

@@ -27,7 +27,9 @@
 # was bootstrap-then-lock):
 #
 #   1. lock          - acquire the per-home session lock FIRST, before any
-#                       mutating step runs.
+#                       mutating step runs. A full start that acquires a new
+#                       lock pid records the revision this session started on
+#                       (bin/fm-secondmate-health.sh record).
 #   2. bootstrap      - home-local stale Herdr projection cleanup runs only
 #                       when this session actually holds the lock. Detect-only
 #                       diagnostics always run. Bootstrap's six MUTATING sweeps
@@ -628,6 +630,7 @@ fi
 # --- 1. lock -----------------------------------------------------------
 stage lock
 subsection "LOCK"
+LOCK_PID_BEFORE=$(sed -n '1p' "$STATE/.lock" 2>/dev/null || true)
 LOCK_OUT=$("$SCRIPT_DIR/fm-lock.sh" 2>&1)
 LOCK_RC=$?
 printf '%s\n' "$LOCK_OUT"
@@ -661,6 +664,10 @@ if [ "$READ_ONLY" -eq 0 ]; then
   # session-start result. A context re-emit is not another session start.
   if [ "$REEMIT" -eq 0 ]; then
     "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+    LOCK_PID_AFTER=$(sed -n '1p' "$STATE/.lock" 2>/dev/null || true)
+    if [ -n "$LOCK_PID_AFTER" ] && [ "$LOCK_PID_AFTER" != "$LOCK_PID_BEFORE" ]; then
+      "$SCRIPT_DIR/fm-secondmate-health.sh" record >/dev/null 2>&1 || true
+    fi
   fi
   # Every network call and the potentially slow inactive-outcome startup scan
   # are launched HERE, detached and bounded, so they run concurrently with the

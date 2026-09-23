@@ -20,7 +20,7 @@
 #                 "SECONDMATE_SYNC: secondmate <id>: skipped: <reason>",
 #                 "NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>",
 #                 "BOOTSTRAP_INFO: nudged fm-<id> with '<message>'",
-#                 "SECONDMATE_LIVENESS: secondmate <id>: skipped: <reason>|respawn failed after <cause>: <reason>",
+#                 "SECONDMATE_LIVENESS: secondmate <id>: skipped: <reason>|respawn failed after <cause>: <reason>|respawn refused by a lock collision after <cause>: <reason>|lock collision: <reason>|unknown after <cause>: <reason>",
 #                 "SECONDMATE_HANDOFF: secondmate <id>: pending delivery: <n> item(s)",
 #                 "FMX: X mode on ..." or "FMX: X mode off ...".
 #          When a RUNNING secondmate home is fast-forwarded, its target is
@@ -43,12 +43,27 @@
 #          syncs or inheritance failures for live secondmate homes, plus
 #          quarantine diagnostics for divergent shared captain-preference
 #          copies; no-op/current and successful updates stay quiet.
+#          FM_BOOTSTRAP_SECONDMATE_PREFLIGHT_WAIT bounds the home-lock read
+#          (default 10 seconds).
+#          FM_BOOTSTRAP_SECONDMATE_VERIFY_WAIT bounds replacement verification
+#          (default 15 seconds, within the startup network stage budget).
 #          SECONDMATE_LIVENESS lines report only actionable failures from the
 #          recovery-grade state owned by bin/fm-backend.sh's
 #          fm_backend_agent_state: skipped distinguishes an existing ambiguous
 #          process, an unreadable target, and an unverified backend; respawn
 #          failed names whether the endpoint was missing or agent-less.
-#          Already-live and successfully relaunched secondmates are silent
+#          Before relaunching, the sweep reads the mate home's own lock
+#          (bin/fm-secondmate-health.sh self): a live session already holding
+#          it would refuse the replacement its lock and leave it read-only, so
+#          the relaunch is not attempted and a `lock collision` line names the
+#          holder or an unreadable lock check. A relaunch fm-spawn refused on one of its own locks is named
+#          `respawn refused by a lock collision`. Every outcome that leaves a
+#          home without a verified running mate, including `unknown`, also
+#          appends one durable `check: secondmate-liveness <id>: ...` wake
+#          (deduplicated by key while queued), so it surfaces even when the
+#          digest already printed the line.
+#          Replacement verification uses fm-secondmate-health.sh verify.
+#          Already-live and verified replacement secondmates are silent
 #          unless FM_BOOTSTRAP_VERBOSE_FACTS=1 requests BOOTSTRAP_INFO facts.
 #          A TANGLE line means the firstmate primary checkout (FM_ROOT) is stranded
 #          on a feature branch instead of its default branch - a crewmate's work
@@ -684,6 +699,89 @@ report_relaunch() {  # <id> <cause> <where>
   echo "BOOTSTRAP_INFO: secondmate $1 relaunched after $2 ($3)"
 }
 
+# Surface a liveness outcome that leaves a home without a running mate as a
+# durable check wake as well as a report line, once per queued key.
+secondmate_liveness_report_mateless() {  # <id> <line>
+  local id=$1 line=$2 key
+  echo "$line"
+  key="secondmate-liveness-$id"
+  if fm_wake_queued_keys check 2>/dev/null | grep -Fxq -- "$key"; then
+    return 0
+  fi
+  fm_wake_append check "$key" "check: secondmate-liveness $id: ${line#SECONDMATE_LIVENESS: secondmate "$id": }" 2>/dev/null || true
+}
+
+secondmate_home_report() {  # <meta> <id>
+  local meta=$1 id=$2 home remote_host preflight_wait
+  preflight_wait=${FM_BOOTSTRAP_SECONDMATE_PREFLIGHT_WAIT:-10}
+  case "$preflight_wait" in ''|*[!0-9]*) preflight_wait=10 ;; esac
+  [ "$preflight_wait" -gt 0 ] 2>/dev/null || preflight_wait=10
+  # shellcheck source=bin/fm-timeout-lib.sh
+  . "$SCRIPT_DIR/fm-timeout-lib.sh"
+  remote_host=$(fm_meta_get "$meta" remote_host)
+  if [ -n "$remote_host" ]; then
+    fm_run_timed "$preflight_wait" "$SCRIPT_DIR/fm-on.sh" "$id" fm-secondmate-health.sh self < /dev/null 2>/dev/null
+  else
+    home=$(fm_meta_get "$meta" home)
+    [ -n "$home" ] && [ -d "$home" ] || return 1
+    FM_HOME="$home" FM_STATE_OVERRIDE='' FM_ROOT_OVERRIDE='' \
+      fm_run_timed "$preflight_wait" "$SCRIPT_DIR/fm-secondmate-health.sh" self 2>/dev/null
+  fi
+}
+
+# Relaunch one mate after the classifier authorized it, unless its home lock
+# would refuse the replacement. Reports every mate-less outcome durably.
+secondmate_liveness_relaunch() {  # <meta> <id> <cause> <where> [kill-backend kill-target]
+  local meta=$1 id=$2 cause=$3 where=$4 holder out reason report live expect verify_wait
+  verify_wait=${FM_BOOTSTRAP_SECONDMATE_VERIFY_WAIT:-15}
+  case "$verify_wait" in ''|*[!0-9]*) verify_wait=15 ;; esac
+  if ! report=$(secondmate_home_report "$meta" "$id"); then
+    report=""
+  fi
+  holder=$(printf '%s\n' "$report" | sed -n 's/^lock_pid=//p' | tail -1)
+  live=$(printf '%s\n' "$report" | sed -n 's/^lock_live=//p' | tail -1)
+  expect=$(printf '%s\n' "$report" | sed -n 's/^head_instr=//p' | tail -1)
+  if [ "$live" != yes ] && [ "$live" != no ]; then
+    secondmate_liveness_report_mateless "$id" \
+      "SECONDMATE_LIVENESS: secondmate $id: lock collision: its home lock could not be checked; not relaunched ($where)"
+    return 0
+  fi
+  if [ "$live" = yes ]; then
+    secondmate_liveness_report_mateless "$id" \
+      "SECONDMATE_LIVENESS: secondmate $id: lock collision: its home lock is held by live session pid $holder although its recorded endpoint shows $cause, so a relaunch would be refused that lock and leave the home without a working mate; not relaunched - find what pid $holder is before relaunching ($where)"
+    return 0
+  fi
+  if [ -z "$expect" ]; then
+    secondmate_liveness_report_mateless "$id" \
+      "SECONDMATE_LIVENESS: secondmate $id: unknown after $cause: intended instruction identity could not be read; not relaunched ($where)"
+    return 0
+  fi
+  [ "$#" -lt 6 ] || fm_backend_kill "$5" "$6" 2>/dev/null || true
+  if out=$(FM_SPAWN_NO_GUARD=1 "$FM_ROOT/bin/fm-spawn.sh" "$id" --secondmate 2>&1); then
+    if ! out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+      "$SCRIPT_DIR/fm-secondmate-health.sh" verify "$id" \
+      --prior-pid "$holder" --expect-instr "$expect" --wait "$verify_wait" 2>&1); then
+      secondmate_liveness_report_mateless "$id" \
+        "SECONDMATE_LIVENESS: secondmate $id: unknown after $cause: $(first_line "$out")"
+      return 0
+    fi
+    secondmate_note_respawned "$id"
+    report_relaunch "$id" "$cause" "$where"
+    return 0
+  fi
+  reason=$(first_line "$out")
+  case "$out" in
+    *"another spawn is already creating task"*|*"another lifecycle action is already running"*|*"task set is locked by another operation"*)
+      secondmate_liveness_report_mateless "$id" \
+        "SECONDMATE_LIVENESS: secondmate $id: respawn refused by a lock collision after $cause: $reason"
+      ;;
+    *)
+      secondmate_liveness_report_mateless "$id" \
+        "SECONDMATE_LIVENESS: secondmate $id: respawn failed after $cause: $reason"
+      ;;
+  esac
+}
+
 secondmate_liveness_sweep() {
   # Idempotent secondmate liveness guarantee - SESSION START ONLY. The detailed
   # state machine and its only recovery-authorizing states are owned by
@@ -698,6 +796,8 @@ secondmate_liveness_sweep() {
   # scope and requires a separate periodic signal.
   [ -d "$STATE" ] || return 0
   local meta id remote_host label __fm_timing_stamp parallel=0
+  # shellcheck source=bin/fm-wake-lib.sh disable=SC1091
+  . "$SCRIPT_DIR/fm-wake-lib.sh"
   SECONDMATE_RESPAWNED_IDS=""
   if bootstrap_parallel_begin; then
     parallel=1
@@ -791,13 +891,8 @@ secondmate_liveness_one() {  # <meta> <id>
         [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" != 1 ] || echo "BOOTSTRAP_INFO: remote secondmate $id already live (host=$remote_host)"
         ;;
       dead|missing)
-        cause="remote endpoint $agent_state on its configured host"
-        if out=$(FM_SPAWN_NO_GUARD=1 "$FM_ROOT/bin/fm-spawn.sh" "$id" --secondmate 2>&1); then
-          secondmate_note_respawned "$id"
-          report_relaunch "$id" "$cause" "host=$remote_host"
-        else
-          echo "SECONDMATE_LIVENESS: secondmate $id: respawn failed after $cause: $(first_line "$out")"
-        fi
+        secondmate_liveness_relaunch "$meta" "$id" \
+          "remote endpoint $agent_state on its configured host" "host=$remote_host"
         ;;
       ambiguous|unreadable|unverified)
         echo "SECONDMATE_LIVENESS: secondmate $id: skipped: remote endpoint state is $agent_state on $remote_host"
@@ -822,19 +917,13 @@ secondmate_liveness_one() {  # <meta> <id>
         echo "BOOTSTRAP_INFO: secondmate $id already live (backend=$backend)"
       fi
       ;;
-    dead|missing)
-      if [ "$agent_state" = dead ]; then
-        cause="confirmed agent absence on existing endpoint"
-        fm_backend_kill "$backend" "$target" 2>/dev/null || true
-      else
-        cause="recorded endpoint confidently missing"
-      fi
-      if out=$(FM_SPAWN_NO_GUARD=1 "$FM_ROOT/bin/fm-spawn.sh" "$id" --secondmate 2>&1); then
-        secondmate_note_respawned "$id"
-        report_relaunch "$id" "$cause" "backend=$backend"
-      else
-        echo "SECONDMATE_LIVENESS: secondmate $id: respawn failed after $cause: $(first_line "$out")"
-      fi
+    dead)
+      secondmate_liveness_relaunch "$meta" "$id" \
+        "confirmed agent absence on existing endpoint" "backend=$backend" "$backend" "$target"
+      ;;
+    missing)
+      secondmate_liveness_relaunch "$meta" "$id" \
+        "recorded endpoint confidently missing" "backend=$backend"
       ;;
     ambiguous)
       echo "SECONDMATE_LIVENESS: secondmate $id: skipped: existing endpoint has ambiguous agent process (backend=$backend)"
