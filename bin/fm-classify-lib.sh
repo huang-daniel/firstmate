@@ -1684,8 +1684,8 @@ status_retain_task_timeline() {  # <state> <data> <task-id>
         done:merged\ *) milestone=merged ;;
         *)
           if [ "$pr" != - ]; then
-            milestone=pr-ready
-          elif [ "$mode" = no-mistakes ] && [ "$verb" = done ]; then
+            milestone="pr-ready"
+          elif [ "$mode" = no-mistakes ] && [ "$verb" = "done" ]; then
             milestone=implementation-complete
           fi
           ;;
