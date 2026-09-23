@@ -231,6 +231,7 @@ Endpoint death is the only process-level override and yields dead; child process
 Each record is bound to an incarnation token minted when the task's wiring is armed, so an event from a superseded incarnation is rejected rather than applied, and a record left behind by one classifies unknown.
 Four rendered-text checks deliberately remain outside this contract because they answer delivery questions: submit acknowledgement, the away-mode supervisor-pane busy guard, and the tail rung of `fm-send.sh`'s typed-plane mid-turn refusal consume the shared delivery-footer matcher owned by `bin/fm-composer-lib.sh`, while `bin/fm-pending-reply-lib.sh` owns the secondmate delivery-confirmation observation.
 All are harness-scoped rather than a global pattern union, and none is a recorded worker state source.
+That mid-turn refusal also reads this contract for exactly one harness: muse has no verified rendered footer, so a muse target is refused only on the exact `busy muse-session-log` verdict.
 
 ## Runtime session backends
 

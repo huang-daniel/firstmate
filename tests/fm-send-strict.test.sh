@@ -15,7 +15,8 @@
 # whatever the backend's native agent-state claims - while text that merely
 # queues goes through: plain prose to a mid-turn worker, "$"-prefixed prose to a
 # mid-turn codex worker, a marked secondmate request whose marker makes it chat,
-# and anything at all to a target this home records no harness for.
+# and anything at all to a target this home records no harness for. gemini is
+# refused on its own busy row and muse on its open session-log run.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -93,9 +94,12 @@ case "${1:-}" in
     # the composer box - the row the pane-tail busy detector reads. It is
     # independent of the box's contents on purpose, so the pane can be busy
     # with an EMPTY composer, which is the state a worker already driving its
-    # own run is actually in.
-    if [ -n "${FM_FAKE_TMUX_BUSY:-}" ]; then
+    # own run is actually in. 1 renders Claude's footer; any other value is
+    # rendered verbatim as another harness's footer row.
+    if [ "${FM_FAKE_TMUX_BUSY:-}" = 1 ]; then
       printf '%s\n' '✻ Baking… (esc to interrupt)'
+    elif [ -n "${FM_FAKE_TMUX_BUSY:-}" ]; then
+      printf '%s\n' "$FM_FAKE_TMUX_BUSY"
     fi
     exit 0 ;;
   list-windows)
@@ -443,6 +447,111 @@ test_typed_send_refuses_an_occupied_target() {
   pass "fm-send typed plane: a prefilled composer and a mid-turn invocation are each refused untyped, while plain prose, an unattributable tail and an idle worker still send"
 }
 
+# gemini's busy proof is its own live-verified status row, `(esc to cancel,
+# <n>s)`, so a mid-turn gemini worker must refuse an invocation exactly as a
+# claude one does. The row is gemini's own: another harness's footer on a
+# gemini pane proves nothing about it, and a gemini pane still takes prose
+# mid-turn and an invocation once idle.
+test_typed_send_refuses_a_mid_turn_gemini_target() {
+  local dir fb home err log rc gemini_busy
+  dir="$TMP_ROOT/typed-gemini"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); home=$(setup_home typedgemini); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
+  fm_write_meta "$home/state/gemini-lane.meta" \
+    "window=sess:fm-gemini-lane" "kind=ship" "harness=gemini"
+  gemini_busy=' ⠸ Begin Counting Methodically (esc to cancel, 9s)'
+
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    FM_FAKE_TMUX_BUSY="$gemini_busy" \
+    "$SEND" gemini-lane "/no-mistakes" >/dev/null 2>"$err"; rc=$?
+  expect_code 1 "$rc" "a typed invocation onto a mid-turn gemini worker must fail, not report a submit"
+  assert_contains "$(cat "$err")" "reads busy" "the gemini refusal must name the mid-turn condition"
+  assert_no_grep 'literal=1' "$log" "a refused mid-turn gemini send must type nothing at all"
+  assert_no_grep 'literal=0 arg=Enter' "$log" "a refused mid-turn gemini send must not submit"
+
+  : > "$log"
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    FM_FAKE_TMUX_BUSY="$gemini_busy" \
+    "$SEND" sess:fm-gemini-lane "when you finish this, rerun the linter" >/dev/null 2>"$err"; rc=$?
+  expect_code 0 "$rc" "plain prose to a mid-turn gemini worker must still be delivered"
+  assert_contains "$(cat "$log")" "literal=1 arg=when you finish this, rerun the linter" \
+    "plain prose to a mid-turn gemini worker must still be typed"
+
+  : > "$log"
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    FM_FAKE_TMUX_BUSY=1 \
+    "$SEND" gemini-lane "/no-mistakes" >/dev/null 2>"$err"; rc=$?
+  expect_code 0 "$rc" "another harness's footer on a gemini pane must not refuse the send"
+  assert_contains "$(cat "$log")" "literal=1 arg=/no-mistakes" \
+    "a gemini pane must not borrow claude's busy footer"
+
+  : > "$log"
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    "$SEND" gemini-lane "/no-mistakes" >/dev/null 2>"$err"; rc=$?
+  expect_code 0 "$rc" "an idle gemini worker must still take the typed send"
+  assert_contains "$(cat "$log")" "literal=1 arg=/no-mistakes" \
+    "an idle gemini worker must still receive the typed text"
+  pass "fm-send typed plane: a mid-turn gemini worker refuses an invocation on its own busy row, while prose, a foreign footer and an idle pane still send"
+}
+
+# muse has no verified rendered busy footer; its one verified busy source is its
+# own session log, whose open run is positive proof of a turn in flight. A muse
+# target therefore refuses an invocation only on that exact verdict: a settled
+# log, a missing binding, and prose to a busy worker all still type.
+write_muse_session_log() {  # <sessions-root> <workspace-root> <run-state: open|settled>
+  local dir="$1/2026/08/05/sess-muse"
+  mkdir -p "$dir"
+  {
+    printf '{"schema_version":1,"payload_type":"runtime.session.metadata","payload":{"kind":"metadata","record":{"workspace_root":"%s"}}}\n' "$2"
+    printf '{"schema_version":1,"payload_type":"runtime.session","payload":{"kind":"run","run_id":"r1","event":{"kind":"started","prompt":"launch brief"}}}\n'
+    if [ "$3" = settled ]; then
+      printf '{"schema_version":1,"payload_type":"runtime.session","payload":{"kind":"run","run_id":"r1","event":{"kind":"terminal","terminal":"completed"}}}\n'
+    fi
+  } > "$dir/session.jsonl"
+}
+
+test_typed_send_refuses_a_mid_turn_muse_target() {
+  local dir fb home err log rc sessions ws
+  dir="$TMP_ROOT/typed-muse"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); home=$(setup_home typedmuse); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
+  sessions="$dir/sessions"; ws="$dir/muse-wt"
+  mkdir -p "$ws"
+  fm_write_meta "$home/state/muse-lane.meta" \
+    "window=sess:fm-muse-lane" "kind=ship" "harness=muse"
+
+  # No binding at all: the verdict is unknown, which settles nothing.
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    "$SEND" muse-lane "/no-mistakes" >/dev/null 2>"$err"; rc=$?
+  expect_code 0 "$rc" "a muse target with no session binding must still take the typed send"
+  assert_contains "$(cat "$log")" "literal=1 arg=/no-mistakes" \
+    "an unknown muse verdict must not withhold the typed text"
+
+  printf 'sessions_root=%s\nworkspace_root=%s\n' "$sessions" "$ws" > "$home/state/muse-lane.muse-session"
+  write_muse_session_log "$sessions" "$ws" open
+  : > "$log"
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    "$SEND" muse-lane "/no-mistakes" >/dev/null 2>"$err"; rc=$?
+  expect_code 1 "$rc" "a typed invocation onto a muse worker with an open run must fail, not report a submit"
+  assert_contains "$(cat "$err")" "reads busy" "the muse refusal must name the mid-turn condition"
+  assert_no_grep 'literal=1' "$log" "a refused mid-turn muse send must type nothing at all"
+  assert_no_grep 'literal=0 arg=Enter' "$log" "a refused mid-turn muse send must not submit"
+
+  : > "$log"
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    "$SEND" sess:fm-muse-lane "when you finish this, rerun the linter" >/dev/null 2>"$err"; rc=$?
+  expect_code 0 "$rc" "plain prose to a mid-turn muse worker must still be delivered"
+  assert_contains "$(cat "$log")" "literal=1 arg=when you finish this, rerun the linter" \
+    "plain prose to a mid-turn muse worker must still be typed"
+
+  write_muse_session_log "$sessions" "$ws" settled
+  : > "$log"
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    "$SEND" muse-lane "/no-mistakes" >/dev/null 2>"$err"; rc=$?
+  expect_code 0 "$rc" "a muse worker whose run settled must take the typed send"
+  assert_contains "$(cat "$log")" "literal=1 arg=/no-mistakes" \
+    "a settled muse session log must not withhold the typed text"
+  pass "fm-send typed plane: a muse worker refuses an invocation only on an open session-log run, while prose, a settled log and a missing binding still send"
+}
+
 # A leading "$" to a codex target is read as a skill invocation when a plane is
 # being chosen, and that reading is a documented over-match: "$200 is the budget
 # cap" and "$HOME" are ordinary text codex never executes. Choosing the wrong
@@ -560,6 +669,8 @@ test_typed_send_refuses_a_mid_turn_non_tmux_target() {
 test_exact_lane_id_send_still_works
 test_key_send_exit_status_follows_delivery
 test_typed_send_refuses_an_occupied_target
+test_typed_send_refuses_a_mid_turn_gemini_target
+test_typed_send_refuses_a_mid_turn_muse_target
 test_dollar_prose_to_a_mid_turn_codex_worker_still_sends
 test_marked_secondmate_invocation_still_sends_into_a_mid_turn_pane
 test_typed_send_refuses_a_mid_turn_non_tmux_target
