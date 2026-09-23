@@ -863,6 +863,11 @@ make_timeline_case() {
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
   cat > "$case_dir/state/task-x1.status" <<'STATUS'
+working [at=1699999999]: implementation complete
+done [at=1700000000]: implemented; SEMANTIC SURFACES TOUCHED: consent, transport; PREFLIGHT DISPOSITION: VERIFIED secret UNVERIFIABLE secret; MERGE RELATIONSHIP: LANDS_AFTER
+SEMANTIC SURFACES TOUCHED: NONE
+PREFLIGHT DISPOSITION: NOT_APPLICABLE secret FAILED secret
+MERGE RELATIONSHIP: <LANDS_BEFORE | LANDS_AFTER | INDEPENDENT>
 working [at=1700000000]: setup done in /home/someone/private/checkout
 paused [at=1700000100]: waiting for a validation slot (2 of 2 occupied)
 working [at=1700000200]: validation slot granted (1 of 2 occupied)
@@ -872,6 +877,9 @@ resolved [at=1700000400] [key=nm-run1-review]: use postgres://admin:hunter2@db.e
 note: DATABASE_URL=postgres://admin:hunter2@db.example.com/prod
 line with no colon and a free-text secret
 done [at=1700000500]: PR https://github.com/example/repo/pull/7 checks green, token=hunter2
+done [at=1700000600]: merged task-x1 https://github.com/example/repo/pull/7
+MERGE RELATIONSHIP: INDEPENDENT
+MERGE RELATIONSHIP: LANDS_BEFORE
 STATUS
   printf '%s\n' "$case_dir"
 }
@@ -886,15 +894,23 @@ test_teardown_retains_a_sanitized_timeline() {
   assert_present "$timeline" "timeline-retained: cleanup did not create the task data directory's timeline"
   expected=$(printf '%s\n' '# task=task-x1' '# project=project' '# kind=ship' '# mode=no-mistakes' \
     '# model=claude-opus-5-5' '# effort=high' \
-    "epoch	event	key	pr" \
-    "1700000000	working	-	-" \
-    "1700000100	slot-wait	-	-" \
-    "1700000200	slot-granted	-	-" \
-    "1700000300	needs-decision	nm-run1-review	-" \
-    "1700000400	resolved	nm-run1-review	-" \
-    "-	other	-	-" \
-    "-	other	-	-" \
-    "1700000500	done	-	https://github.com/example/repo/pull/7")
+    "epoch	event	key	pr	milestone	surfaces	preflight	merge" \
+    "1699999999	working	-	-	implementation-complete	-	-	-" \
+    "1700000000	done	-	-	implementation-complete	2	VERIFIED,UNVERIFIABLE	LANDS_AFTER" \
+    "-	other	-	-	-	NONE	-	-" \
+    "-	other	-	-	-	-	NOT_APPLICABLE,FAILED	-" \
+    "-	other	-	-	-	-	-	-" \
+    "1700000000	working	-	-	-	-	-	-" \
+    "1700000100	slot-wait	-	-	-	-	-	-" \
+    "1700000200	slot-granted	-	-	-	-	-	-" \
+    "1700000300	needs-decision	nm-run1-review	-	-	-	-	-" \
+    "1700000400	resolved	nm-run1-review	-	-	-	-	-" \
+    "-	other	-	-	-	-	-	-" \
+    "-	other	-	-	-	-	-	-" \
+    "1700000500	done	-	https://github.com/example/repo/pull/7	pr-ready	-	-	-" \
+    "1700000600	done	-	https://github.com/example/repo/pull/7	merged	-	-	-" \
+    "-	other	-	-	-	-	-	INDEPENDENT" \
+    "-	other	-	-	-	-	-	LANDS_BEFORE")
   assert_equals "$expected" "$(cat "$timeline")" "timeline-retained: retained rows differ"
   for leaked in hunter2 postgres admin /home/someone /tmp/findings setup findings= secret token; do
     assert_no_grep "$leaked" "$timeline" "timeline-retained: '$leaked' survived sanitization"
@@ -911,7 +927,8 @@ test_timeline_write_failure_is_reported_without_blocking_cleanup() {
     || fail "timeline-unwritable: a failed timeline write aborted cleanup: $(cat "$case_dir/stderr")"
   assert_grep "task task-x1 timeline not retained" "$case_dir/stderr" \
     "timeline-unwritable: cleanup did not report the failed timeline write"
-  assert_absent "$case_dir/state/task-x1.status" "timeline-unwritable: cleanup left the live status log behind"
+  assert_present "$case_dir/state/task-x1.status" "timeline-unwritable: cleanup deleted the only status log"
+  assert_grep "cleanup retained $case_dir/state/task-x1.status" "$case_dir/stderr" "timeline-unwritable: preserved log was not reported"
   assert_absent "$case_dir/state/task-x1.meta" "timeline-unwritable: cleanup left the task record behind"
   pass "a failed timeline write is reported and cleanup still completes"
 }

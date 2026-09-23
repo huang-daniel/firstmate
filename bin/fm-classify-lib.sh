@@ -1600,7 +1600,8 @@ status_presentation_marker_commit() {
 # Header lines start with "# " and carry task, project (the recorded project's
 # basename), kind, mode, model, and effort from state/<task-id>.meta, each
 # reduced to "-" unless it is a short plain token. Then comes the column row
-# "epoch event key pr" and one tab-separated row per nonblank status line:
+# "epoch event key pr milestone surfaces preflight merge" and one tab-separated
+# row per nonblank status line:
 #   epoch  the line's [at=] stamp, or - when absent or malformed
 #   event  working, needs-decision, resolved, blocked, paused, done, or failed;
 #          slot-granted, slot-wait, or slot-lapsed for the fixed lines
@@ -1608,11 +1609,17 @@ status_presentation_marker_commit() {
 #   key    the line's well-formed decision key, or -
 #   pr     on a done or "PR ready" line only, the first https pull-request or
 #          merge-request URL of plain path segments; otherwise -
+#   milestone  implementation-complete, pr-ready, merged, or -
+#   surfaces   NONE or a count of comma/semicolon-separated surfaces, capped at 999
+#   preflight  unique VERIFIED, NOT_APPLICABLE, UNVERIFIABLE, FAILED class words
+#   merge      LANDS_BEFORE, LANDS_AFTER, INDEPENDENT, or -
+# Missing closeout fields are "-"; free-text field values never survive.
 # No other byte of a status line survives: notes, paths, commands, finding
 # text, and anything else that could carry a value are dropped. A failure to
-# write the copy is reported on stderr and never changes cleanup's outcome.
+# write the copy keeps the source status log and is reported on stderr; other
+# runtime cleanup continues.
 status_retain_task_timeline() {  # <state> <data> <task-id>
-  local state=$1 data=$2 task=$3 f meta dir tmp line verb event epoch key note pr field value project
+  local state=$1 data=$2 task=$3 f meta dir tmp line verb event epoch key note pr field value project mode milestone closeout
   f="$state/$task.status"
   meta="$state/$task.meta"
   [ -e "$f" ] || [ -L "$f" ] || return 0
@@ -1625,8 +1632,10 @@ status_retain_task_timeline() {  # <state> <data> <task-id>
     echo "warning: task $task timeline not retained: cannot create $dir" >&2
     return 1
   fi
+  mode=$(grep -m1 "^mode=" "$meta" 2>/dev/null) || mode=
+  mode=${mode#*=}
   tmp="$dir/.timeline.tsv.tmp.$$"
-  {
+  (
     for field in task project kind mode model effort; do
       if [ "$field" = task ]; then
         value=$task
@@ -1637,9 +1646,9 @@ status_retain_task_timeline() {  # <state> <data> <task-id>
       fi
       case "$value" in ''|*[!A-Za-z0-9._:+/-]*) value=- ;; esac
       [ "${#value}" -le 100 ] || value=-
-      printf '# %s=%s\n' "$field" "$value"
+      printf '# %s=%s\n' "$field" "$value" || exit 1
     done
-    printf 'epoch\tevent\tkey\tpr\n'
+    printf 'epoch\tevent\tkey\tpr\tmilestone\tsurfaces\tpreflight\tmerge\n' || exit 1
     while IFS= read -r line || [ -n "$line" ]; do
       case "$line" in *[![:space:]]*) ;; *) continue ;; esac
       status_line_verb "$line" verb
@@ -1665,9 +1674,47 @@ status_retain_task_timeline() {  # <state> <data> <task-id>
           fi
           ;;
       esac
-      printf '%s\t%s\t%s\t%s\n' "$epoch" "$event" "$key" "$pr"
+      milestone=-
+      case "$verb:$note" in
+        'working:implementation complete') milestone=implementation-complete ;;
+        done:merged\ *) milestone=merged ;;
+        *)
+          if [ "$pr" != - ]; then
+            milestone=pr-ready
+          elif [ "$mode" = no-mistakes ] && [ "$verb" = done ]; then
+            milestone=implementation-complete
+          fi
+          ;;
+      esac
+      closeout=$(printf '%s\n' "$line" | LC_ALL=C awk '
+        function field(label, text) {
+          text=$0
+          if (!index(text, label ":")) return ""
+          text=substr(text, index(text, label ":") + length(label) + 1)
+          sub(/(SEMANTIC SURFACES TOUCHED|PREFLIGHT DISPOSITION|MERGE RELATIONSHIP):.*/, "", text)
+          gsub(/^[[:space:];|]+|[[:space:];|]+$/, "", text)
+          return text
+        }
+        {
+          surfaces=field("SEMANTIC SURFACES TOUCHED")
+          if (surfaces == "NONE") surfaces="NONE"
+          else if (surfaces != "") {
+            n=split(surfaces, parts, /[,;]/); count=0
+            for (i=1; i<=n; i++) if (parts[i] ~ /[^[:space:]]/) count++
+            surfaces=(count > 999 ? 999 : count)
+          } else surfaces="-"
+          preflight=field("PREFLIGHT DISPOSITION"); classes=""
+          n=split("VERIFIED NOT_APPLICABLE UNVERIFIABLE FAILED", words, " ")
+          for (i=1; i<=n; i++)
+            if (preflight ~ ("(^|[^A-Za-z0-9_])" words[i] "([^A-Za-z0-9_]|$)"))
+              classes=classes (classes == "" ? "" : ",") words[i]
+          merge=field("MERGE RELATIONSHIP")
+          if (merge !~ /^(LANDS_BEFORE|LANDS_AFTER|INDEPENDENT)$/) merge="-"
+          printf "%s\t%s\t%s", surfaces, (classes == "" ? "-" : classes), merge
+        }') || exit 1
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$epoch" "$event" "$key" "$pr" "$milestone" "$closeout" || exit 1
     done < "$f"
-  } > "$tmp" 2>/dev/null && mv -f -- "$tmp" "$dir/timeline.tsv" 2>/dev/null && return 0
+  ) > "$tmp" 2>/dev/null && mv -f -- "$tmp" "$dir/timeline.tsv" 2>/dev/null && return 0
   rm -f -- "$tmp" 2>/dev/null
   echo "warning: task $task timeline not retained: cannot write $dir/timeline.tsv" >&2
   return 1
@@ -1739,8 +1786,12 @@ EOF
     fi
   fi
   if [ "$rc" -eq 0 ]; then
-    [ -z "$retain_data" ] || status_retain_task_timeline "$state" "$retain_data" "$task" || true
-    rm -f -- "$state/$task.status" "$state/.$task.open-decisions-cursor" \
+    if [ -z "$retain_data" ] || status_retain_task_timeline "$state" "$retain_data" "$task"; then
+      rm -f -- "$state/$task.status" || rc=1
+    else
+      echo "warning: task $task cleanup retained $state/$task.status because timeline retention failed" >&2
+    fi
+    rm -f -- "$state/.$task.open-decisions-cursor" \
       "$signal_marker" "$heartbeat_marker" "$daemon_marker" || rc=1
   fi
   fm_lock_release "$lock" || rc=1
