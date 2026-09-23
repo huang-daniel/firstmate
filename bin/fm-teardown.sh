@@ -110,7 +110,7 @@
 # live owner. A secondmate home= collision, a claim from another home, or an
 # absent or unreadable claim settles nothing and refuses as before. Slots are
 # durably leased from spawn until this teardown returns them (bin/fm-spawn.sh),
-# so two records meet on one slot only for tasks spawned before that lease.
+# preventing ordinary stand-down from making a recorded slot reusable.
 # That scan alone cannot prove THIS record is the current owner, because the task
 # that took the slot next may leave no record it can reach - its own worker may
 # have exited and its record been cleaned up, or it may live in a home this

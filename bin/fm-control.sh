@@ -80,14 +80,8 @@
 #              treats the already-gone endpoint as an ordinary silent close
 #              while still running its full landed-work test. Idempotent: a
 #              task already stood down reports `already-closed`.
-#              The task's pool slot stays leased to it: bin/fm-spawn.sh takes
-#              Treehouse's durable lease under the task id, which needs no live
-#              process, so closing the terminal releases nothing and the slot
-#              is returned only by bin/fm-teardown.sh. A task spawned before
-#              crewmate slots were leased holds only the process lease its
-#              terminal carried, so standing it down lets the pool reissue its
-#              slot; teardown's slot-owner claim check tells its now-stale
-#              record from the successor's (bin/fm-wake-lib.sh owns the claim).
+#              Pool-slot retention and legacy process-lease compatibility are
+#              owned by bin/fm-spawn.sh's durable-lease contract.
 #   relaunch   Transactionally replace the running agent with a new one, in the
 #              SAME worktree - and the same endpoint whenever that endpoint
 #              still exists - on the same or a newly chosen

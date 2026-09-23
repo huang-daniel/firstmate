@@ -76,6 +76,7 @@ A post-close probe that finds the endpoint still present drops the marker and re
 An inconclusive probe reports that survival is unknown: it preserves the marker when the backend close already confirmed absence, and drops it otherwise.
 An unreadable or ambiguous endpoint still refuses `exit` and `relaunch` until a readable probe permits the shared absence proof.
 Only tmux and herdr are supported; every other backend refuses and keeps its endpoint.
+Pool-slot retention through stand-down and the compatibility limit for older tasks are owned by [`bin/fm-spawn.sh`](../bin/fm-spawn.sh)'s durable-lease contract.
 
 The marker is what keeps a stood-down task recoverable from its records alone:
 
