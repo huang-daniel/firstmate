@@ -87,6 +87,11 @@ case "${1:-}" in
     else
       printf '%s\n' "$payload" >> "$D/keys"
       case "$payload" in
+        "cd -- '"*"'")
+          # A fresh spawn moves its pane into the worktree it leased.
+          moved=${payload#"cd -- '"}
+          printf '%s' "${moved%"'"}" > "$D/cwd"
+          ;;
         'export GOTMPDIR='*)
           if [ -n "${FM_FAKE_TRACE_PREPARE:-}" ]; then
             : > "$FM_FAKE_TRACE_PREPARE"
@@ -1862,6 +1867,87 @@ SH
   chmod +x "$1/fakebin/no-mistakes"
 }
 
+# A fresh spawn durably leases its pool slot, so standing the task down -
+# which closes the terminal it was spawned in - leaves that slot leased to the
+# task until teardown returns it, and the next spawn draws a different slot.
+# Runs against the real treehouse: the lease is the behavior under test.
+test_stood_down_ship_keeps_its_leased_slot_until_teardown() {
+  local dir out rc upstream slot second leases id first again
+  if ! command -v treehouse >/dev/null 2>&1; then
+    printf '# skip: treehouse is not installed; the stood-down slot lease check did not run\n'
+    return 0
+  fi
+  dir=$(new_case slot-lease sl1)
+  upstream="$dir/upstream.git"
+  git init -q -b main "$dir/seed"
+  git -C "$dir/seed" -c user.name=test -c user.email=test@example.invalid commit -q --allow-empty -m initial
+  git clone -q --bare "$dir/seed" "$upstream"
+  git clone -q "file://$upstream" "$dir/proj"
+  for id in sl1 sl2; do
+    mkdir -p "$dir/home/data/$id"
+    printf '# Task\n## Captain'"'"'s intent\nShip %s.\n\n## Firstmate spec\nLease a slot.\n' "$id" \
+      > "$dir/home/data/$id/brief.md"
+  done
+  make_no_run_nm_stub "$dir"
+  export TREEHOUSE_NO_UPDATE_CHECK=1
+
+  : > "$dir/fake/windows"
+  printf '%s' "$dir/proj" > "$dir/fake/cwd"
+  out=$(run_spawn "$dir" sl1 "$dir/proj" claude --mode direct-PR --yolo off); rc=$?
+  expect_code 0 "$rc" "the first spawn should lease a pool slot"$'\n'"$out"
+  slot=$(meta_field "$dir" sl1 worktree)
+  [ -n "$slot" ] && [ "$slot" != "$dir/proj" ] || fail "the first spawn recorded no leased slot: '$slot'"
+
+  # The task reports done with its PR recorded and is stood down: its agent
+  # stops and its terminal closes, so nothing runs in the slot any more.
+  printf '%s\n' "pr=https://github.com/example/repo/pull/$RANDOM" >> "$dir/home/state/sl1.meta"
+  printf 'busy_gen=%s\n' "$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" sl1 --state idle)" \
+    >> "$dir/home/state/sl1.meta"
+  printf 'done [at=%s]: PR https://github.com/example/repo/pull/1\n' "$(date +%s)" \
+    > "$dir/home/state/sl1.status"
+  out=$(run_control "$dir" sl1 stand-down); rc=$?
+  expect_code 0 "$rc" "the finished task should stand down"$'\n'"$out"
+  assert_contains "$out" "stood-down sl1 endpoint=closed" "stand-down should close the task's terminal"
+
+  leases=$(cd "$dir/proj" && HOME="$dir/user-home" treehouse status --json \
+    --root "$(FM_HOME="$dir/home" HOME="$dir/user-home" bash -c '. "$1"; fm_treehouse_home_root' _ "$ROOT/bin/fm-wake-lib.sh")")
+  printf '%s' "$leases" | tr -d ' \n' | grep -Fq '"lease_holder":"sl1"' \
+    || fail "the stood-down task's slot is no longer leased to it: $leases"
+
+  printf '%s' "$dir/proj" > "$dir/fake/cwd"
+  out=$(run_spawn "$dir" sl2 "$dir/proj" claude --mode direct-PR --yolo off); rc=$?
+  expect_code 0 "$rc" "a second spawn should lease its own slot"$'\n'"$out"
+  second=$(meta_field "$dir" sl2 worktree)
+  [ -n "$second" ] || fail "the second spawn recorded no slot"
+  [ "$(cd "$second" && pwd -P)" != "$(cd "$slot" && pwd -P)" ] \
+    || fail "the pool reissued the stood-down task's slot $slot to a second spawn"
+  [ -d "$slot/.git" ] || [ -f "$slot/.git" ] || fail "the stood-down task's copy is gone: $slot"
+  grep -Fxq 'task=sl1' "$(dirname "$slot")/.fm-slot-owner" \
+    || fail "the stood-down task's slot claim was replaced"
+
+  # Teardown releases the lease with `treehouse return --force <worktree>`
+  # (tests/fm-backend.test.sh pins that call); afterwards the pool may hand the
+  # slot out again.
+  (cd "$dir/proj" && HOME="$dir/user-home" treehouse return --force "$slot" >/dev/null 2>&1) \
+    || fail "treehouse return could not release the stood-down task's lease"
+  leases=$(cd "$dir/proj" && HOME="$dir/user-home" treehouse status --json \
+    --root "$(FM_HOME="$dir/home" HOME="$dir/user-home" bash -c '. "$1"; fm_treehouse_home_root' _ "$ROOT/bin/fm-wake-lib.sh")")
+  ! printf '%s' "$leases" | tr -d ' \n' | grep -Fq '"lease_holder":"sl1"' \
+    || fail "treehouse return left the stood-down task's lease in place: $leases"
+
+  # Counterfactual: the interactive acquisition spawns used before holds only a
+  # process lease, so once its shell exits - as a stood-down terminal's does -
+  # the very next acquisition is handed that same slot.
+  first=$( (cd "$dir/proj" && printf 'pwd -P\nexit\n' \
+    | HOME="$dir/user-home" SHELL=/bin/bash bash -c "treehouse get --root '$dir/process-pool'" 2>/dev/null) | tail -n 1)
+  [ -n "$first" ] && [ -d "$first" ] || fail "the process-lease counterfactual acquired nothing: '$first'"
+  again=$(cd "$dir/proj" && HOME="$dir/user-home" treehouse get --lease --root "$dir/process-pool" 2>/dev/null)
+  [ "$(cd "$again" && pwd -P)" = "$first" ] \
+    || fail "the process-lease counterfactual no longer reissues a closed shell's slot; recheck the premise ($first vs $again)"
+  unset TREEHOUSE_NO_UPDATE_CHECK
+  pass "stand-down: a stood-down task keeps its durably leased slot until it is returned, and a second spawn never receives it"
+}
+
 test_stand_down_closes_a_done_ship_endpoint_and_keeps_the_task() {
   local dir out rc status_before
   dir=$(new_case standdown sd1)
@@ -2444,6 +2530,7 @@ test_relaunch_moves_a_drifted_item_back_in_flight() {
 
 test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint
 test_stand_down_closes_a_done_ship_endpoint_and_keeps_the_task
+test_stood_down_ship_keeps_its_leased_slot_until_teardown
 test_stand_down_relaunch_rebinds_a_fresh_tmux_window
 test_stand_down_refuses_unfinished_or_unlanded_work
 test_stand_down_refuses_an_active_validation_run

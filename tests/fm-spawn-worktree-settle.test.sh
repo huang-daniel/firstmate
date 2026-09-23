@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Regression test for the fm-spawn.sh treehouse-get worktree-detection settle
-# loop (bin/fm-spawn.sh, the `for _ in $(seq 1 60)` loop after `treehouse get`).
+# Regression test for the fm-spawn.sh worktree-detection settle loop
+# (bin/fm-spawn.sh, the `for _ in $(seq 1 60)` loop after the pane is sent into
+# the worktree the spawn leased).
 #
 # On some tmux/WSL setups a brand-new window's pane_current_path transiently
 # reports a stale, unrelated-but-real path on the very first poll, before the
-# pane actually settles into the worktree treehouse get moved it to. That stale
+# pane actually settles into the leased worktree it was moved to. That stale
 # path still passes the loop's "differs from the project" check and
 # validate_spawn_worktree's "is a real, distinct worktree" check (it IS a real
 # git checkout, just the wrong one), so a naive single-read loop silently
@@ -61,7 +62,7 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
-  fm_fake_exit0 "$fakebin" treehouse
+  fm_fake_treehouse_lease "$fakebin"
   printf '%s\n' "$fakebin"
 }
 

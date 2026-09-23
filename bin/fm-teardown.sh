@@ -103,7 +103,14 @@
 # cleanup step, teardown verifies record exclusivity: no OTHER task record in
 # this home or any locally registered Firstmate home may name the same live path
 # in its worktree= or home=. One live path with two task records is the reuse
-# collision itself, whichever record is stale.
+# collision itself, so it refuses - unless the slot's owner claim (below) names
+# this task in this home and the other record is an ordinary task's worktree=:
+# then the claim proves the other record stale, this teardown proceeds, and the
+# stale record's own teardown keeps refusing, naming the claimant as the slot's
+# live owner. A secondmate home= collision, a claim from another home, or an
+# absent or unreadable claim settles nothing and refuses as before. Slots are
+# durably leased from spawn until this teardown returns them (bin/fm-spawn.sh),
+# so two records meet on one slot only for tasks spawned before that lease.
 # That scan alone cannot prove THIS record is the current owner, because the task
 # that took the slot next may leave no record it can reach - its own worker may
 # have exited and its record been cleaned up, or it may live in a home this
@@ -2302,13 +2309,9 @@ collect_local_firstmate_states() {
   done
 }
 
-# Two records naming one slot are told apart by the slot's owner claim, read
-# before any collision is judged. The claim proves THIS record current - and the
-# other record stale - only when it names this task in this record's own home
-# and the other record is an ordinary task's worktree=: a secondmate's home=
-# is durably leased and carries no claim, so a claim beside it proves nothing
-# about it. Every other combination still refuses, and a claim naming the other
-# task names it in the refusal as the slot's live owner.
+# The script header owns when the slot's owner claim settles a two-record
+# collision; a secondmate's home= is durably leased and never carries a claim,
+# so a claim beside one proves nothing about it.
 require_exclusive_worktree_slot_record() {
   local record_meta=$1 record_id=$2 record_state=$3 worktree=$4
   local slot state_dir other other_id field other_path other_slot

@@ -133,7 +133,17 @@
 #   root Firstmate home's state directory before slot allocation and holds it through
 #   task metadata publication. Teardown holds that same lock while proving and
 #   returning a slot, so allocation cannot reuse a slot before its owner record
-#   is published. Under that same lock it writes the slot's owner claim, which is
+#   is published. Under that lock the spawn itself takes Treehouse's durable
+#   lease on one slot of this home's pool (`treehouse get --lease --lease-holder
+#   <task-id>`, the lease secondmate homes use) and sends the pane only a `cd`
+#   into it, on every backend. The lease needs no live process, so the slot
+#   stays the task's through stand-down's terminal close, an exit, a crashed
+#   pane, or a reboot until teardown's `treehouse return` releases it. A spawn
+#   that aborts before its record is published returns its lease while it still
+#   holds the lock; a lease it cannot return is named in a warning with the
+#   exact release command. Tasks already in flight when crewmate slots began to
+#   be leased keep the process lease of their interactive `treehouse get` until
+#   they are torn down. Under that same lock it writes the slot's owner claim, which is
 #   what lets teardown leave a slot reassigned since untouched; bin/fm-wake-lib.sh
 #   owns the claim and bin/fm-teardown.sh owns what it protects. A slot that
 #   cannot be claimed refuses the spawn rather than launching a worker whose slot
@@ -205,12 +215,13 @@
 #   git worktree root distinct from both the spawning project and its repository's
 #   primary checkout, including when the spawning project is a linked worktree.
 #   On the backends that discover that path by reading the task pane's own cwd,
-#   the same isolation test screens every read: a pane still showing the project
-#   or the repository primary while `treehouse get` prepares the slot is waited
-#   out as a transient rather than adopted and then refused, so a home that is
-#   itself a linked worktree of the project repository still launches. A pane
-#   that never reaches an isolated worktree refuses at the end of that wait,
-#   naming the last path seen and why it was rejected.
+#   the same isolation test screens every read, and only the worktree leased for
+#   the task is accepted: a pane still showing the project or the repository
+#   primary before its cd lands is waited out as a transient rather than adopted
+#   and then refused, so a home that is itself a linked worktree of the project
+#   repository still launches. A pane that never reaches the leased isolated
+#   worktree refuses at the end of that wait, naming the last path seen and why
+#   it was rejected.
 #   That placement is proven only at launch. Every ship or scout pane therefore
 #   also receives `export FM_TASK_ID=<task-id>` before the launch command, on
 #   the same channel as GOTMPDIR, and bin/fm-test-run.sh refuses to execute the
@@ -1125,6 +1136,9 @@ SPAWN_TASK_SET_LOCK_HELD=0
 SPAWN_TREEHOUSE_PROJECT_LOCK=
 SPAWN_TREEHOUSE_PROJECT_LOCK_HELD=0
 SPAWN_SLOT_CLAIMED=0
+SPAWN_SLOT_LEASED=0
+SPAWN_LEASED_WT=
+SPAWN_LEASED_WT_REAL=
 RELAUNCH_REPLACEMENT_PENDING=0
 RELAUNCH_REPLACEMENT_BUSY_GEN=
 RELAUNCH_REPLACEMENT_HARNESS=
@@ -1271,6 +1285,21 @@ spawn_abort_cleanup() {
       fm_treehouse_slot_owner_release "$WT" "$ID" || true
     else
       echo "warning: leaving task $ID's slot claim on $WT in place; the Treehouse project lock is no longer held, so the next spawn's claim replaces it" >&2
+    fi
+  fi
+  # A spawn that aborts after leasing its slot but before its record survives
+  # returns that lease, so no durable lease outlives the spawn that took it with
+  # no record naming it for teardown to release. The return runs only while the
+  # project lock that took the lease is still held, and only for a lease still
+  # held under this task id.
+  if [ "$SPAWN_SLOT_LEASED" = 1 ] &&
+    [ ! -e "$STATE/$ID.meta" ] && [ ! -L "$STATE/$ID.meta" ]; then
+    SPAWN_SLOT_LEASED=0
+    if [ "$SPAWN_TREEHOUSE_PROJECT_LOCK_HELD" = 1 ] &&
+      (cd "$PROJ_ABS" && treehouse return --force --if-lease-holder "$ID" "$SPAWN_LEASED_WT") >/dev/null 2>&1; then
+      :
+    else
+      echo "warning: task $ID's aborted spawn could not return its lease on $SPAWN_LEASED_WT; release it with: treehouse return --if-lease-holder '$ID' '$SPAWN_LEASED_WT'" >&2
     fi
   fi
   if [ "$SPAWN_TREEHOUSE_PROJECT_LOCK_HELD" = 1 ]; then
@@ -3593,6 +3622,43 @@ spawn_send_text_line() { # <target> <text>
   cmux) fm_backend_cmux_send_text_line "$1" "$2" "$W" ;;
   esac
 }
+# Durably lease one pool slot from this home's pool under the task id, while the
+# Treehouse project lock is held. Sets SPAWN_LEASED_WT (as Treehouse printed it)
+# and SPAWN_LEASED_WT_REAL, and marks SPAWN_SLOT_LEASED so spawn_abort_cleanup
+# returns the lease if the spawn aborts before its record is published.
+spawn_lease_treehouse_slot() { # <treehouse-root>
+  local root=$1 err out
+  err=$(mktemp "${TMPDIR:-/tmp}/fm-spawn-lease.XXXXXX") || {
+    echo "error: could not create a scratch file for the Treehouse lease of task $ID" >&2
+    return 1
+  }
+  if ! out=$(cd "$PROJ_ABS" && treehouse get --lease --root "$root" --lease-holder "$ID" 2>"$err"); then
+    echo "error: treehouse get --lease failed for task $ID in '$PROJ_ABS': $(tail -n 3 "$err" 2>/dev/null | tr '\n' ' ')" >&2
+    rm -f "$err"
+    return 1
+  fi
+  rm -f "$err"
+  case "$out" in
+    /*) ;;
+    *)
+      echo "error: treehouse get --lease reported '$out' for task $ID, not an absolute worktree path; a lease held by '$ID' may need: treehouse return --if-lease-holder '$ID' <path>" >&2
+      return 1
+      ;;
+  esac
+  case "$out" in
+    *$'\n'*)
+      echo "error: treehouse get --lease reported more than one line for task $ID; a lease held by '$ID' may need: treehouse return --if-lease-holder '$ID' <path>" >&2
+      return 1
+      ;;
+  esac
+  SPAWN_LEASED_WT=$out
+  SPAWN_SLOT_LEASED=1
+  [ -d "$out" ] || {
+    echo "error: treehouse get --lease reported '$out' for task $ID, which is not a directory" >&2
+    return 1
+  }
+  SPAWN_LEASED_WT_REAL=$(real_path_or_raw "$out")
+}
 spawn_current_path() { # <target>
   case "$BACKEND" in
   tmux) fm_backend_tmux_current_path "$1" ;;
@@ -3954,9 +4020,15 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
     echo "error: could not resolve this home's Treehouse pool root for '$FM_HOME'; refusing to acquire a worktree from a pool another home may own" >&2
     exit 1
   }
-  spawn_send_text_line "$WT_TARGET" "treehouse get --root '${treehouse_root//\'/\'\\\'\'}'"
+  # Lease the slot durably for this task, then move the pane into it; the
+  # script header owns why the lease, not the pane, holds the slot. The
+  # interactive `treehouse get` this replaced held only a process lease, which
+  # ended when the task's terminal closed, so a stood-down task's slot went to
+  # the next spawn while its record still named it.
+  spawn_lease_treehouse_slot "$treehouse_root" || exit 1
+  spawn_send_text_line "$WT_TARGET" "cd -- '${SPAWN_LEASED_WT//\'/\'\\\'\'}'"
 
-  # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
+  # Wait for the pane's cwd to move from the project to the leased worktree.
   # Target the stable window id, not the name: if the name is ever lost (e.g. an
   # automatic-rename slips through), display-message -t <bad-name> falls back to the
   # active client's window, which would misread firstmate's OWN pane path as the
@@ -3994,9 +4066,10 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   for _ in $(seq 1 60); do
     p=$(spawn_current_path "$WT_TARGET" || true)
     [ -z "$p" ] || last_seen="$p"
-    if [ -n "$p" ] && spawn_worktree_isolated "$p"; then
+    if [ -n "$p" ] && spawn_worktree_isolated "$p" &&
+      [ "$(real_path_or_raw "$p")" = "$SPAWN_LEASED_WT_REAL" ]; then
       p_real=$(real_path_or_raw "$p")
-      last_reason="it is an isolated worktree, but no second read agreed with it"
+      last_reason="it is the leased worktree, but no second read agreed with it"
       if [ -n "$candidate" ] && [ "$p_real" = "$candidate" ]; then
         WT="$p"
         break
@@ -4004,31 +4077,35 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
       candidate="$p_real"
     else
       candidate=""
-      [ -z "$p" ] || last_reason=$SPAWN_WT_REASON
+      if [ -n "$p" ]; then
+        if spawn_worktree_isolated "$p"; then
+          last_reason="it is not the worktree leased for this task ($SPAWN_LEASED_WT)"
+        else
+          last_reason=$SPAWN_WT_REASON
+        fi
+      fi
     fi
     sleep 1
   done
   if [ -z "$WT" ]; then
-    echo "error: treehouse get did not enter an isolated worktree within 60s (last seen '${last_seen:-none}': $last_reason; spawning project '$PROJ_ABS'); inspect window $T" >&2
+    echo "error: the pane did not enter an isolated worktree at the path leased for this task ($SPAWN_LEASED_WT) within 60s (last seen '${last_seen:-none}': $last_reason; spawning project '$PROJ_ABS'); inspect window $T" >&2
     exit 1
   fi
 
-  validate_spawn_worktree "treehouse get" "$T"
+  validate_spawn_worktree "treehouse get --lease" "$T"
   if ! fm_worktree_of_project "$PROJ_ABS" "$WT"; then
-    echo "error: treehouse get yielded '$WT', which is not a copy of this home's clone '$PROJ_ABS' (another clone's pool slot); refusing to launch in another home's worker copy. Inspect target $T" >&2
+    echo "error: treehouse get --lease yielded '$WT', which is not a copy of this home's clone '$PROJ_ABS' (another clone's pool slot); refusing to launch in another home's worker copy. Inspect target $T" >&2
     exit 1
   fi
 
-  # Claim the pool slot for this task. The interactive `treehouse get` sent to
-  # the pane above records only a process lease (Treehouse's durable
-  # `get --lease --lease-holder`, which bin/fm-home-seed.sh uses for secondmate
-  # homes, is not this path), so Treehouse cannot say which task a slot belongs
-  # to once that task's worker exits - and that is exactly when the slot is
-  # handed on and this task's worktree= line goes stale. The claim is what lets
-  # bin/fm-teardown.sh leave a slot that has since been reassigned untouched, so
-  # a slot that cannot be claimed is refused here, at the cheapest point, rather
-  # than launching a worker whose slot teardown could later release out from
-  # under its successor.
+  # Claim the pool slot for this task. The durable lease above already keeps
+  # the pool from handing this slot on, but tasks spawned before crewmate slots
+  # were leased still hold only a process lease, and their slots can have been
+  # reissued while their records still name them. The claim is what lets
+  # bin/fm-teardown.sh tell such a stale record from the slot's live owner and
+  # leave a reassigned slot untouched, so a slot that cannot be claimed is
+  # refused here, at the cheapest point, rather than launching a worker whose
+  # slot teardown could later release out from under its successor.
   # Written under the Treehouse project lock held from before slot allocation
   # through metadata publication, so no other spawn or return sees a half-claim.
   if fm_treehouse_pool_slot "$PROJ_ABS" "$WT"; then
