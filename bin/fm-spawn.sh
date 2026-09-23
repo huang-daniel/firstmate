@@ -4648,13 +4648,8 @@ else
   SPAWN_FRESH_COMMIT_PENDING=1
 fi
 SPAWN_META_PATH=$SPAWN_META_TMP
-# fm-pr-lib.sh's fm_pr_metadata_identity_parse requires every line after the
-# record's first pr= to be pr_head= or an x_ Relay field
-# (fm_pr_meta_trailer_key), so a relaunch must keep that trailer at the true
-# end of the rewritten record: preserve_relaunch_meta_body carries every other
-# preserved field, control_relaunch_tx= is written next, and
-# preserve_relaunch_meta_trailer runs last so an active merge watch is never
-# invalidated by this rewrite.
+# Split preserved fields around new lifecycle fields to honor the trailer
+# contract owned by fm_pr_meta_trailer_keys in bin/fm-pr-lib.sh.
 preserve_relaunch_meta_body() {
   awk -F= -v trailer_keys="$(fm_pr_meta_trailer_keys)" '
     BEGIN {

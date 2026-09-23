@@ -306,8 +306,8 @@ fm_pr_regular_destination_on_device_or_absent() {
 # any writer that adds or replaces a task-record field must splice the new
 # line in before pr= (fm_pr_meta_trailer_key tells it which lines to keep
 # after), never append after it - an append there silently breaks an active
-# merge watch. bin/fm-control.sh's stand-down marker and bin/fm-spawn.sh's
-# relaunch rewrite both call this to keep that trailer at the true end.
+# merge watch. This applies to lifecycle fields and later trace publication;
+# tests/fm-control-relaunch.test.sh pins preservation and tamper rejection.
 fm_pr_meta_trailer_keys() {
   printf '%s\n' 'pr pr_head x_request x_request_ts x_followups x_platform x_reply_max_chars'
 }

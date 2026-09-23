@@ -669,11 +669,7 @@ standdown_gate() {
 
 # standdown_record_marker <endpoint|->: add (or, with -, drop) the record's
 # endpoint_closed= marker under the task's meta lock, preserving every other
-# line byte-for-byte. The marker is spliced in immediately before the meta
-# pr= trailer (fm_pr_meta_trailer_key, bin/fm-pr-lib.sh) rather than appended
-# after it, because a task with an armed merge watch would otherwise have
-# that append invalidate fm_pr_metadata_identity_parse and silently drop the
-# watch.
+# line byte-for-byte, honoring fm_pr_meta_trailer_keys in bin/fm-pr-lib.sh.
 standdown_record_marker() {  # <endpoint|->
   local value=$1 lock tmp line key rc=0 inserted=0
   lock=$(fm_meta_lock_path "$META") || return 1
