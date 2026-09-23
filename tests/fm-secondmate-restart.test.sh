@@ -981,7 +981,7 @@ test_busy_mate_is_deferred() {
 
   expect_code 3 "$rc" "a deferred mate is not a clean reload"$'\n'"$out"
   assert_contains "$out" "deferred: sm1: busy (claude-hook)" "a busy mate must be reported deferred with its source"
-  assert_contains "$out" "1 deferred" "the summary must count the deferral"
+  assert_contains "$out" "all 1 mates deferred; 0 received re-read nudges" "the summary must report the busy deferral without claiming a nudge"
   assert_not_contains "$out" "restarted: sm1" "a busy mate must never be restarted"
   assert_no_grep '^/exit$' "$dir/fake/literal" "a busy mate's agent must not be stopped"
   assert_absent "$dir/home/state/sm1.control-relaunch" "no restart transaction may open for a busy mate"
@@ -1040,6 +1040,25 @@ test_missing_intended_identity_does_not_restart() {
   assert_contains "$out" "nudged: sm1:" "missing identity falls back to nudge"
   pass "missing intended identity prevents restart"
 }
+
+test_production_mate_reports_contained_deferral() {
+  local dir out rc
+  dir=$(new_case production-unarmed)
+  add_local_mate "$dir" sm1
+  rm "$dir/home/state/sm1.busy-state" "$dir/home/state/sm1.busy-gen"
+  arm_answer "$dir" sm1
+  out=$(run_restart "$dir" sm1); rc=$?
+  expect_code 3 "$rc" "an unarmed production mate must defer: $out"
+  assert_contains "$out" "deferred: sm1: idle not provable (missing)" "production idle must remain unproven"
+  assert_contains "$out" "nudged: sm1:" "production mate must receive a re-read nudge"
+  assert_contains "$out" "summary: all 1 mates deferred; 1 received re-read nudges, 0 were unreached, and none were reloaded." "summary must make fleet containment explicit"
+  assert_grep 're-read your AGENTS.md' "$dir/home/state/sm1.inbox/002.msg" "the nudge must actually be delivered"
+  assert_no_grep '^/exit$' "$dir/fake/literal" "an unarmed mate must not stop"
+  assert_absent "$dir/home/state/sm1.busy-state" "the pass must not arm busy records"
+  pass "production mate without a busy record reports containment and receives a nudge"
+}
+
+test_production_mate_reports_contained_deferral
 
 test_missing_intended_identity_does_not_restart
 test_persist_gates_and_asks_only_for_open_records

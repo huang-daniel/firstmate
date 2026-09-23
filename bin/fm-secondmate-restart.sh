@@ -45,8 +45,9 @@
 #      next update pass or the primary's check before that home's next
 #      dispatch - picks it up again. Only a proven idle verdict permits restart.
 #      Unknown, unreadable, and remote-unknown states defer with a re-read nudge.
-#      Idle becomes provable for local mates once secondmate busy records are
-#      armed, which is the filed follow-up.
+#      Containment was approved by firstmate on 2026-09-23 pending follow-up
+#      task fm-secondmate-busy-state-arming. Deferral is expected for every
+#      local mate needing a restart until secondmate busy records are armed.
 #   C. VERIFY. A relaunch is reported `restarted` only after
 #      fm-secondmate-health.sh verify proves the replacement's agent alive, the
 #      home lock held by a new live session, and that session reporting the
@@ -415,8 +416,13 @@ done
 
 # --- summary ---------------------------------------------------------------
 
-printf 'summary: %d of %d restarted while idle, %d already current, %d deferred, %d nudged, %d unreached\n' \
-  "$restarted_count" "${#IDS[@]}" "$current_count" "$deferred_count" \
-  "$nudged_count" "$unreached_count"
+if [ "$deferred_count" -eq "${#IDS[@]}" ]; then
+  printf 'summary: all %d mates deferred; %d received re-read nudges, %d were unreached, and none were reloaded.\n' \
+    "$deferred_count" "$nudged_count" "$unreached_count"
+else
+  printf 'summary: %d of %d restarted while idle, %d already current, %d deferred, %d nudged, %d unreached\n' \
+    "$restarted_count" "${#IDS[@]}" "$current_count" "$deferred_count" \
+    "$nudged_count" "$unreached_count"
+fi
 [ "$((deferred_count + nudged_count + unreached_count))" -eq 0 ] || exit 3
 exit 0
