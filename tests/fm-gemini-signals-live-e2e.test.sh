@@ -3,8 +3,8 @@
 # live-harness-optin family). The typed-plane mid-turn refusal in
 # bin/fm-send.sh classifies a gemini pane busy from its `(esc to cancel, <n>s)`
 # status row alone, so this proves against the real installed gemini that the
-# row renders in the pane tail for a whole turn that runs a blocking shell tool
-# call, and that the settled pane no longer matches.
+# row renders in the pane tail during a blocking shell tool call, and that
+# the settled pane no longer matches.
 # Opt-in because it submits a real prompt; the credential comes from the
 # operator's own GEMINI_API_KEY or stored gemini login, never from this guard.
 set -u
@@ -66,20 +66,35 @@ tail_is_busy() {
 # own validation run, then asks for a computed answer (12345+67890=80235) so
 # the awaited token never appears in the echoed launch line itself.
 "$REAL_TMUX" -L "$SOCKET" send-keys -t "$TARGET" -l \
-  "GEMINI_CLI_TRUST_WORKSPACE=true $GEMINI_BIN -y \"Run the shell command sleep 20, then add 12345 and 67890 and reply with exactly the sum and nothing else\"" \
+  "GEMINI_CLI_TRUST_WORKSPACE=true $GEMINI_BIN -y \"Run the shell command echo \\\$((40000+1111)); sleep 20; echo \\\$((40000+2222)), then add 12345 and 67890 and reply with exactly the sum and nothing else\"" \
   || fail "could not type the gemini launch line"
 "$REAL_TMUX" -L "$SOCKET" send-keys -t "$TARGET" Enter \
   || fail "could not submit the gemini launch line"
 
 busy_seen=0
+tool_started=
+tool_ended=
 for _ in $(seq 1 240); do
-  if tail_is_busy; then busy_seen=$((busy_seen + 1)); fi
-  case "$(capture)" in *80235*|*80,235*) break ;; esac
+  pane=$(capture)
+  case "$pane" in *41111*) tool_started=1 ;; esac
+  case "$pane" in *42222*) tool_ended=1 ;; esac
+  case "$pane" in
+    *41111*)
+      if [ -z "$tool_ended" ] && printf '%s\n' "$pane" | grep -v '^[[:space:]]*$' | tail -12 | fm_busy_lines_match gemini; then
+        busy_seen=$((busy_seen + 1))
+      fi
+      ;;
+  esac
+  case "$pane" in *80235*|*80,235*) break ;; esac
   sleep 1
 done
+[ -n "$tool_started" ] \
+  || fail "gemini $GEMINI_VERSION: the shell tool start marker never appeared"
+[ -n "$tool_ended" ] \
+  || fail "gemini $GEMINI_VERSION: the shell tool end marker never appeared"
 [ "$busy_seen" -ge 10 ] \
-  || fail "gemini $GEMINI_VERSION: its busy row matched on only $busy_seen one-second samples across a turn holding a 20s shell tool call"
-pass "gemini $GEMINI_VERSION: the busy row holds in the pane tail across a blocking shell tool call"
+  || fail "gemini $GEMINI_VERSION: its busy row matched on only $busy_seen one-second samples between the shell tool markers"
+pass "gemini $GEMINI_VERSION: the busy row matched on $busy_seen samples during the blocking shell tool call"
 
 case "$(capture)" in
   *80235*|*80,235*) ;;

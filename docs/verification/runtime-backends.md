@@ -739,7 +739,8 @@ busy_12 | 0 |
 
 The idle capture taken before the prompt also contained no `(esc to cancel,`.
 Because the phase text varies per turn and the spinner is braille, neither is usable; `(esc to cancel,` is the only stable rendered token, and the adapter uses the semantic hooks below as its actual state source.
-That token is also gemini's delivery-footer row for `bin/fm-send.sh`'s typed-plane mid-turn refusal, and the opt-in live guard below re-proves it against the installed gemini across a turn that holds a blocking shell tool call; no recorded run of that guard exists yet, so its shell-tool-call coverage is not yet established evidence.
+That token is also gemini's delivery-footer row for `bin/fm-send.sh`'s typed-plane mid-turn refusal, and the opt-in live guard below requires busy samples between computed shell-tool start and end markers, followed by a settled idle pane.
+No recorded run of that guard exists yet, so its shell-tool-call coverage is not yet established evidence.
 
 ```sh
 FM_GEMINI_SIGNALS_LIVE=1 bin/fm-test-run.sh tests/fm-gemini-signals-live-e2e.test.sh
