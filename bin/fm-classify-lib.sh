@@ -1592,8 +1592,8 @@ status_presentation_marker_commit() {
   printf 'v2\t%s\t%s' "$reported" "$classified" > "$marker"
 }
 
-# Sanitized task timeline retained at cleanup. The status log is removed with
-# the task's other runtime state, so before that removal
+# Sanitized task timeline retained at cleanup. Before removing the status log
+# with the task's other runtime state,
 # status_retire_presentation_task, given the home's data directory, keeps
 # <data>/<task-id>/timeline.tsv (creating that directory when absent) so later
 # delivery-efficiency checkpoints can still read the task's event times.
@@ -1610,6 +1610,9 @@ status_presentation_marker_commit() {
 #   pr     on a done or "PR ready" line only, the first https pull-request or
 #          merge-request URL of plain path segments; otherwise -
 #   milestone  implementation-complete, pr-ready, merged, or -
+#              exact working note "implementation complete" marks implementation;
+#              a done note starting "merged " marks merge; otherwise a retained
+#              PR marks pr-ready, or a no-mistakes done marks implementation-complete
 #   surfaces   NONE or a count of comma/semicolon-separated surfaces, capped at 999
 #   preflight  unique VERIFIED, NOT_APPLICABLE, UNVERIFIABLE, FAILED class words
 #   merge      LANDS_BEFORE, LANDS_AFTER, INDEPENDENT, or -
@@ -1617,7 +1620,8 @@ status_presentation_marker_commit() {
 # No other byte of a status line survives: notes, paths, commands, finding
 # text, and anything else that could carry a value are dropped. A failure to
 # write the copy keeps the source status log and is reported on stderr; other
-# runtime cleanup continues.
+# runtime cleanup continues without making retention failure a teardown error.
+# tests/fm-teardown.test.sh covers the sanitized rows and source-log preservation.
 status_retain_task_timeline() {  # <state> <data> <task-id>
   local state=$1 data=$2 task=$3 f meta dir tmp line verb event epoch key note pr field value project mode milestone closeout
   f="$state/$task.status"
