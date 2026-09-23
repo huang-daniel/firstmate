@@ -218,6 +218,36 @@ Each pass polled `state/<id>.busy-state` while a real turn ran.
 | Kimi (standalone) | not installed | None usable | No binary on `PATH`, so the gate stays closed and it classifies `unknown kimi-unverified`. |
 | Grok | 0.2.112 | Isolated rendered-tail fallback | Retained unconverted; the approved audit could not credit a live structured-lifecycle run. |
 
+### Claude secondmate busy state, 2026-09-23
+
+A secondmate is a primary in its own home, so its record is armed only for Claude, with the Stop idle written by the home's turn-end guard (`bin/fm-spawn.sh` secondmate arm).
+Two probes on Claude Code 2.1.280 in a scratch directory with probe hooks fixed that shape: a synchronous `Stop` hook exiting 2 continued the same turn with no `UserPromptSubmit`, so a parallel `Stop` idle hook would have recorded a working agent idle; and an `asyncRewake` hook exiting 2 while a sibling synchronous `Stop` hook was still sleeping produced its rewake `UserPromptSubmit` only after that sibling returned (sibling done at `.239`, rewake prompt at `.279` of the same second), so an idle written inside the guard always precedes the rewake's busy.
+The same probe showed hooks in an inline `--settings` JSON firing alongside the project's own `.claude/settings.json` hooks and seeing the launch environment.
+A throwaway secondmate seeded with `bin/fm-home-seed.sh` and launched with `bin/fm-spawn.sh --secondmate` on `claude-haiku-4-5-20251001` over an isolated tmux socket then produced, polled from the parent's `state/<id>.busy-state`:
+
+```text
+seq=1 state=busy source=fm-spawn event=launch-brief
+seq=2 state=busy source=claude-hook event=user-prompt-submit
+seq=3 state=idle source=claude-hook event=stop
+seq=4 state=busy source=claude-hook event=user-prompt-submit   # fm-send steer
+seq=5 state=idle source=claude-hook event=stop
+seq=6 state=busy source=claude-hook event=user-prompt-submit   # steer registering a one-shot custom check
+seq=7 state=idle source=claude-hook event=stop
+seq=8 state=busy source=claude-hook event=user-prompt-submit   # watcher wake rewoke the mate
+seq=9 state=idle source=claude-hook event=stop
+```
+
+`FM_HOME=<parent> bin/fm-secondmate-health.sh idle <id>` read `idle claude-hook` between turns.
+The restart pass, reading the mate once at its persist answer, found it `busy (claude-hook)` because the answer is written inside a turn, and deferred it; that observation is why `bin/fm-secondmate-restart.sh` re-reads a busy mate for `FM_SECONDMATE_IDLE_SETTLE` before deferring.
+With that window (default 120s) and the mate made stale by one instruction-surface commit in its home, the same pass saw `busy … user-prompt-submit` at the answer, `idle … stop` 23s later, then the old incarnation's `idle … session-end`, and the replacement seeded `seq=1 state=busy source=fm-spawn event=launch-brief` under a fresh generation:
+
+```text
+restarted: smlive1 (claude) while idle; verified smlive1 pid=744029 commit=39bdb184551aadba3e6a6dc0302c18bc25d1f38e
+summary: 1 of 1 restarted while idle, 0 already current, 0 deferred, 0 nudged, 0 unreached
+```
+
+Pi, pi-signed, omp, and Cursor were not installed and OpenCode was only a Windows build on the verifying host, so none of their secondmate launches is armed.
+
 Codex was probed two ways, both refused:
 
 ```sh
@@ -236,6 +266,8 @@ Deterministic entry points:
 tests/fm-busy-state.test.sh
 tests/fm-busy-adapter-wiring.test.sh
 tests/fm-crew-state.test.sh
+tests/fm-secondmate-health.test.sh
+tests/fm-secondmate-restart.test.sh
 ```
 
 ## Turn-end guard

@@ -176,6 +176,33 @@ if [ "$CLAUDE_MODE" -eq 1 ]; then
   . "$SCRIPT_DIR/fm-session-lock-lib.sh"
 fi
 
+# A claude secondmate's semantic busy-state Stop idle (bin/fm-busy-lib.sh) is
+# written here rather than by a Stop hook of its own, because only this guard
+# knows whether the Stop it answers ends the turn: exit 2 continues the same
+# turn with no new prompt, so an idle recorded beside it would claim a working
+# mate idle. Claude runs the rewake of an asyncRewake Stop hook only after every
+# synchronous Stop hook has returned, so this write always precedes that
+# rewake's UserPromptSubmit busy. The binding is the FM_SECONDMATE_BUSY_* launch
+# environment bin/fm-spawn.sh sets for an armed incarnation. It is honoured only
+# in the secondmate home whose marker names that same id and only for the
+# session holding this home's lock, so a nested or second Claude session in the
+# home never speaks for the mate; any refusal leaves the record busy, never idle.
+# shellcheck disable=SC2329 # invoked through the EXIT trap installed below
+secondmate_busy_idle_on_allowed_stop() {
+  local status=$? marker_id=
+  [ "$status" -eq 0 ] || return 0
+  IFS= read -r marker_id < "$FM_ROOT/.fm-secondmate-home" 2>/dev/null || [ -n "$marker_id" ] || return 0
+  [ "${marker_id//[[:space:]]/}" = "$FM_SECONDMATE_BUSY_ID" ] || return 0
+  fm_session_lock_owned_by_self "$STATE" || return 0
+  "$FM_SECONDMATE_BUSY_WRITER" apply "$FM_SECONDMATE_BUSY_STATE" "$FM_SECONDMATE_BUSY_ID" idle \
+    --gen "$FM_SECONDMATE_BUSY_GEN" --source claude-hook --event stop >/dev/null 2>&1 || true
+}
+if [ "$CLAUDE_MODE" -eq 1 ] && [ -n "${FM_SECONDMATE_BUSY_WRITER:-}" ] \
+  && [ -n "${FM_SECONDMATE_BUSY_STATE:-}" ] && [ -n "${FM_SECONDMATE_BUSY_ID:-}" ] \
+  && [ -n "${FM_SECONDMATE_BUSY_GEN:-}" ] && fm_root_is_secondmate_home "$FM_ROOT"; then
+  trap secondmate_busy_idle_on_allowed_stop EXIT
+fi
+
 BUDGET_FILE="$STATE/.turnend-claude-blocks"
 BUDGET_LOCK="$STATE/.turnend-claude-blocks.lock"
 OWNER_LOCK="$STATE/.claude-autoarm.lock"

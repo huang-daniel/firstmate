@@ -407,6 +407,97 @@ test_gemini_is_refused_as_a_secondmate() {
   pass "gemini is refused as a secondmate because it has no primary supervision protocol"
 }
 
+# seed_secondmate_home <dir> <id>: the shape validate_firstmate_home_for_spawn accepts.
+seed_secondmate_home() {
+  local sm=$1 id=$2
+  mkdir -p "$sm/bin" "$sm/data"
+  printf '# Firstmate\n' > "$sm/AGENTS.md"
+  printf '%s\n' "$id" > "$sm/.fm-secondmate-home"
+  printf 'charter for %s\n' "$id" > "$sm/data/charter.md"
+}
+
+# A claude probe that fires the named hook groups of the --settings JSON it was
+# launched with, through a shell, exactly as Claude runs a hook command. What it
+# prints is which hooks existed and ran.
+install_claude_hook_probe() {  # <fakebin>
+  cat > "$1/claude" <<'SH'
+#!/usr/bin/env bash
+settings=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --settings) settings=$2; shift 2 ;;
+    *) shift ;;
+  esac
+done
+for ev in $PROBE_EVENTS; do
+  cmd=$(printf '%s' "$settings" | jq -r --arg e "$ev" '.hooks[$e][0].hooks[0].command // empty')
+  if [ -z "$cmd" ]; then echo "no-hook:$ev"; continue; fi
+  sh -c "$cmd" && echo "ran:$ev"
+done
+SH
+  chmod +x "$1/claude"
+}
+
+test_claude_secondmate_arms_env_bound_hooks() {
+  local rec id=busy-sm-cl out state sm launchlog gen
+  rec=$(make_spawn_case claude-secondmate claude "$id")
+  read_case_record "$rec"
+  sm="$CASE_DIR/secondmate-home"
+  seed_secondmate_home "$sm" "$id"
+  launchlog="$CASE_DIR/launch.log"
+  out=$(FM_FAKE_LAUNCH_LOG="$launchlog" GROK_HOME="$HOME_DIR/grok-home" \
+    fm_test_run_spawn "$HOME_DIR" "$sm" "$FAKEBIN_DIR" "$id" "$sm" --secondmate)
+  expect_code 0 $? "claude secondmate spawn should succeed: $out"
+  state="$HOME_DIR/state"
+  gen=$(cat "$state/$id.busy-gen" 2>/dev/null) || fail "a claude secondmate spawn must arm a busy generation"
+  assert_grep "busy_gen=$gen" "$state/$id.meta" "the armed generation must be recorded in the mate's meta"
+  out=$(classify claude "$id" "$state")
+  [ "$out" = "busy fm-spawn" ] || fail "a secondmate's launch brief is a submitted turn, got '$out'"
+  assert_absent "$sm/.claude/settings.local.json" "nothing may be written into the persistent secondmate home"
+
+  install_claude_hook_probe "$FAKEBIN_DIR"
+  run_launch() {  # <events>
+    env -i HOME="$CASE_DIR/pane-home" PATH="$FAKEBIN_DIR:$PATH" TERM=xterm \
+      PROBE_EVENTS="$1" /bin/sh -c "$(cat "$launchlog")"
+  }
+  out=$(run_launch "Stop") || fail "the emitted secondmate launch failed to run: $out"
+  assert_contains "$out" "no-hook:Stop" "a secondmate launch must carry no Stop hook; its turn-end guard owns that idle"
+  out=$(run_launch "SessionEnd")
+  assert_contains "$out" "ran:SessionEnd" "SessionEnd must be carried: $out"
+  out=$(classify claude "$id" "$state")
+  [ "$out" = "idle claude-hook" ] || fail "SessionEnd must close the turn, got '$out'"
+  out=$(run_launch "UserPromptSubmit")
+  assert_contains "$out" "ran:UserPromptSubmit" "UserPromptSubmit must be carried: $out"
+  out=$(classify claude "$id" "$state")
+  [ "$out" = "busy claude-hook" ] || fail "UserPromptSubmit must open a turn, got '$out'"
+  out=$(run_launch "StopFailure")
+  out=$(classify claude "$id" "$state")
+  [ "$out" = "idle claude-hook" ] || fail "StopFailure must close the turn, got '$out'"
+
+  "$ROOT/bin/fm-busy-event.sh" arm "$state" "$id" >/dev/null
+  run_launch "SessionEnd" >/dev/null
+  out=$(classify claude "$id" "$state")
+  [ "$out" = "busy fm-spawn" ] || fail "a superseded incarnation's hook must not move the new record, got '$out'"
+  pass "a claude secondmate arms its record and carries env-bound busy hooks with no Stop hook"
+}
+
+test_non_claude_secondmate_arms_nothing() {
+  local rec id=busy-sm-cx out state sm
+  rec=$(make_spawn_case codex-secondmate codex "$id")
+  read_case_record "$rec"
+  sm="$CASE_DIR/secondmate-home"
+  seed_secondmate_home "$sm" "$id"
+  out=$(GROK_HOME="$HOME_DIR/grok-home" \
+    fm_test_run_spawn "$HOME_DIR" "$sm" "$FAKEBIN_DIR" "$id" "$sm" --secondmate --harness codex)
+  expect_code 0 $? "codex secondmate spawn should succeed: $out"
+  state="$HOME_DIR/state"
+  assert_absent "$state/$id.busy-gen" "a secondmate harness with no proven idle source must not be armed"
+  assert_absent "$state/$id.busy-state" "an unarmed secondmate must keep no record"
+  out=$(classify codex "$id" "$state")
+  [ "${out%% *}" = unknown ] || fail "an unarmed secondmate must classify unknown, got '$out'"
+  pass "a secondmate on a harness without a proven idle source stays unarmed and unknown"
+}
+
 test_kimi_and_grok_install_no_unverified_wiring() {
   local state out
   state="$TMP_ROOT/gates/state"
@@ -433,6 +524,8 @@ test_gemini_hooks_semantic_lifecycle
 test_gemini_hooks_stale_incarnation_harmless
 test_raw_gemini_launch_has_no_semantic_wiring
 test_gemini_is_refused_as_a_secondmate
+test_claude_secondmate_arms_env_bound_hooks
+test_non_claude_secondmate_arms_nothing
 test_codex_unverified_until_a_semantic_source_exists
 
 echo "all fm-busy-adapter-wiring tests passed"

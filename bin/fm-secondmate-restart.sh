@@ -40,14 +40,18 @@
 #      open loop owned by the ordinary pending-reply recovery ladder, not state
 #      this restart pass may close.
 #      After the answer, the mate's busy state is read (fm-secondmate-health.sh
-#      idle). A provably busy mate is never restarted: it is reported
+#      idle). Only a proven idle verdict permits restart. The answer is written
+#      during a turn, so a mate still finishing that turn reads busy at first:
+#      a busy mate is re-read on the persist poll for a bounded settle window
+#      (FM_SECONDMATE_IDLE_SETTLE) and restarted on the first proven idle. A
+#      mate still busy when the window closes is never restarted: it is reported
 #      `deferred` and keeps running untouched, and a later staleness read - the
 #      next update pass or the primary's check before that home's next
-#      dispatch - picks it up again. Only a proven idle verdict permits restart.
-#      Unknown, unreadable, and remote-unknown states defer with a re-read nudge.
-#      Containment was approved by firstmate on 2026-09-23 pending follow-up
-#      task fm-secondmate-busy-state-arming. Deferral is expected for every
-#      local mate needing a restart until secondmate busy records are armed.
+#      dispatch - picks it up again. Unknown, unreadable, and remote-unknown
+#      states defer with a re-read nudge on the first read. A local claude mate
+#      carries an armed busy record and can read idle; every other secondmate
+#      harness, and every remote mate, reads unknown today
+#      (bin/fm-secondmate-health.sh idle owns which).
 #   C. VERIFY. A relaunch is reported `restarted` only after
 #      fm-secondmate-health.sh verify proves the replacement's agent alive, the
 #      home lock held by a new live session, and that session reporting the
@@ -73,7 +77,11 @@
 #
 # Environment knobs:
 #   FM_SECONDMATE_PERSIST_WAIT  seconds to wait for one mate's persist answer (900)
-#   FM_SECONDMATE_PERSIST_POLL  seconds between checks of that answer (5)
+#   FM_SECONDMATE_PERSIST_POLL  seconds between checks of that answer, and
+#                               between idle re-reads in the settle window (5)
+#   FM_SECONDMATE_IDLE_SETTLE   seconds after the answer during which a busy
+#                               mate is re-read before it is deferred (120; 0
+#                               reads once)
 #   FM_SECONDMATE_VERIFY_WAIT and FM_SECONDMATE_VERIFY_POLL bound the
 #   replacement verification (bin/fm-secondmate-health.sh owns them).
 #
@@ -114,8 +122,10 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 
 PERSIST_WAIT=${FM_SECONDMATE_PERSIST_WAIT:-900}
 PERSIST_POLL=${FM_SECONDMATE_PERSIST_POLL:-5}
+IDLE_SETTLE=${FM_SECONDMATE_IDLE_SETTLE:-120}
 case "$PERSIST_WAIT" in ''|*[!0-9]*) echo "error: FM_SECONDMATE_PERSIST_WAIT must be a non-negative integer: $PERSIST_WAIT" >&2; exit 2 ;; esac
 case "$PERSIST_POLL" in ''|*[!0-9]*|0) echo "error: FM_SECONDMATE_PERSIST_POLL must be a positive integer: $PERSIST_POLL" >&2; exit 2 ;; esac
+case "$IDLE_SETTLE" in ''|*[!0-9]*) echo "error: FM_SECONDMATE_IDLE_SETTLE must be a non-negative integer: $IDLE_SETTLE" >&2; exit 2 ;; esac
 
 IDS=()
 for arg in "$@"; do
@@ -140,6 +150,7 @@ PLAN=()
 REASON=()
 CORR=()
 DEADLINE=()
+SETTLE_DEADLINE=()
 HARNESS=()
 RESTART_PID=()
 RESTART_RESULT=()
@@ -218,6 +229,11 @@ launch_restart() {  # <array-index>
   restart_active_count=$((restart_active_count + 1))
 }
 
+# Read a mate's busy verdict after its persist answer. The answer is written
+# during a turn, so a mate that is still finishing that turn is re-read on the
+# ordinary poll until SETTLE_DEADLINE; the first proven idle restarts it, and one
+# still busy at the deadline is deferred. Only a busy verdict waits: idle, dead,
+# and every unknown verdict decide on the first read exactly as before.
 restart_if_idle() {  # <array-index>
   local i=$1 verdict
   verdict=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
@@ -225,6 +241,10 @@ restart_if_idle() {  # <array-index>
   [ -n "$verdict" ] || verdict="unknown unreadable"
   case "${verdict%% *}" in
     busy)
+      if [ "$(date +%s)" -lt "${SETTLE_DEADLINE[i]}" ]; then
+        PLAN[i]="settling"
+        return
+      fi
       deferred_count=$((deferred_count + 1))
       printf 'deferred: %s: busy (%s), so it was not restarted; its open work is written down and it keeps running until a later pass finds it idle\n' \
         "${IDS[$i]}" "${verdict#* }"
@@ -242,6 +262,15 @@ restart_if_idle() {  # <array-index>
       PLAN[i]="done"
       ;;
   esac
+}
+
+# The persist answer landed: start the mate's settle window and take its first read.
+answer_arrived() {  # <array-index>
+  local i=$1
+  pending_count=$((pending_count - 1))
+  SETTLE_DEADLINE[i]=$(($(date +%s) + IDLE_SETTLE))
+  restart_if_idle "$i"
+  [ "${PLAN[i]}" != settling ] || settling_count=$((settling_count + 1))
 }
 
 harvest_restarts() {
@@ -298,6 +327,7 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
   REASON[i]=""
   CORR[i]=""
   DEADLINE[i]=""
+  SETTLE_DEADLINE[i]=""
   HARNESS[i]=""
   PRIOR_PID[i]=""
   EXPECT_INSTR[i]=""
@@ -356,6 +386,7 @@ RESULT_DIR=$(mktemp -d "$STATE/.secondmate-restart.XXXXXX") || {
 trap 'rm -rf -- "$RESULT_DIR"' EXIT
 pending_count=0
 restart_active_count=0
+settling_count=0
 i=0
 while [ "$i" -lt "${#IDS[@]}" ]; do
   if [ "${PLAN[i]}" = persisted-pending ]; then
@@ -371,7 +402,7 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
   i=$((i + 1))
 done
 
-while [ "$((pending_count + restart_active_count))" -gt 0 ]; do
+while [ "$((pending_count + settling_count + restart_active_count))" -gt 0 ]; do
   now=$(date +%s)
   next_wait=$PERSIST_POLL
   # Resolve every arrived answer before processing any timeout. Delivery of a
@@ -381,8 +412,7 @@ while [ "$((pending_count + restart_active_count))" -gt 0 ]; do
   while [ "$i" -lt "${#IDS[@]}" ]; do
     if [ "${PLAN[i]}" = persisted-pending ] \
       && fm_pending_reply_try_resolve "$STATE" "${CORR[i]}"; then
-      pending_count=$((pending_count - 1))
-      restart_if_idle "$i"
+      answer_arrived "$i"
     fi
     i=$((i + 1))
   done
@@ -396,8 +426,7 @@ while [ "$((pending_count + restart_active_count))" -gt 0 ]; do
       # A reply can land after the fleet-wide resolution pass. Recheck at the
       # timeout decision so an answer already on disk wins over the fallback.
       if fm_pending_reply_try_resolve "$STATE" "${CORR[i]}"; then
-        pending_count=$((pending_count - 1))
-        restart_if_idle "$i"
+        answer_arrived "$i"
       else
         fall_back_to_nudge "${IDS[$i]}" \
           "it did not confirm within ${PERSIST_WAIT}s that its open work is written down, so its conversation was not spent"
@@ -410,8 +439,23 @@ while [ "$((pending_count + restart_active_count))" -gt 0 ]; do
     fi
     i=$((i + 1))
   done
+  # Re-read every mate still finishing the turn that carried its answer.
+  i=0
+  while [ "$i" -lt "${#IDS[@]}" ]; do
+    if [ "${PLAN[i]}" = settling ]; then
+      restart_if_idle "$i"
+      if [ "${PLAN[i]}" = settling ]; then
+        remaining=$((SETTLE_DEADLINE[i] - $(date +%s)))
+        [ "$remaining" -ge 1 ] || remaining=1
+        [ "$remaining" -ge "$next_wait" ] || next_wait=$remaining
+      else
+        settling_count=$((settling_count - 1))
+      fi
+    fi
+    i=$((i + 1))
+  done
   harvest_restarts
-  [ "$((pending_count + restart_active_count))" -eq 0 ] || sleep "$next_wait"
+  [ "$((pending_count + settling_count + restart_active_count))" -eq 0 ] || sleep "$next_wait"
 done
 
 # --- summary ---------------------------------------------------------------
