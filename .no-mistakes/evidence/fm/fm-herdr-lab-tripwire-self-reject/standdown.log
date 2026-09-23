@@ -1,0 +1,4 @@
+ok - real herdr 0.9.0: stand-down closes a done ship's pane and keeps its record, status log, and worktree
+ok - real herdr: a repeated stand-down reports the pane already closed
+ok - real herdr: a stood-down task relaunches from its records into a fresh pane in its recorded session
+ok - real herdr: cleanup after stand-down meets the already-closed pane as ordinary and completes

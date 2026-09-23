@@ -1,0 +1,12 @@
+Stopped existing lab refuses prepare:
+fm-herdr-lab: session 'fm-lab-tripwire-validation' already exists; refusing to adopt or overwrite it
+Changed saved snapshot refuses prepare and remains intact:
+fm-herdr-lab: recorded fleet state for 'fm-lab-tripwire-validation' differs from the current default session
+fm-herdr-lab: tripwire already exists for 'fm-lab-tripwire-validation'; refusing ambiguous ownership
+Recover matching leftover record and provision same name:
+fm-herdr-lab: reclaimed stale fleet-state tripwire for 'fm-lab-tripwire-validation' (no such session, recorded fleet state unchanged)
+fm-herdr-lab: reclaimed stale fleet-state tripwire for 'fm-lab-tripwire-validation' (no such session, recorded fleet state unchanged)
+{"client":{"version":"0.9.0","channel":"stable","protocol":22,"endpoint_protocol_generation":1,"endpoint_capabilities":["surface_interest","presentation_effects_fence","health_check"],"binary":"/home/dev/.local/bin/herdr","session":"fm-lab-tripwire-validation"},"server":{"status":"running","running":true,"version":"0.9.0","protocol":22,"capabilities":{"live_handoff":true,"detached_server_daemon":false,"endpoint_protocol_generation":1,"surface_interest":true,"health_check":true},"compatible":true,"endpoint_compatible":true,"socket":"/home/dev/.config/herdr/sessions/fm-lab-tripwire-validation/herdr.sock","session":"fm-lab-tripwire-validation","restart_needed":false,"server_binary_stale":false},"update":{"restart_needed":false,"server_binary_stale":false}}
+Running existing lab refuses prepare:
+fm-herdr-lab: session 'fm-lab-tripwire-validation' already exists; refusing to adopt or overwrite it
+Teardown complete; tripwire removed and default fleet snapshot unchanged.
