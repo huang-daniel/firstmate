@@ -4617,9 +4617,8 @@ else
   # home, and its own tracked turn-end guard can block a Stop and continue the
   # same turn with no new prompt, so a plain Stop hook would record idle while
   # the mate is still working. Only an adapter whose idle is provable at the
-  # primary's real turn boundary is armed here; every other secondmate harness
-  # keeps no record and classifies unknown (bin/fm-secondmate-health.sh idle),
-  # which the restart pass treats as not provably idle.
+  # primary's real turn boundary is armed here; bin/fm-secondmate-health.sh idle
+  # owns classification limits for unarmed harnesses.
   #   claude  armed. The launch's inline --settings carries the busy hooks and
   #           the launch environment carries this incarnation's binding (the
   #           claude launch template and the secondmate prefix below);

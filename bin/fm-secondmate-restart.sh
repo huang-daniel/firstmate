@@ -48,10 +48,8 @@
 #      `deferred` and keeps running untouched, and a later staleness read - the
 #      next update pass or the primary's check before that home's next
 #      dispatch - picks it up again. Unknown, unreadable, and remote-unknown
-#      states defer with a re-read nudge on the first read. A local claude mate
-#      carries an armed busy record and can read idle; every other secondmate
-#      harness, and every remote mate, reads unknown today
-#      (bin/fm-secondmate-health.sh idle owns which).
+#      states defer with a re-read nudge on the first read.
+#      bin/fm-secondmate-health.sh idle owns harness and placement limits.
 #   C. VERIFY. A relaunch is reported `restarted` only after
 #      fm-secondmate-health.sh verify proves the replacement's agent alive, the
 #      home lock held by a new live session, and that session reporting the
@@ -60,10 +58,12 @@
 #
 # A mate whose persist answer did not arrive or whose runtime cannot prove a
 # restart gets the ordinary re-read nudge and is reported as a nudge, never as a
-# clean reload. Once a relaunch is attempted, any failed or ambiguous result is
-# reported as unknown rather than attributing it to either incarnation.
+# clean reload. A stop-boundary idle refusal is reported and counted as
+# `deferred: <id>: busy (...)`; other failed or ambiguous relaunch results are
+# reported as unknown rather than attributing them to either incarnation.
 #
-# Local mates restart through bin/fm-control.sh <id> relaunch. Remote mates
+# Local mates restart through bin/fm-control.sh <id> relaunch --require-idle
+# (that command owns the stop-boundary check and refusal contract). Remote mates
 # receive persistence requests and re-read nudges over their host transport;
 # their unknown idle state defers restart.
 #

@@ -34,8 +34,8 @@
 #   claude-hook      Claude lifecycle hooks (UserPromptSubmit/Stop/StopFailure/SessionEnd);
 #                    a claude secondmate's Stop idle is written by its home's
 #                    turn-end guard instead, only when the guard lets the turn end
-#                    (bin/fm-turnend-guard.sh). claude is the only secondmate
-#                    harness bin/fm-spawn.sh arms; the rest classify unknown.
+#                    (bin/fm-turnend-guard.sh). See bin/fm-secondmate-health.sh
+#                    idle for secondmate harness and placement limits.
 #   gemini-hook      Gemini agent hooks (BeforeAgent opens; AfterAgent and
 #                    SessionEnd close)
 #   codex-hook, codex-appserver  reserved: Codex, gated by
