@@ -1,0 +1,1 @@
+ok - stand-down: a stood-down task keeps its durably leased slot until it is returned, and a second spawn never receives it

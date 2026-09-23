@@ -1,0 +1,47 @@
+🌳 Setting up worktree...
+🌳 Leased worktree at /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M375HR0ABJMXT8A2G0H5WGXQ/.test-phase-tmp/live/pool/.treehouse/project-9ebb44/1/project. Run 'treehouse return /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M375HR0ABJMXT8A2G0H5WGXQ/.test-phase-tmp/live/pool/.treehouse/project-9ebb44/1/project' to release it.
+
+$ fm-teardown.sh stale --force
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  2 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: task stale's recorded worktree /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M375HR0ABJMXT8A2G0H5WGXQ/.test-phase-tmp/live/pool/.treehouse/project-9ebb44/1/project is also task current's recorded worktree.
+That pool slot's owner claim names task current (home /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M375HR0ABJMXT8A2G0H5WGXQ/.test-phase-tmp/live/home), so current is the slot's live owner and stale's worktree= line is the stale record.
+Returning that pool slot would kill current's processes and reset its copy, so nothing was changed - not even with --force.
+Reconcile whichever record is wrong (bin/fm-crew-state.sh stale; bin/fm-crew-state.sh current), then re-run teardown.
+Verified: stale cleanup refused; claimant endpoint and sentinel survived.
+
+$ fm-teardown.sh current --force (guard=absent)
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+REFUSED: task current's recorded worktree /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M375HR0ABJMXT8A2G0H5WGXQ/.test-phase-tmp/live/pool/.treehouse/project-9ebb44/1/project is also task stale's recorded worktree.
+Returning that pool slot would kill stale's processes and reset its copy, so nothing was changed - not even with --force.
+Reconcile whichever record is wrong (bin/fm-crew-state.sh current; bin/fm-crew-state.sh stale), then re-run teardown.
+Verified: ambiguous ownership refused without closing claimant or resetting slot.
+
+$ fm-teardown.sh current --force (guard=foreign)
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+REFUSED: task current's recorded worktree /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M375HR0ABJMXT8A2G0H5WGXQ/.test-phase-tmp/live/pool/.treehouse/project-9ebb44/1/project is also task stale's recorded worktree.
+Returning that pool slot would kill stale's processes and reset its copy, so nothing was changed - not even with --force.
+Reconcile whichever record is wrong (bin/fm-crew-state.sh current; bin/fm-crew-state.sh stale), then re-run teardown.
+Verified: ambiguous ownership refused without closing claimant or resetting slot.
+
+$ fm-teardown.sh current --force (guard=secondmate)
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+REFUSED: task current's recorded worktree /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M375HR0ABJMXT8A2G0H5WGXQ/.test-phase-tmp/live/pool/.treehouse/project-9ebb44/1/project is also task stale's recorded worktree.
+Returning that pool slot would kill stale's processes and reset its copy, so nothing was changed - not even with --force.
+Reconcile whichever record is wrong (bin/fm-crew-state.sh current; bin/fm-crew-state.sh stale), then re-run teardown.
+Verified: ambiguous ownership refused without closing claimant or resetting slot.
+
+$ fm-teardown.sh current --force
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+warning: task stale's record also names /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M375HR0ABJMXT8A2G0H5WGXQ/.test-phase-tmp/live/pool/.treehouse/project-9ebb44/1/project as its worktree, but that pool slot's owner claim names task current in this home, so stale's worktree= line is the stale record; reconcile it (bin/fm-crew-state.sh stale) - its own teardown refuses while this slot is claimed.
+teardown: reaping leaked worktree process(es) for current: 1618723
+🌳 Worktree returned to pool.
+teardown current complete (window slotlab:fm-current, worktree /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M375HR0ABJMXT8A2G0H5WGXQ/.test-phase-tmp/live/pool/.treehouse/project-9ebb44/1/project)
+Backlog: current just finished (config/backlog-backend selects manual editing). Update /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M375HR0ABJMXT8A2G0H5WGXQ/.test-phase-tmp/live/home/data/backlog.md - move current to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+Verified: claimant cleaned up; stale record retained; task endpoint closed; slot reset.
+[{"name":"1","path":"/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M375HR0ABJMXT8A2G0H5WGXQ/.test-phase-tmp/live/pool/.treehouse/project-9ebb44/1/project","status":"available","flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
