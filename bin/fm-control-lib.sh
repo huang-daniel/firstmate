@@ -72,11 +72,15 @@ fm_control_harnesses() {
 }
 
 fm_control_harness_supported() {  # <harness>
-  local harness
+  local harness supported=1
+  # Drain the registry even after a match: an early return can break the
+  # producer's pipe and contaminate the caller's stderr with diagnostics.
   while read -r harness; do
-    [ "$harness" = "${1-}" ] && return 0
+    if [ "$harness" = "${1-}" ]; then
+      supported=0
+    fi
   done < <(fm_control_harnesses)
-  return 1
+  return "$supported"
 }
 
 # The verified adapter a RECORDED harness value belongs to. Every table below
