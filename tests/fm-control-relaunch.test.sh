@@ -87,10 +87,10 @@ case "${1:-}" in
     else
       printf '%s\n' "$payload" >> "$D/keys"
       case "$payload" in
-        "cd -- '"*"'")
-          # A fresh spawn moves its pane into the worktree it leased.
-          moved=${payload#"cd -- '"}
-          printf '%s' "${moved%"'"}" > "$D/cwd"
+        "( cd -- '"*"' && exec "*)
+          # A fresh spawn opens a shell in the worktree it leased.
+          moved=${payload#"( cd -- '"}
+          printf '%s' "${moved%%"' && exec "*}" > "$D/cwd"
           ;;
         'export GOTMPDIR='*)
           if [ -n "${FM_FAKE_TRACE_PREPARE:-}" ]; then

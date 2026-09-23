@@ -135,8 +135,12 @@
 #   returning a slot, so allocation cannot reuse a slot before its owner record
 #   is published. Under that lock the spawn itself takes Treehouse's durable
 #   lease on one slot of this home's pool (`treehouse get --lease --lease-holder
-#   <task-id>`, the lease secondmate homes use) and sends the pane only a `cd`
-#   into it, on every backend. The lease needs no live process, so the slot
+#   <task-id>`, the lease secondmate homes use) and has the pane open a nested
+#   shell in it, on every backend. That is the same process shape the
+#   interactive `treehouse get` left: the pane's own shell stays outside the
+#   slot, so teardown's reap of every process under the worktree ends the task's
+#   shell and agent but leaves the pane itself for the backend's exact close.
+#   The lease needs no live process, so the slot
 #   stays the task's through stand-down's terminal close, an exit, a crashed
 #   pane, or a reboot until teardown's `treehouse return` releases it. A spawn
 #   that aborts before its record is published returns its lease while it still
@@ -4020,15 +4024,15 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
     echo "error: could not resolve this home's Treehouse pool root for '$FM_HOME'; refusing to acquire a worktree from a pool another home may own" >&2
     exit 1
   }
-  # Lease the slot durably for this task, then move the pane into it; the
-  # script header owns why the lease, not the pane, holds the slot. The
-  # interactive `treehouse get` this replaced held only a process lease, which
-  # ended when the task's terminal closed, so a stood-down task's slot went to
-  # the next spawn while its record still named it.
+  # Lease the slot durably for this task, then open a shell in it; the script
+  # header owns why the lease, not the pane, holds the slot. The interactive
+  # `treehouse get` this replaced held only a process lease, which ended when
+  # the task's terminal closed, so a stood-down task's slot went to the next
+  # spawn while its record still named it.
   spawn_lease_treehouse_slot "$treehouse_root" || exit 1
-  spawn_send_text_line "$WT_TARGET" "cd -- '${SPAWN_LEASED_WT//\'/\'\\\'\'}'"
+  spawn_send_text_line "$WT_TARGET" "( cd -- '${SPAWN_LEASED_WT//\'/\'\\\'\'}' && exec \"\${SHELL:-/bin/sh}\" )"
 
-  # Wait for the pane's cwd to move from the project to the leased worktree.
+  # Wait for the pane's shell to move from the project to the leased worktree.
   # Target the stable window id, not the name: if the name is ever lost (e.g. an
   # automatic-rename slips through), display-message -t <bad-name> falls back to the
   # active client's window, which would misread firstmate's OWN pane path as the

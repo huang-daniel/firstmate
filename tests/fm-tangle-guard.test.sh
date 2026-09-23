@@ -216,7 +216,7 @@ test_spawn_isolation_abort() {
 #     collides under base-index 1;
 #   - the window id is captured (-P -F #{window_id}) and automatic-rename/allow-rename
 #     are disabled so the fm-<id> name survives treehouse cd'ing into the worktree;
-#   - the cd into the leased worktree and the worktree wait loop target that stable
+#   - the shell opened in the leased worktree and the worktree wait loop target that stable
 #     window id, never the (possibly-renamed) name - a lost name would let
 #     display-message fall back to the active client's window and misread firstmate's
 #     OWN pane as the worktree, tangling a hook into the primary checkout.
@@ -278,10 +278,10 @@ test_spawn_tmux_window_construction() {
   assert_grep "set-window-option -t @spawnwid allow-rename off" "$rec" \
     "must disable allow-rename on the spawned window"
 
-  # Bug 2 fix (b): the cd into the leased worktree and the worktree wait loop
-  # target the stable id.
-  assert_grep "send-keys -t @spawnwid cd -- '" "$rec" \
-    "the cd into the leased worktree must be sent to the stable window id"
+  # Bug 2 fix (b): the shell opened in the leased worktree and the worktree
+  # wait loop target the stable id.
+  assert_grep "send-keys -t @spawnwid ( cd -- '" "$rec" \
+    "the shell opened in the leased worktree must be sent to the stable window id"
   assert_grep "display-message -p -t @spawnwid #{pane_current_path}" "$rec" \
     "the worktree wait loop must query the stable window id, not the name"
 
