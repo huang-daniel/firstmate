@@ -1,0 +1,9 @@
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown task-live complete (window fm-lab-retention-01M37F21:fm-task-live, worktree /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M37F21C348YZSN0ETBN98E41/.retention-live/home/gone-wt)
+Backlog: task-live just finished (config/backlog-backend selects manual editing). Update /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M37F21C348YZSN0ETBN98E41/.retention-live/home/data/backlog.md - move task-live to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.

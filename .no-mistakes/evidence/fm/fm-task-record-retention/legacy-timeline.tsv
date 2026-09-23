@@ -1,0 +1,12 @@
+# task=legacy
+# project=gone-project
+# kind=ship
+# mode=no-mistakes
+# model=-
+# effort=-
+epoch	event	key	pr	milestone	surfaces	preflight	merge
+-	working	-	-	-	-	-	-
+400	done	-	-	implementation-complete	NONE	NOT_APPLICABLE,FAILED	INDEPENDENT
+-	other	-	-	-	-	-	LANDS_BEFORE
+-	other	-	-	-	-	-	-
+-	other	-	-	-	-	-	-

@@ -1,0 +1,15 @@
+# task=task-live
+# project=gone-project
+# kind=ship
+# mode=local-only
+# model=test-model
+# effort=high
+epoch	event	key	pr	milestone	surfaces	preflight	merge
+100	working	-	-	implementation-complete	-	-	-
+110	slot-wait	-	-	-	-	-	-
+140	slot-granted	-	-	-	-	-	-
+150	slot-lapsed	-	-	-	-	-	-
+160	needs-decision	review-1	-	-	-	-	-
+170	resolved	review-1	-	-	-	-	-
+180	done	-	https://github.com/example/repo/pull/7	pr-ready	-	-	-
+200	done	-	https://github.com/example/repo/pull/7	merged	2	VERIFIED,UNVERIFIABLE	LANDS_AFTER

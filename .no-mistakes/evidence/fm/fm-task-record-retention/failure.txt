@@ -1,0 +1,7 @@
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+warning: task failure timeline not retained: cannot create /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M37F21C348YZSN0ETBN98E41/.retention-live/home/data/failure
+warning: task failure cleanup retained /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M37F21C348YZSN0ETBN98E41/.retention-live/home/state/failure.status because timeline retention failed
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M37F21C348YZSN0ETBN98E41/.retention-live/home/gone-project: skipped: not a directory
+teardown failure complete (window fm-lab-retention-01M37F21:fm-failure, worktree /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M37F21C348YZSN0ETBN98E41/.retention-live/home/gone-wt)
+Backlog: failure just finished (config/backlog-backend selects manual editing). Update /home/dev/.no-mistakes/worktrees/222d8f0053d8/01M37F21C348YZSN0ETBN98E41/.retention-live/home/data/backlog.md - move failure to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.

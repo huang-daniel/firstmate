@@ -1,0 +1,12 @@
+{
+  "execution": "Real bin/fm-teardown.sh, isolated FM_HOME, documented FM_GATE_REFUSE_BYPASS test exemption; no tool stubs. Already-absent worker endpoints and worktrees.",
+  "implementation_to_merge_seconds": 100,
+  "validation_slot_wait_seconds": 30,
+  "sensitive_test_text_in_timelines": false,
+  "failure_original_log_preserved_byte_for_byte": true,
+  "failure_metadata_removed": true,
+  "failure_turn_ended_removed": true,
+  "legacy_missing_timestamp": "-",
+  "legacy_unknown_event": "other",
+  "legacy_unterminated_final_line_retained": true
+}
