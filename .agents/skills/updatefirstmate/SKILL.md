@@ -13,7 +13,7 @@ metadata:
 
 Self-update firstmate in place.
 Firstmate is its own repo, behind the same no-mistakes gate as any project, so new tracked material (`AGENTS.md`, `bin/`, `.agents/skills/`, and public `skills/`) reaches `main` and then sits there until each running firstmate pulls it.
-Only `AGENTS.md`, `bin/`, and `.agents/skills/` are a running firstmate instruction surface; public `skills/` is installer-facing and is not loaded by firstmate.
+The [health command](../../../bin/fm-secondmate-health.sh) owns the tracked startup instruction surface used to detect stale secondmates; public `skills/` is installer-facing and is not loaded by firstmate.
 This skill performs that pull for the running main firstmate and every secondmate, without disturbing any in-flight work.
 
 Pulling the files is only half of it.
@@ -25,7 +25,6 @@ That is why **every live second mate is a restart candidate after a successful u
 The restart command reads that from what the agent's own session recorded when it started, leaves a mate already running its home's current instructions alone, and requires a proven idle verdict before restarting.
 The only live mates that are not candidates are the ones whose home the update pass had to skip, and the ones whose runtime cannot prove a restart; the updater keeps both cases honest and neither is reported as a reload.
 
-**One-time rollout note:** the update that carries this change is still executed by the previous release, which restarts only the mates whose `AGENTS.md` or `.agents/skills/` moved on that pass. After it completes, run `bin/fm-secondmate-restart.sh <fm-id>...` once with every live second mate ID, not only the ones that release named; later updates follow the normal flow below.
 
 The primary update is fast-forward only, while each secondmate uses the same guarded convergence path plus one narrow recovery for squash-merged local history.
 For a remote route, it updates the configured Firstmate code root on that host from its own origin, then guardedly fast-forwards the persistent home to that code-root commit.
@@ -48,16 +47,16 @@ This touches only the firstmate repo and its own worktrees, never anything under
    - `nudge-secondmates: fm-<id>...|none`
 
    The two second-mate sets are disjoint and the script owns the split; do not re-derive it.
-   `restart-secondmates:` carries every live mate the pass left on the latest commit, whether it advanced or was already there.
+   The [updater header](../../../bin/fm-update.sh) owns which live mates enter each action list, including already-current homes.
    A mate reaches neither set only because its home was skipped, because it has no live endpoint recorded here, or because its endpoint was positively classified as dead or missing.
    A skipped genuine divergence still requires attention through its durable reconciliation record; the other two cases need no update action from you.
 
 2. **Re-read AGENTS.md if your own instructions changed.**
    When the updater printed `reread-firstmate: yes`, the tracked instruction surface (`AGENTS.md`, `bin/`, or `.agents/skills/`) just advanced under you.
    **Read `AGENTS.md` now** (CLAUDE.md is a real `@AGENTS.md` pointer to it) to refresh your operating instructions before doing anything else, so you are acting on the new instructions rather than the stale ones you were started with.
-   When it printed `reread-firstmate: no`, nothing changed for you - skip the re-read.
+   When it printed `reread-firstmate: no`, skip this re-read step; that flag does not prove all startup-loaded wiring is unchanged.
 
-3. **Restart every second mate the updater named.**
+3. **Evaluate restart candidates through the guarded pass.**
    Pass the whole `restart-secondmates:` list to one command (skip this step entirely when it says `none`):
    ```sh
    FM_HOME=<this-firstmate-home> bin/fm-secondmate-restart.sh <fm-id>...
