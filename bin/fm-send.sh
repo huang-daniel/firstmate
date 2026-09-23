@@ -118,9 +118,12 @@
 # that set is not classified busy by the tail rung, and registering its verified
 # signature is how a harness joins the set. muse, which has no verified rendered
 # footer, is classified instead by the exact `busy muse-session-log` verdict
-# from the semantic owner, bin/fm-busy-lib.sh. rovo is deliberately excluded:
-# no firstmate skill loads in a rovo worker, so no invocation firstmate types
-# there can start a run. A target this home records no harness for is not
+# from the semantic owner, bin/fm-busy-lib.sh; idle, unknown, and a missing
+# binding do not prove busy. rovo has no harness-specific rung; its exclusion
+# and the requirement when skill loading is fixed are owned by
+# .agents/skills/harness-adapters/references/harness/rovo.md
+# ("Skill-loading interop gap"). The native backend rung still applies.
+# A target this home records no harness for is not
 # classified by any rung and keeps taking typed sends.
 # Each refusal names which of the two conditions fired and the target, says
 # nothing was sent, and says this plane has no durable record behind it. It
@@ -900,40 +903,11 @@ fm_send_executes_as_command() {  # <pre-marker-text>
   return 1
 }
 
-# The resolved target's busy verdict, on the same ladder the fleet already runs
-# in bin/fm-pending-reply-lib.sh and bin/fm-supervise-daemon.sh. Its two rungs
-# prove different things, so the rule differs between them.
-# Before either rung: a target this home records no harness for is not
-# classified at all. A foreign pane must keep taking a typed send, because
-# there is no override flag to get past a refusal, and without a recorded
-# harness its tail could only be matched against the union of every vendor's
-# busy token, which is evidence about no target in particular.
-# Rung one, where the backend exposes native agent-state (herdr today): a
-# `busy` verdict is the backend's own reading of that exact pane, so it is
-# taken as it comes and never consults the signature table.
-# Rung two, everywhere else: the rendered busy footer from a captured tail,
-# matched only against the recorded harness's own registered and verified
-# signature - claude, codex, opencode, pi/pi-signed, omp, grok, agy, kimi,
-# cursor, gemini (bin/fm-composer-lib.sh). Registering a verified signature in
-# that table is how a harness joins. That table is a delivery guard rather than
-# a worker-state source (its own header draws that boundary and names
-# bin/fm-busy-lib.sh as the semantic owner), so what this rung proves is that
-# the pane is rendering its harness's turn-in-flight signal, not what firstmate
-# records that worker to be doing.
-# Rung three, muse only: muse has no verified rendered busy footer, and its one
-# verified busy source is its own durable session log, folded by the semantic
-# owner. Only the exact `busy muse-session-log` verdict counts; idle, unknown,
-# and a missing binding settle nothing. No other harness reaches this rung: a
-# semantic record can outlive its turn on some harnesses (a Claude interrupt
-# usually leaves claude-hook busy), which would refuse with no override flag.
-# rovo is deliberately on no rung: no firstmate skill loads in a rovo worker
-# (references/harness/rovo.md "Skill-loading interop gap"), so no invocation
-# firstmate types there can start a run, and the change that closes that gap
-# registers rovo's verified row in the table above.
-# Only a PROVEN busy verdict succeeds. A native verdict that is not `busy`
-# settles nothing and falls through to the tail: herdr's own adapter records
-# that live Claude keeps agent_status idle through a whole landed turn, which
-# is the exact state this rail exists to catch.
+# The typed-plane busy ladder is owned by this script's header.
+# A native verdict other than busy must fall through: herdr can report idle
+# through a live Claude turn, so that verdict cannot rule out a busy footer.
+# Keep the semantic fallback muse-only: other harnesses can retain a busy
+# record after an interrupt, which would cause a refusal with no override.
 fm_send_target_is_busy() {
   local native tail40
   [ -n "$TARGET_HARNESS" ] || return 1
