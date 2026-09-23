@@ -1913,9 +1913,9 @@ EOF
 # the command still exits 0 so the session can open.
 
 # make_hanging_tool <fakebin> <name>: a real, unkillable-by-timeout-alone
-# subprocess of the digest. `git` is the honest choice - the bootstrap stage
-# shells out to it - and it also proves the bound reaches a GRANDCHILD, because
-# bootstrap runs it inside its own command substitution.
+# subprocess of the digest. `git` first runs while the lock stage records the
+# launch revision, before bootstrap, and proves the bound reaches a GRANDCHILD
+# because the health recorder runs it inside its own command substitution.
 make_hanging_tool() {
   local fakebin=$1 name=$2
   cat > "$fakebin/$name" <<'SH'
@@ -1975,13 +1975,13 @@ EOF
 
   expect_code 0 "$status" "a truncated session start must still exit 0 so the session can open"
   assert_contains "$out" "SESSION START - $home" "the truncated digest lost the output it had already produced"
-  assert_contains "$out" "LOCK" "the truncated digest lost a stage that had completed"
+  assert_contains "$out" "lock acquired" "the truncated digest lost its completed lock acquisition"
   assert_contains "$out" "STARTUP TRUNCATED - SESSION START HIT ITS" "a truncated session start did not say so"
   assert_contains "$out" "RUNTIME BOUND" "the truncation banner did not name the bound it hit"
-  assert_contains "$out" 'stopped during the "bootstrap" stage' "the truncation banner did not name the incomplete stage"
+  assert_contains "$out" 'stopped during the "lock" stage' "the truncation banner did not name the incomplete stage"
   assert_contains "$out" "RECONCILE these stages" "the truncation banner did not tell the agent what to reconcile"
-  assert_contains "$out" "wake-queue supervision-instructions read-once fleet-state network-checks context next-step" \
-    "the truncation banner did not list every stage that never ran"
+  assert_contains "$out" "lock bootstrap wake-queue supervision-instructions read-once fleet-state network-checks context next-step" \
+    "the truncation banner did not list every unfinished stage"
   assert_not_contains "$out" "NEXT STEP" "a truncated digest claimed to have reached its closing reminder"
   assert_absent "$home/state/.session-start-complete" \
     "a truncated startup recorded itself as complete"
