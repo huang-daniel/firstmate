@@ -27,6 +27,10 @@
 #     already did).
 #   - The sweep is skipped entirely under FM_BOOTSTRAP_DETECT_ONLY=1 (the
 #     read-only session path), matching the other mutating sweeps.
+#   - A live session already holding a mate home's lock stops the relaunch
+#     before it starts and is reported as a lock collision; a relaunch refused
+#     on a held spawn lock is named a lock collision; and every outcome that
+#     leaves a home without a running mate also queues one durable check wake.
 #   - The sweep is naturally scoped to the primary: with no kind=secondmate
 #     meta present (a secondmate's own state/ never holds one, since
 #     secondmates never spawn secondmates), it is a silent no-op.
@@ -540,6 +544,87 @@ test_sweep_noop_with_no_secondmate_meta() {
   pass "sweep: a silent no-op with no kind=secondmate meta present (a secondmate home's own natural scoping)"
 }
 
+# start_fake_harness: a live process whose argv[0] names a verified harness, the
+# shape the home lock's liveness test accepts. Prints its pid.
+# Pids go to a file because callers run this in a command substitution.
+FAKE_HARNESS_PIDS="$TMP_ROOT/fake-harness.pids"
+kill_fake_harnesses() {
+  local pid
+  [ -f "$FAKE_HARNESS_PIDS" ] || return 0
+  while IFS= read -r pid; do kill "$pid" 2>/dev/null || true; done < "$FAKE_HARNESS_PIDS"
+}
+trap 'kill_fake_harnesses; fm_test_cleanup' EXIT
+start_fake_harness() {
+  local pid
+  bash -c 'exec -a claude "$0" 600' "$(command -v sleep)" </dev/null >/dev/null 2>&1 &
+  pid=$!
+  printf '%s\n' "$pid" >> "$FAKE_HARNESS_PIDS"
+  printf '%s\n' "$pid"
+}
+
+test_sweep_detects_home_lock_collision_before_relaunch() {
+  local w fb tmuxfb log out holder rows
+  w=$(new_world sweep-lock-collision)
+  add_sm_home "$w" sm1 firstmate:fm-sm1
+  fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")
+  log="$w/calls.log"; : > "$log"
+  # A live session still holds the mate home's lock although the endpoint's
+  # agent reads dead: a replacement would be refused that lock and run read-only.
+  holder=$(start_fake_harness)
+  printf '%s\n' "$holder" > "$w/sm1/state/.lock"
+
+  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log")
+
+  assert_contains "$out" "SECONDMATE_LIVENESS: secondmate sm1: lock collision: its home lock is held by live session pid $holder" \
+    "a live lock holder must be surfaced as an actionable lock collision"
+  assert_not_contains "$(cat "$log")" "new-window" "a relaunch into a lock-held home must not be attempted"
+  assert_not_contains "$(cat "$log")" "kill-window" "the endpoint must be left as it was"
+  rows=$(grep -c $'\tcheck\tsecondmate-liveness-sm1\t' "$w/home/state/.wake-queue" 2>/dev/null || true)
+  [ "$rows" = 1 ] || fail "the collision must queue exactly one check wake, got $rows"
+  assert_contains "$(cat "$w/home/state/.wake-queue")" "check: secondmate-liveness sm1: lock collision" \
+    "the check wake must carry the collision"
+
+  run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log" >/dev/null
+  rows=$(grep -c $'\tcheck\tsecondmate-liveness-sm1\t' "$w/home/state/.wake-queue" 2>/dev/null || true)
+  [ "$rows" = 1 ] || fail "a repeated sweep must not queue a duplicate wake while one is queued, got $rows"
+  pass "sweep: a live home-lock holder is a surfaced lock collision, never a silent read-only relaunch"
+}
+
+test_sweep_surfaces_spawn_lock_refusal_as_collision() {
+  local w fb tmuxfb log out holder
+  w=$(new_world sweep-spawn-lock)
+  add_sm_home "$w" sm1 firstmate:fm-sm1
+  fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")
+  log="$w/calls.log"; : > "$log"
+  # Another live operation already holds this mate's spawn lock.
+  holder=$(start_fake_harness)
+  mkdir -p "$w/home/state/.spawn-sm1.lock"
+  printf '%s\n' "$holder" > "$w/home/state/.spawn-sm1.lock/pid"
+
+  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" missing "$log")
+
+  assert_contains "$out" "SECONDMATE_LIVENESS: secondmate sm1: respawn refused by a lock collision after recorded endpoint confidently missing" \
+    "a relaunch refused on a held lock must be named as a lock collision"
+  assert_contains "$(cat "$w/home/state/.wake-queue" 2>/dev/null)" "check: secondmate-liveness sm1: respawn refused by a lock collision" \
+    "the refused relaunch must also queue a check wake"
+  pass "sweep: a relaunch refused by a held lock is surfaced as a lock collision and a check wake"
+}
+
+test_sweep_failed_relaunch_queues_check_wake() {
+  local w fb tmuxfb log out
+  w=$(new_world sweep-failure-wake)
+  add_sm_home "$w" sm1 firstmate:fm-sm1 pi
+  fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")
+  log="$w/calls.log"; : > "$log"
+
+  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" missing "$log" FM_TEST_FAIL_NEW_WINDOW=1)
+
+  assert_contains "$out" "SECONDMATE_LIVENESS: secondmate sm1: respawn failed" "the failure line must still print"
+  assert_contains "$(cat "$w/home/state/.wake-queue" 2>/dev/null)" "check: secondmate-liveness sm1: respawn failed" \
+    "a home left without a mate must also queue a check wake"
+  pass "sweep: a failed relaunch leaves a durable check wake, not only a digest line"
+}
+
 test_tmux_agent_state_classifies
 test_tmux_agent_state_rejects_malformed_targets_before_probe
 test_herdr_agent_state_preserves_husk_classifier
@@ -555,5 +640,9 @@ test_sweep_never_acts_on_unverified_harness_dead_reading
 test_sweep_converges_no_retouch_once_alive
 test_sweep_skipped_under_detect_only
 test_sweep_noop_with_no_secondmate_meta
+test_sweep_detects_home_lock_collision_before_relaunch
+test_sweep_surfaces_spawn_lock_refusal_as_collision
+test_sweep_failed_relaunch_queues_check_wake
+
 
 echo "# all fm-secondmate-liveness tests passed"

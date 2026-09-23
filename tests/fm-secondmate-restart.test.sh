@@ -22,6 +22,20 @@
 #      fast-forward is still named for restart and genuinely restarted, and one
 #      whose runtime cannot prove a restart keeps the honest re-read path with
 #      its agent left running.
+#   7. Staleness comes first: a mate whose running session recorded its home's
+#      current instruction surface is reported current and never asked to
+#      persist or stopped, while a stale one is restarted.
+#   8. A provably busy mate is deferred after persisting and never restarted; a
+#      provably idle one is reported restarted while idle, and one with no busy
+#      record is reported restarted with idle not provable.
+#   9. `restarted` requires the replacement to be verified: alive, holding the
+#      home lock as a new session, and reporting the intended surface. A
+#      replacement refused the lock by a surviving session is an unknown
+#      outcome naming the lock collision.
+#
+# The stub also models each session start in a mate home: a live process whose
+# argv[0] names a verified harness takes the home lock (unless a live holder
+# refuses it) and records its revision through the real record command.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -33,7 +47,7 @@ fm_git_identity fmtest fmtest@example.com
 TMP_ROOT=$(fm_test_tmproot fm-secondmate-restart)
 mkdir -p "$TMP_ROOT"
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
-trap 'rm -rf -- "$TMP_ROOT"' EXIT
+trap 'kill_fake_sessions; rm -rf -- "$TMP_ROOT"' EXIT
 
 # A session-provider stub that models the two things this pass depends on: the
 # harness exit command stops the agent, a launch brief starts the replacement,
@@ -76,8 +90,23 @@ case "${1:-}" in
             : > "$D/local-relaunch-during-remote"
           fi
           printf 'zsh' > "$D/command.$target"
+          # The old agent's process exits with it, unless the case models a
+          # session that outlives its endpoint's agent.
+          win=${target##*:}; win=${win#=}
+          if [ -f "$D/session.$win" ] && [ ! -e "$D/old-session-survives" ]; then
+            kill "$(cat "$D/session.$win")" 2>/dev/null || true
+          fi
           ;;
-        *'encode launch-brief'*) cat "$D/becomes" > "$D/command.$target" ;;
+        *'encode launch-brief'*)
+          cat "$D/becomes" > "$D/command.$target"
+          # Model the replacement's own session start: a live harness process
+          # takes the home lock (unless an old live holder refuses it) and
+          # records the revision it started on.
+          win=${target##*:}; win=${win#=}
+          if [ -f "$D/home.$win" ] && [ ! -e "$D/no-session-start" ]; then
+            FM_FAKE_DIR="$D" "$D/start-session" "$(cat "$D/home.$win")" "$win"
+          fi
+          ;;
         ': Firstmate instruction waiting: list '*)
           printf 'doorbell\n' >> "$D/rings"
           if [ -x "$D/on-doorbell" ]; then
@@ -131,6 +160,41 @@ esac
 exit 0
 SH
   chmod +x "$fb/sleep"
+  cat > "$1/fake/start-session" <<'SH'
+#!/usr/bin/env bash
+# start-session <home> <window>: model a session start in <home>.
+set -u
+D=$FM_FAKE_DIR home=$1 win=$2
+old=$(sed -n 1p "$home/state/.lock" 2>/dev/null || true)
+if [ -n "$old" ] && kill -0 "$old" 2>/dev/null; then
+  exit 0  # the lock is refused; the new session runs read-only
+fi
+# argv[0] names a verified harness, which is what the lock's liveness test reads.
+bash -c 'exec -a claude "$0" 600' "$(cat "$D/sleep-bin")" </dev/null >/dev/null 2>&1 &
+pid=$!
+printf '%s\n' "$pid" >> "$D/pids"
+printf '%s\n' "$pid" > "$D/session.$win"
+printf '%s\n' "$pid" > "$home/state/.lock"
+FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_STATE_OVERRIDE= "$FM_FAKE_ROOT/bin/fm-secondmate-health.sh" record
+SH
+  chmod +x "$1/fake/start-session"
+  command -v sleep > "$1/fake/sleep-bin"
+}
+
+# start_old_session <case-dir> <id>: a live session already running in the
+# mate's home, holding its lock and recording the revision it started on.
+start_old_session() {
+  local dir=$1 id=$2
+  FM_FAKE_DIR="$dir/fake" FM_FAKE_ROOT="$ROOT" \
+    "$dir/fake/start-session" "$(cat "$dir/fake/home.fm-$id")" "fm-$id"
+}
+
+kill_fake_sessions() {
+  local f pid
+  for f in "$TMP_ROOT"/*/fake/pids; do
+    [ -f "$f" ] || continue
+    while IFS= read -r pid; do kill "$pid" 2>/dev/null || true; done < "$f"
+  done
 }
 
 # new_case <name> -> a parent home with a stub session provider.
@@ -174,6 +238,7 @@ add_local_mate() {
   } > "$home/state/$id.meta"
   printf '%s\n' "fm-$id" >> "$dir/fake/windows"
   printf '%s' "$smhome" > "$dir/fake/cwd"
+  printf '%s' "$smhome" > "$dir/fake/home.fm-$id"
 }
 
 # add_repo_backed_mate <case-dir> <id> [harness] [backend-line]
@@ -223,12 +288,14 @@ add_repo_backed_mate() {  # <case-dir> <id> [harness] [backend]
   } > "$home/state/$id.meta"
   printf '%s\n' "fm-$id" >> "$dir/fake/windows"
   printf '%s' "$smhome" > "$dir/fake/cwd"
+  printf '%s' "$smhome" > "$dir/fake/home.fm-$id"
 }
 
 # run_update_in_case <case-dir>: the real /updatefirstmate mechanics over that world.
 run_update_in_case() {
   local dir=$1
-  env PATH="$dir/fakebin:$PATH" FM_FAKE_DIR="$dir/fake" \
+  env PATH="$dir/fakebin:$PATH" FM_FAKE_DIR="$dir/fake" FM_FAKE_ROOT="$ROOT" \
+    FM_SECONDMATE_VERIFY_WAIT="${FM_TEST_VERIFY_WAIT:-5}" FM_SECONDMATE_VERIFY_POLL=1 \
     FM_ROOT_OVERRIDE="$dir/fmrepo" FM_HOME="$dir/home" \
     FM_SSH_BIN="${FM_TEST_SSH_BIN:-ssh}" \
     "$ROOT/bin/fm-update.sh" 2>/dev/null
@@ -244,7 +311,8 @@ arm_answer() {
 run_restart() {  # <case-dir> <args...>
   local dir=$1; shift
   env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
-    FM_SPAWN_NO_GUARD=1 FM_SECONDMATE_PERSIST_POLL=1 \
+    FM_FAKE_ROOT="$ROOT" FM_SPAWN_NO_GUARD=1 FM_SECONDMATE_PERSIST_POLL=1 \
+    FM_SECONDMATE_VERIFY_WAIT="${FM_TEST_VERIFY_WAIT:-5}" FM_SECONDMATE_VERIFY_POLL=1 \
     FM_SECONDMATE_PERSIST_WAIT="${FM_TEST_PERSIST_WAIT:-30}" \
     FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.05 \
     FM_SSH_BIN="${FM_TEST_SSH_BIN:-ssh}" \
@@ -294,7 +362,7 @@ test_persist_precedes_restart() {
 
   expect_code 0 "$rc" "a confirmed persist should restart the mate"$'\n'"$out"
   assert_contains "$out" "restarted: sm1 (claude)" "the mate should be restarted on its pinned runtime"
-  assert_contains "$out" "summary: 1 of 1 restarted, 0 nudged, 0 unreached" "the summary should report the reload"
+  assert_contains "$out" "summary: 1 of 1 restarted (0 while idle, 1 with idle not provable), 0 already current, 0 deferred busy, 0 nudged, 0 unreached" "the summary should report the reload"
   # The pane transcript orders the two phases: the instruction doorbell first,
   # the harness exit command only after it.
   doorbell_line=$(grep -n '^: Firstmate instruction waiting: ' "$dir/fake/literal" | head -1 | cut -d: -f1)
@@ -396,7 +464,7 @@ test_unknown_mate_is_accounted_for() {
   assert_contains "$out" "restarted: sm1" "the known mate should still be restarted"
   assert_contains "$out" "ghost:" "the unknown mate must be accounted for by name"
   assert_contains "$out" "no durable record" "the unknown mate's reason must be concrete"
-  assert_contains "$out" "summary: 1 of 2 restarted, 0 nudged, 1 unreached" "the summary must count both mates"
+  assert_contains "$out" "summary: 1 of 2 restarted (0 while idle, 1 with idle not provable), 0 already current, 0 deferred busy, 0 nudged, 1 unreached" "the summary must count both mates"
   pass "T4 every named mate is accounted for, including one this home does not know"
 }
 
@@ -486,6 +554,18 @@ case "${rargs[1]:-}" in
         ;;
     esac
     printf 'relaunched %s\n' "${rargs[2]}"
+    : > "$FM_FAKE_DIR/remote-relaunched"
+    ;;
+  state) printf 'alive\n' ;;
+  self)
+    # The remote home's own running-session report: the old session on an
+    # older revision until the relaunch, then the replacement on the new one.
+    if [ -e "$FM_FAKE_DIR/remote-relaunched" ]; then
+      printf 'lock_pid=222\nlock_live=yes\nsession_pid=222\nsession_commit=c2\nsession_instr=AGENTS.md:a2,bin:b2,.agents/skills:s2\n'
+    else
+      printf 'lock_pid=111\nlock_live=yes\nsession_pid=111\nsession_commit=c1\nsession_instr=AGENTS.md:a1,bin:b1,.agents/skills:s2\n'
+    fi
+    printf 'head_commit=c2\nhead_instr=AGENTS.md:a2,bin:b2,.agents/skills:s2\n'
     ;;
 esac
 exit 0
@@ -651,7 +731,7 @@ test_post_stop_failure_is_reported_unreached() {
   assert_contains "$out" "unreached: sm1:" "a stopped mate must be reported as unreached"
   assert_contains "$out" "restart outcome is unknown" "the report must not attribute the failed lifecycle operation"
   assert_not_contains "$out" "nudged: sm1" "a durable enqueue must not masquerade as a running mate's nudge"
-  assert_contains "$out" "summary: 0 of 1 restarted, 0 nudged, 1 unreached" \
+  assert_contains "$out" "summary: 0 of 1 restarted (0 while idle, 0 with idle not provable), 0 already current, 0 deferred busy, 0 nudged, 1 unreached" \
     "the summary must not claim that a stopped mate remains on older instructions with a message"
   pass "T11 post-stop restart failure is never misreported as a nudge"
 }
@@ -673,7 +753,7 @@ test_relaunches_do_not_block_persist_polling() {
   expect_code 0 "$rc" "both confirmed mates should restart independently"$'\n'"$out"
   assert_present "$dir/fake/local-relaunch-during-remote" \
     "the slow first relaunch blocked lifecycle progress for the second mate"
-  assert_contains "$out" "summary: 2 of 2 restarted, 0 nudged, 0 unreached" \
+  assert_contains "$out" "summary: 2 of 2 restarted (0 while idle, 2 with idle not provable), 0 already current, 0 deferred busy, 0 nudged, 0 unreached" \
     "parallel relaunches were not both accounted for"
   assert_grep 'fm-remote-secondmate-control.sh relaunch sm1 claude default default' "$dir/ssh.log" \
     "an absent remote model and effort pin were not expressed as explicit defaults"
@@ -717,7 +797,7 @@ test_unpublished_worker_result_is_accounted_for() {
   [ "$(cat "$rc_file")" = 3 ] || fail "an unpublished worker result did not fail as accounted"
   assert_contains "$(cat "$out")" "restart worker exited before publishing an outcome" \
     "the missing worker result was not reported"
-  assert_contains "$(cat "$out")" "summary: 0 of 1 restarted, 0 nudged, 1 unreached" \
+  assert_contains "$(cat "$out")" "summary: 0 of 1 restarted (0 while idle, 0 with idle not provable), 0 already current, 0 deferred busy, 0 nudged, 1 unreached" \
     "the missing worker result was not included in the summary"
   pass "T13 a dead restart worker cannot hang the parent"
 }
@@ -787,7 +867,7 @@ test_already_current_mate_restarts_end_to_end() {
 
   expect_code 0 "$rc" "the mate named by the update pass did not restart"$'\n'"$out"
   assert_contains "$out" "restarted: sm1" "an already-current mate must actually be replaced"
-  assert_contains "$out" "summary: 1 of 1 restarted, 0 nudged, 0 unreached" \
+  assert_contains "$out" "summary: 1 of 1 restarted (0 while idle, 1 with idle not provable), 0 already current, 0 deferred busy, 0 nudged, 0 unreached" \
     "the pass must report the reload it performed"
   # Persist strictly before replace, read off the pane transcript.
   doorbell_line=$(grep -n '^: Firstmate instruction waiting: ' "$dir/fake/literal" | head -1 | cut -d: -f1)
@@ -839,6 +919,131 @@ test_already_current_unprovable_mate_stays_on_the_nudge_path() {
   pass "T16 an already-current mate with an unprovable runtime keeps the honest nudge path"
 }
 
+# --- T17: a mate already running its home's instructions is left alone -------
+test_current_mate_is_not_restarted() {
+  local dir out rc
+  dir=$(new_case current)
+  add_local_mate "$dir" sm1
+  arm_answer "$dir" sm1
+  start_old_session "$dir" sm1
+
+  out=$(run_restart "$dir" sm1); rc=$?
+
+  expect_code 0 "$rc" "an already-current mate is a clean outcome"$'\n'"$out"
+  assert_contains "$out" "current: sm1: already running its home's current instructions" \
+    "a mate whose session recorded the home's current surface must be reported current"
+  assert_contains "$out" "1 already current" "the summary must count the current mate"
+  assert_absent "$dir/home/state/sm1.inbox" "a current mate must not be asked to spend its conversation"
+  assert_no_grep '^/exit$' "$dir/fake/literal" "a current mate must never be stopped"
+  pass "T17 a mate already on its home's instruction surface is reported current and untouched"
+}
+
+# advance_mate_bin <case-dir> <id>: land a bin/ change in the mate's home, so a
+# session recorded before it is stale.
+advance_mate_bin() {
+  local home
+  home=$(cat "$1/fake/home.fm-$2")
+  mkdir -p "$home/bin"
+  printf 'echo new\n' > "$home/bin/tool.sh"
+  git -C "$home" add bin/tool.sh
+  git -C "$home" -c user.name=t -c user.email=t@example.invalid commit -qm "new tool"
+}
+
+# --- T18: a stale mate restarts and the replacement is verified --------------
+test_stale_mate_restarts_and_is_verified() {
+  local dir out rc old_pid new_pid stale
+  dir=$(new_case stale)
+  add_local_mate "$dir" sm1
+  arm_answer "$dir" sm1
+  start_old_session "$dir" sm1
+  old_pid=$(cat "$dir/fake/session.fm-sm1")
+  advance_mate_bin "$dir" sm1
+
+  stale=$(env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" \
+    "$ROOT/bin/fm-secondmate-health.sh" stale sm1)
+  assert_contains "$stale" "stale sm1 launched=" "the staleness read must name the stale mate"
+  assert_contains "$stale" "changed=bin" "the staleness read must name the changed surface"
+
+  out=$(run_restart "$dir" sm1); rc=$?
+
+  expect_code 0 "$rc" "a stale idle-unknown mate should be restarted and verified"$'\n'"$out"
+  new_pid=$(cat "$dir/fake/session.fm-sm1")
+  [ "$new_pid" != "$old_pid" ] || fail "the replacement must be a new session"
+  assert_contains "$out" "restarted: sm1 (claude) after its persist answer; idle not provable (missing); verified sm1 pid=$new_pid" \
+    "the restart must be reported with its idle basis and the verified replacement"
+  assert_contains "$(env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" "$ROOT/bin/fm-secondmate-health.sh" stale sm1)" \
+    "current sm1" "after the restart the mate must read current"
+  pass "T18 a stale mate is restarted and its replacement verified on the intended revision"
+}
+
+# arm_busy <case-dir> <id> <busy|idle>: a semantic busy record for the mate.
+arm_busy() {
+  "$ROOT/bin/fm-busy-event.sh" arm "$1/home/state" "$2" --state "$3" \
+    --source claude-hook --event test >/dev/null
+}
+
+# --- T19: a provably busy mate is deferred, never restarted ------------------
+test_busy_mate_is_deferred() {
+  local dir out rc
+  dir=$(new_case busy)
+  add_local_mate "$dir" sm1
+  arm_answer "$dir" sm1
+  start_old_session "$dir" sm1
+  advance_mate_bin "$dir" sm1
+  arm_busy "$dir" sm1 busy
+
+  out=$(run_restart "$dir" sm1); rc=$?
+
+  expect_code 3 "$rc" "a deferred mate is not a clean reload"$'\n'"$out"
+  assert_contains "$out" "deferred: sm1: busy (claude-hook)" "a busy mate must be reported deferred with its source"
+  assert_contains "$out" "1 deferred busy" "the summary must count the deferral"
+  assert_not_contains "$out" "restarted: sm1" "a busy mate must never be restarted"
+  assert_no_grep '^/exit$' "$dir/fake/literal" "a busy mate's agent must not be stopped"
+  assert_absent "$dir/home/state/sm1.control-relaunch" "no restart transaction may open for a busy mate"
+  grep -h '^phase=' "$dir/home/state/pending-replies"/* | grep -q '^phase=resolved$' \
+    || fail "the busy mate's persist answer should still be recorded"
+  pass "T19 a provably busy mate is deferred after persisting, never restarted"
+}
+
+# --- T20: a provably idle mate restarts and is reported as idle --------------
+test_idle_mate_restarts_while_idle() {
+  local dir out rc
+  dir=$(new_case idle)
+  add_local_mate "$dir" sm1
+  arm_answer "$dir" sm1
+  arm_busy "$dir" sm1 idle
+
+  out=$(run_restart "$dir" sm1); rc=$?
+
+  expect_code 0 "$rc" "an idle mate should restart"$'\n'"$out"
+  assert_contains "$out" "restarted: sm1 (claude) while idle;" "an idle restart must say it was made while idle"
+  assert_contains "$out" "(1 while idle, 0 with idle not provable)" "the summary must separate idle restarts"
+  pass "T20 a provably idle mate restarts and is reported as restarted while idle"
+}
+
+# --- T21: a lock collision after the relaunch is unknown, not restarted -------
+test_lock_collision_after_relaunch_is_unknown() {
+  local dir out rc old_pid
+  dir=$(new_case collision)
+  add_local_mate "$dir" sm1
+  arm_answer "$dir" sm1
+  start_old_session "$dir" sm1
+  old_pid=$(cat "$dir/fake/session.fm-sm1")
+  advance_mate_bin "$dir" sm1
+  # The old session outlives its endpoint's agent and keeps the home lock, so
+  # the replacement's own session start is refused it.
+  : > "$dir/fake/old-session-survives"
+
+  out=$(FM_TEST_VERIFY_WAIT=1 run_restart "$dir" sm1); rc=$?
+
+  expect_code 3 "$rc" "a replacement that cannot take the lock is not a reload"$'\n'"$out"
+  assert_contains "$out" "unreached: sm1: the restart outcome is unknown" "a collision must be an unknown outcome"
+  assert_contains "$out" "lock collision: its home lock is still held by the previous session (pid $old_pid)" \
+    "the report must name the collision and the holding session"
+  assert_not_contains "$out" "restarted: sm1" "a collided replacement must never be reported restarted"
+  pass "T21 a replacement refused the home lock is reported as an unknown outcome naming the collision"
+}
+
 test_persist_gates_and_asks_only_for_open_records
 test_persist_precedes_restart
 test_arrived_answer_precedes_deadline_check
@@ -858,5 +1063,10 @@ test_unpublished_worker_result_is_accounted_for
 test_result_published_while_reaping_is_honored
 test_already_current_mate_restarts_end_to_end
 test_already_current_unprovable_mate_stays_on_the_nudge_path
+test_current_mate_is_not_restarted
+test_stale_mate_restarts_and_is_verified
+test_busy_mate_is_deferred
+test_idle_mate_restarts_while_idle
+test_lock_collision_after_relaunch_is_unknown
 
 echo "# all fm-secondmate-restart tests passed"

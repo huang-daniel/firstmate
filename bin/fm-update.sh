@@ -29,18 +29,19 @@
 #   - reread-firstmate: yes|no    (did the running firstmate's instructions change)
 #   - restart-secondmates: fm-<id>...|none (every live secondmate this pass left
 #     on origin's tip - advanced OR already there - whose recorded runtime can
-#     prove a restart)
+#     prove a restart; these are candidates, and bin/fm-secondmate-restart.sh
+#     reads each one's staleness and busy state before restarting any of them)
 #   - nudge-secondmates: fm-<id>...|none   (the residual: live secondmates on
 #     that same tip whose runtime CANNOT prove a restart, so the older re-read
 #     steer is all that is honest for them)
 #
-# The two sets are disjoint, and restart is UNCONDITIONAL on a successful update
-# of that home. It is deliberately not gated on the git diff: replacing the agent
-# is the only thing that re-resolves the launch-time wiring - turn-end hooks,
-# harness flags, per-harness feature switches - which a running agent froze when
-# it started and which no changed_instr list describes. An unchanged tracked
-# surface therefore is NOT evidence that the running agent is already on the
-# current behavior, so an ALREADY-CURRENT home restarts too.
+# The two sets are disjoint, and restart candidacy is UNCONDITIONAL on a
+# successful update of that home. It is deliberately not gated on this pass's git
+# diff: whether the HOME moved says nothing about which revision the running
+# AGENT launched on, so an ALREADY-CURRENT home is a candidate too. The restart
+# command decides from what that agent's own session recorded
+# (bin/fm-secondmate-health.sh stale), leaves a proven-current mate alone, and
+# never restarts a provably busy one.
 #
 # Only two things keep a live mate out of the restart set, and neither is papered
 # over as a reload:
@@ -105,10 +106,10 @@ if [ "$FF_STATUS" = "updated" ]; then
 fi
 
 # --- secondmates -----------------------------------------------------------
-# Every live secondmate this pass leaves on origin's tip is restarted, whether it
-# advanced or was already there. The header above owns why the git diff does not
-# gate that, and which two conditions - a skipped home, an unprovable runtime -
-# are the only ways a live mate stays out of the restart set.
+# Every live secondmate this pass leaves on origin's tip is a restart candidate,
+# whether it advanced or was already there. The header above owns why the git
+# diff does not gate that, and which two conditions - a skipped home, an
+# unprovable runtime - are the only ways a live mate stays out of the restart set.
 
 # FF_NUDGE_WINDOWS and FF_SEEN_HOMES are the sweep's own accumulators and are
 # reset here per its contract; the instruction-gated nudge set is the session-start

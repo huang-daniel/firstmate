@@ -3,7 +3,7 @@ name: updatefirstmate
 description: >-
   Self-update a running firstmate and its secondmates to the latest from origin.
   Use when the captain invokes /updatefirstmate (e.g. "/updatefirstmate", "update firstmate", "pull the latest firstmate").
-  Updates this firstmate repo's default branch and every local or remote secondmate through its guarded convergence path (never forced, never disruptive), then re-reads AGENTS.md and restarts every live second mate through the persist-gated restart, with a fallback re-read nudge only where a restart cannot be proven.
+  Updates this firstmate repo's default branch and every local or remote secondmate through its guarded convergence path (never forced, never disruptive), then re-reads AGENTS.md and restarts every stale, not-busy live second mate through the persist-gated, verified restart, with a fallback re-read nudge only where a restart cannot be proven.
 user-invocable: true
 metadata:
   internal: true
@@ -21,9 +21,9 @@ A running agent holds `AGENTS.md` and every skill it has already loaded frozen f
 A re-read cannot substitute: it appends a second copy of the mate's own job description with no defined precedence, and it cannot reach a skill that is already loaded.
 Replacing the agent is also the only thing that re-resolves the launch-time wiring - turn-end hooks, harness flags, per-harness feature switches - which the mate froze when it started and which nothing on disk describes.
 
-That is why **every live second mate is restarted after a successful update, including one that was already on the target commit.**
-Launch-time wiring is not derivable from a file diff, so an unchanged tracked surface is not evidence the running agent is already on the current behavior.
-The only live mates that do not restart are the ones whose home the update pass had to skip, and the ones whose runtime cannot prove a restart; the updater keeps both cases honest and neither is reported as a reload.
+That is why **every live second mate is a restart candidate after a successful update, including one whose home was already on the target commit**: whether the home moved says nothing about which revision the running agent launched on.
+The restart command reads that from what the agent's own session recorded when it started, leaves a mate already running its home's current instructions alone, and never restarts a provably busy one.
+The only live mates that are not candidates are the ones whose home the update pass had to skip, and the ones whose runtime cannot prove a restart; the updater keeps both cases honest and neither is reported as a reload.
 
 **One-time rollout note:** the update that carries this change is still executed by the previous release, which restarts only the mates whose `AGENTS.md` or `.agents/skills/` moved on that pass. After it completes, run `bin/fm-secondmate-restart.sh <fm-id>...` once with every live second mate ID, not only the ones that release named; later updates follow the normal flow below.
 
@@ -66,16 +66,21 @@ This touches only the firstmate repo and its own worktrees, never anything under
    This is automatic and needs no per-mate confirmation from the captain.
    Local and remote mates go in the same list; the command owns the transport, the profile each replacement runs on, and the wait.
 
-   It asks every listed mate first to write down the open work it holds only in its conversation, and restarts one only after that mate's own answer comes back.
+   It first reads whether each listed mate is stale, then asks every stale mate to write down the open work it holds only in its conversation, and restarts one only after that mate's own answer comes back and its busy state is not provably busy.
    A mate that is mid-turn queues the request behind that turn.
    That is the whole point of the step, so do not work around it: it is what keeps a captain call the mate had formed but never registered from being lost with the conversation.
-   Its header owns the request, the bound, and the two knobs that change them.
+   Its header owns the request, the bound, the busy rule, the replacement check, and the knobs that change them.
 
    Read its per-mate lines and its closing `summary:` line as the outcome:
-   - `restarted: <id>` - that mate is now genuinely running the current instructions and launch-time settings.
+   - `current: <id>` - that mate is already running its home's current instructions, so nothing was spent on it.
+   - `restarted: <id> ... while idle` or `restarted: <id> ... idle not provable` - the replacement was checked healthy, holding its home lock, and on the intended instructions; the second form means it was restarted at its persist answer because its busy state could not be read, and the captain should hear that distinction.
+   - `deferred: <id>: busy (...)` - the mate was provably busy, so its open work is written down but it was not restarted and keeps running the older instructions.
    - `nudged: <id>: <reason>` - the restart was not safe, so the mate got the older re-read message instead and is still running the conversation and launch-time settings it started with.
      Never report one of these as a clean reload.
-   - `unreached: <id>: <reason>` - no safe running outcome could be confirmed, including an ambiguous relaunch result.
+   - `unreached: <id>: <reason>` - no safe running outcome could be confirmed, including an ambiguous relaunch result or a replacement that could not take its home lock.
+
+   A deferred mate stays stale until something restarts it.
+   Before routing that home its first new piece of work after this update, run `FM_HOME=<this-firstmate-home> bin/fm-secondmate-health.sh stale <id>`; when it reads `stale` or `unknown`, rerun the restart command for that mate first, which defers again if it is still busy.
 
 4. **Send the re-read message to the rest.**
    For every target on the `nudge-secondmates:` line (do nothing when it says `none`), send the one-line re-read steer:
@@ -104,4 +109,5 @@ This touches only the firstmate repo and its own worktrees, never anything under
   A local or remote second mate gets a tracked-files fast-forward only when its own checkout is safe to advance, and a mate whose home was skipped is not restarted either.
   A restart replaces that mate's agent in the same home and endpoint after its open work is written down; it is never a teardown and never forced.
   Its crewmates keep running in their own endpoints, and every durable record - backlog, held captain calls, unread status, unhandled instructions - is re-presented to the replacement at startup.
-  A restart refused before it is attempted leaves that mate on the re-read path; once a relaunch is attempted, any failed or ambiguous result is reported as unknown rather than attributed to either incarnation.
+  A provably busy mate is never restarted.
+  A restart refused before it is attempted leaves that mate on the re-read path; once a relaunch is attempted, any failed, ambiguous, or unverified result is reported as unknown rather than attributed to either incarnation.
