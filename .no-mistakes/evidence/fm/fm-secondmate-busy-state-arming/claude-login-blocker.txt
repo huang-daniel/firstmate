@@ -1,0 +1,36 @@
+[11:49:13] dev@PC-DHUANG:~/.no-mistakes/worktrees/222d8f0053d8/01M37EFYN47RCCWM5NFKQ91S9T/.te
+st-live/mate (git:main)
+▶ export GOTMPDIR=/tmp/fm-smprobe/gotmp
+export COMPACT_ADVISER_DISABLE=1
+[11:49:14] dev@PC-DHUANG:~/.no-mistakes/worktrees/222d8f0053d8/01M37EFYN47RCCWM5NFKQ91S9T/.te
+st-live/mate (git:main)
+▶ export COMPACT_ADVISER_DISABLE=1
+[11:49:14] dev@PC-DHUANG:~/.no-mistakes/worktrees/222d8f0053d8/01M37EFYN47RCCWM5NFKQ91S9T/.te
+st-live/mate (git:main)
+▶ . '/tmp/fm-smprobe+0878a48efe7b5075090c0ca0279a87860f3e9bbc22c576503e73b97638b3bffc/launch.
+s1790178553.3122436.5402.sh'
+Welcome to Claude Code v2.1.280
+..........................................................
+
+     *                                       █████▓▓░
+                                 *         ███▓░     ░░
+            ░░░░░░                        ███▓░
+    ░░░   ░░░░░░░░░░                      ███▓░
+   ░░░░░░░░░░░░░░░░░░░    *                ██▓░░      ▓
+                                             ░▓▓███▓▓░
+ *                                 ░░░░
+                                 ░░░░░░░░
+                               ░░░░░░░░░░░░░░░░
+       █████████                                        *
+      ██▄█████▄██                        *
+       █████████      *
+.......█ █   █ █..........................................
+
+ Claude Code can be used with your Claude subscription or billed based on API usage through
+ your Console account.
+
+ Select login method:
+
+ ❯ 1. Claude account with subscription · Pro, Max, Team, or Enterprise
+   2. Anthropic Console account · API usage billing
+   3. 3rd-party platform · Amazon Bedrock, Microsoft Foundry, or Vertex AI

@@ -1,0 +1,1 @@
+Guarded teardown exited 0 and verified the fleet tripwire. Session list confirms fm-lab-busy-01m37 is absent.

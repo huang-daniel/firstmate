@@ -1,0 +1,74 @@
+viewer attached to fm-lab-busy-01m37 (pid 3121616)
+spawned smprobe harness=claude kind=secondmate mode=secondmate yolo=off window=fm-lab-busy-01m37:w2:p2 worktree=/home/dev/.no-mistakes/worktrees/222d8f0053d8/01M37EFYN47RCCWM5NFKQ91S9T/.test-live/mate
+2026-09-23T15:49:15Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:49:20Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:49:25Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:49:30Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:49:35Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:49:41Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:49:46Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:49:51Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:49:56Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:50:01Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:50:06Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:50:11Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:50:16Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:50:21Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:50:26Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:50:32Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:50:37Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:50:42Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:50:47Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:50:52Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:50:57Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:51:02Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:51:07Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
+2026-09-23T15:51:12Z
+v1 gen=g1790178553.3124350.4851 seq=1 state=busy source=fm-spawn event=launch-brief ts=1790178553
+busy fm-spawn
