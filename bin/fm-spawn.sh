@@ -4648,13 +4648,31 @@ else
   SPAWN_FRESH_COMMIT_PENDING=1
 fi
 SPAWN_META_PATH=$SPAWN_META_TMP
-preserve_relaunch_meta() {
-  awk -F= '
+# fm-pr-lib.sh's fm_pr_metadata_identity_parse requires every line after the
+# record's first pr= to be pr_head= or an x_ Relay field
+# (fm_pr_meta_trailer_key), so a relaunch must keep that trailer at the true
+# end of the rewritten record: preserve_relaunch_meta_body carries every other
+# preserved field, control_relaunch_tx= is written next, and
+# preserve_relaunch_meta_trailer runs last so an active merge watch is never
+# invalidated by this rewrite.
+preserve_relaunch_meta_body() {
+  awk -F= -v trailer_keys="$(fm_pr_meta_trailer_keys)" '
     BEGIN {
       split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx endpoint_closed", keys, " ")
       for (i in keys) owned[keys[i]] = 1
+      n = split(trailer_keys, tkeys, " ")
+      for (i = 1; i <= n; i++) owned[tkeys[i]] = 1
     }
     !($1 in owned)
+  ' "$RELAUNCH_META"
+}
+preserve_relaunch_meta_trailer() {
+  awk -F= -v trailer_keys="$(fm_pr_meta_trailer_keys)" '
+    BEGIN {
+      n = split(trailer_keys, tkeys, " ")
+      for (i = 1; i <= n; i++) keep[tkeys[i]] = 1
+    }
+    ($1 in keep)
   ' "$RELAUNCH_META"
 }
 {
@@ -4700,10 +4718,13 @@ preserve_relaunch_meta() {
     echo "projects=$SECONDMATE_PROJECTS"
   fi
   if [ "$RELAUNCH" -eq 1 ]; then
-    preserve_relaunch_meta
+    preserve_relaunch_meta_body
   fi
   if [ "$SPAWN_CONTROL_PARENT" = 1 ] && [ -n "${FM_CONTROL_RELAUNCH_TX:-}" ]; then
     echo "control_relaunch_tx=$FM_CONTROL_RELAUNCH_TX"
+  fi
+  if [ "$RELAUNCH" -eq 1 ]; then
+    preserve_relaunch_meta_trailer
   fi
 } >"$SPAWN_META_PATH" || {
   echo "error: task record for $ID could not be prepared at $SPAWN_META_PATH" >&2

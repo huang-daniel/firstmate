@@ -299,8 +299,29 @@ fm_pr_regular_destination_on_device_or_absent() {
   [ ! -e "$path" ] || [ "$(fm_pr_file_device "$path")" = "$device" ]
 }
 
+# Meta trailer contract: once a pr= line registers a merge watch,
+# fm_pr_metadata_identity_parse below requires every following line to be
+# pr_head= or one of these Relay x_ fields; anything else after pr= refuses
+# the whole parse. This is the single list of keys that contract allows, so
+# any writer that adds or replaces a task-record field must splice the new
+# line in before pr= (fm_pr_meta_trailer_key tells it which lines to keep
+# after), never append after it - an append there silently breaks an active
+# merge watch. bin/fm-control.sh's stand-down marker and bin/fm-spawn.sh's
+# relaunch rewrite both call this to keep that trailer at the true end.
+fm_pr_meta_trailer_keys() {
+  printf '%s\n' 'pr pr_head x_request x_request_ts x_followups x_platform x_reply_max_chars'
+}
+
+fm_pr_meta_trailer_key() {  # <key>
+  local key=$1 candidate
+  for candidate in $(fm_pr_meta_trailer_keys); do
+    [ "$candidate" = "$key" ] && return 0
+  done
+  return 1
+}
+
 fm_pr_metadata_identity_parse() {
-  local file=$1 line value pr_count=0 seen_pr=0 post_pr_invalid=0
+  local file=$1 line value key pr_count=0 seen_pr=0 post_pr_invalid=0
   FM_PR_META_PROVIDER=
   FM_PR_META_URL=
   FM_PR_META_HOST=
@@ -329,10 +350,11 @@ fm_pr_metadata_identity_parse() {
           fm_pr_head_valid "$value" || post_pr_invalid=1
         fi
         ;;
-      x_request=*|x_request_ts=*|x_followups=*|x_platform=*|x_reply_max_chars=*)
-        ;;
       *)
-        [ "$seen_pr" -eq 0 ] || post_pr_invalid=1
+        if [ "$seen_pr" -eq 1 ]; then
+          key=${line%%=*}
+          fm_pr_meta_trailer_key "$key" || post_pr_invalid=1
+        fi
         ;;
     esac
   done < "$file"

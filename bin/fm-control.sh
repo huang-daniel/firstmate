@@ -669,9 +669,13 @@ standdown_gate() {
 
 # standdown_record_marker <endpoint|->: add (or, with -, drop) the record's
 # endpoint_closed= marker under the task's meta lock, preserving every other
-# line byte-for-byte.
+# line byte-for-byte. The marker is spliced in immediately before the meta
+# pr= trailer (fm_pr_meta_trailer_key, bin/fm-pr-lib.sh) rather than appended
+# after it, because a task with an armed merge watch would otherwise have
+# that append invalidate fm_pr_metadata_identity_parse and silently drop the
+# watch.
 standdown_record_marker() {  # <endpoint|->
-  local value=$1 lock tmp line rc=0
+  local value=$1 lock tmp line key rc=0 inserted=0
   lock=$(fm_meta_lock_path "$META") || return 1
   fm_lock_acquire_wait "$lock" || return 1
   tmp="$STATE/.$ID.meta.standdown.${BASHPID:-$$}"
@@ -682,11 +686,18 @@ standdown_record_marker() {  # <endpoint|->
     {
       while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in
-          endpoint_closed=*) ;;
-          *) printf '%s\n' "$line" ;;
+          endpoint_closed=*) continue ;;
         esac
+        key=${line%%=*}
+        if [ "$inserted" -eq 0 ] && fm_pr_meta_trailer_key "$key"; then
+          [ "$value" = - ] || printf 'endpoint_closed=%s\n' "$value"
+          inserted=1
+        fi
+        printf '%s\n' "$line"
       done < "$META"
-      [ "$value" = - ] || printf 'endpoint_closed=%s\n' "$value"
+      if [ "$inserted" -eq 0 ] && [ "$value" != - ]; then
+        printf 'endpoint_closed=%s\n' "$value"
+      fi
     } > "$tmp" || rc=1
   fi
   [ "$rc" != 0 ] || mv -f "$tmp" "$META" || rc=1
