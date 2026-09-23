@@ -1,0 +1,8 @@
+ok - all startup surfaces affect staleness and Pi replacement verification
+ok - record preserves launch identity until the lock holder changes
+ok - verify bounds local and remote probes
+ok - record/self: the lock-holding session reports the revision it started on
+ok - stale: current, stale with changed paths, and unknown are distinguished
+ok - idle: reads the semantic busy record and never promotes a missing one to idle
+ok - verify: accepts only a new live lock holder on the intended surface, names a collision
+# all fm-secondmate-health tests passed

@@ -1,0 +1,7 @@
+unknown sm1: no live session holds its home lock, so the running agent's revision is not recorded lock_pid= head_instr=AGENTS.md:91cd86050b9b5feb6a6df81e1fd9821f566b218f,bin:8e6a13a373a7d7f658caa532515cad2f3a6085cd,.agents/skills:6b6f64d13cecbbc9bbe4abebc896bd097cc42d35,CLAUDE.md:a9d4d2694af261cf23ed331d4b446bdec194c47b,.claude:0007f2d7d30b2325ed93fd2e35d18ef5ccc315c1,.codex:31130ac7f4de0826f809477ae251f23f9215e22e,.cursor:526db0d90a08a909389c4c701d18c5f6ec7bb52f,.grok:1484d50fc96a7677aa497fc614f87d38cd6c5558,.omp:68dd18d9765e50c1ad947a1c9cff9f7fc93fe604,.opencode:2c1efa506a9bc82ae1f47e07f760887e842ceb0b,.pi:079419950367ff9b886f899d471b1304555e8e5c
+unknown no-target
+unknown sm1: the intended instruction identity is missing
+missing-identity exit=3
+unknown sm1: verification budget exhausted
+zero-budget exit=3
+unknown sm1: its home's running-session report could not be read lock_pid= head_instr=
