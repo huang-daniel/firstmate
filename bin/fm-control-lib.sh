@@ -72,17 +72,13 @@ fm_control_harnesses() {
 }
 
 fm_control_harness_supported() {  # <harness>
-  # A membership case rather than a `while read ... done < <(fm_control_harnesses)`
-  # loop: an early `return` out of that loop can leave the process-substitution
-  # subshell still mid-write when its pipe's read end closes, an inherently
-  # racy shape (observed contaminating tests/fm-quota-choose.test.sh's
-  # expected stderr under CI load). fm_control_verb_allowed uses this same
-  # case-vs-heredoc split for the same reason; keep this list in sync with
-  # fm_control_harnesses.
-  case "${1-}" in
-    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy) return 0 ;;
-  esac
-  return 1
+  local harness supported=1
+  while read -r harness; do
+    if [ "$harness" = "${1-}" ]; then
+      supported=0
+    fi
+  done < <(fm_control_harnesses)
+  return "$supported"
 }
 
 # The verified adapter a RECORDED harness value belongs to. Every table below
