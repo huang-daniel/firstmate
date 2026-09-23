@@ -374,7 +374,7 @@ run_bootstrap() {  # <fakebin> <home> <pane-cmd> <call-log> [extra env...] -> st
   local fb=$1 home=$2 cmd=$3 log=$4; shift 4
   PATH="$fb:$BASE_PATH" TMUX='' FM_BACKEND=tmux FM_HOME="$home" \
     FM_TEST_PANE_CMD="$cmd" FM_TMUX_CALL_LOG="$log" \
-    FM_TEST_ROOT="$ROOT" FM_TEST_HARNESS_PIDS="$FAKE_HARNESS_PIDS" FM_BOOTSTRAP_SECONDMATE_VERIFY_WAIT=0 \
+    FM_TEST_ROOT="$ROOT" FM_TEST_HARNESS_PIDS="$FAKE_HARNESS_PIDS" FM_BOOTSTRAP_SECONDMATE_VERIFY_WAIT=2 \
     env "$@" "$ROOT/bin/fm-bootstrap.sh" 2>&1
 }
 

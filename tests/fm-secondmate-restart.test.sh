@@ -1019,7 +1019,7 @@ test_lock_collision_after_relaunch_is_unknown() {
   # the replacement's own session start is refused it.
   : > "$dir/fake/old-session-survives"
 
-  out=$(FM_TEST_VERIFY_WAIT=1 run_restart "$dir" sm1); rc=$?
+  out=$(FM_TEST_VERIFY_WAIT=3 run_restart "$dir" sm1); rc=$?
 
   expect_code 3 "$rc" "a replacement that cannot take the lock is not a reload"$'\n'"$out"
   assert_contains "$out" "unreached: sm1: the restart outcome is unknown" "a collision must be an unknown outcome"

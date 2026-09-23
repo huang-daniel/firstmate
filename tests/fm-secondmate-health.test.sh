@@ -172,33 +172,118 @@ SH
   instr=$(FM_HOME="$w/sm1-home" "$HEALTH" self | sed -n 's/^head_instr=//p')
 
   out=$(PATH="$w/fakebin:$PATH" TMUX='' FM_SECONDMATE_VERIFY_POLL=1 \
-    health "$w" verify sm1 --prior-pid "$old" --expect-instr "$instr" --wait 0); rc=$?
+    health "$w" verify sm1 --prior-pid "$old" --expect-instr "$instr" --wait 3); rc=$?
   expect_code 3 "$rc" "the old session still holding the lock is not a healthy replacement"
   assert_contains "$out" "lock collision: its home lock is still held by the previous session (pid $old)" \
     "verify must name a lock collision with the previous session"
 
   kill "$old" 2>/dev/null
   new=$(session_start "$w")
-  out=$(PATH="$w/fakebin:$PATH" TMUX='' health "$w" verify sm1 --prior-pid "$old" --expect-instr "$instr" --wait 0); rc=$?
+  out=$(PATH="$w/fakebin:$PATH" TMUX='' health "$w" verify sm1 --prior-pid "$old" --expect-instr "$instr" --wait 3); rc=$?
   expect_code 0 "$rc" "a new live lock holder on the intended surface is verified: $out"
   assert_contains "$out" "verified sm1 pid=$new" "verify must name the verified replacement"
 
   out=$(PATH="$w/fakebin:$PATH" TMUX='' health "$w" verify sm1 --prior-pid "$old" \
-    --expect-instr "AGENTS.md:x,bin:y,.agents/skills:z" --wait 0); rc=$?
+    --expect-instr "AGENTS.md:x,bin:y,.agents/skills:z" --wait 3); rc=$?
   expect_code 3 "$rc" "a replacement on another revision is not verified"
   assert_contains "$out" "whose instruction surface differs from the intended one" \
     "verify must report a revision mismatch as unknown"
-  out=$(PATH="$w/fakebin:$PATH" TMUX='' health "$w" verify sm1 --wait 0); rc=$?
+  out=$(PATH="$w/fakebin:$PATH" TMUX='' health "$w" verify sm1 --wait 3); rc=$?
   expect_code 3 "$rc" "missing intended identity must not verify"
   assert_contains "$out" "intended instruction identity is missing" "missing identity must be explicit"
   sed '/^instr=/d' "$w/sm1-home/state/.session-revision" > "$w/revision"
   mv "$w/revision" "$w/sm1-home/state/.session-revision"
-  out=$(PATH="$w/fakebin:$PATH" TMUX='' health "$w" verify sm1 --expect-instr "$instr" --wait 0); rc=$?
+  out=$(PATH="$w/fakebin:$PATH" TMUX='' health "$w" verify sm1 --expect-instr "$instr" --wait 3); rc=$?
   expect_code 3 "$rc" "missing reported identity must not verify"
   assert_contains "$out" "has not reported its revision" "missing report must be explicit"
   pass "verify: accepts only a new live lock holder on the intended surface, names a collision"
 }
 
+test_record_preserves_same_session_revision() {
+  local w old before after out
+  w=$(new_world preserve)
+  old=$(session_start "$w")
+  before=$(cat "$w/sm1-home/state/.session-revision")
+  printf 'echo changed\n' > "$w/sm1-home/bin/tool.sh"
+  git -C "$w/sm1-home" commit -qam changed
+  FM_HOME="$w/sm1-home" FM_ROOT_OVERRIDE="$w/sm1-home" "$HEALTH" record || fail "repeat record failed"
+  after=$(cat "$w/sm1-home/state/.session-revision")
+  [ "$before" = "$after" ] || fail "same-session launch record changed"
+  out=$(health "$w" stale sm1)
+  assert_contains "$out" "stale sm1" "same-session rerun must remain stale"
+  kill "$old" 2>/dev/null
+  session_start "$w" >/dev/null
+  out=$(health "$w" stale sm1)
+  assert_contains "$out" "current sm1" "new session must record its new revision"
+  pass "record preserves launch identity until the lock holder changes"
+}
+
+test_verify_bounds_probes_and_sleep() {
+  local w out rc start elapsed probe placement git_bin
+  w=$(new_world bounded)
+  git_bin=$(command -v git)
+  mkdir -p "$w/fakebin" "$w/home/data"
+  cat > "$w/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+[ "$FM_TEST_BLOCK" != agent ] || { : > "$FM_TEST_PROBE_MARKER"; sleep 20; }
+case "${1:-}" in
+  list-windows) printf 'fm-sm1\n' ;;
+  display-message) printf '%s\n' "${FM_TEST_COMMAND:-claude}" ;;
+esac
+SH
+  cat > "$w/fakebin/git" <<'SH'
+#!/usr/bin/env bash
+[ "$FM_TEST_PLACEMENT" != remote ] || exec "$FM_TEST_GIT_BIN" "$@"
+: > "$FM_TEST_PROBE_MARKER"
+sleep 20
+SH
+  cat > "$w/fakebin/ssh" <<'SH'
+#!/usr/bin/env bash
+if [ -f "$FM_TEST_PROBE_MARKER.agent" ] || [ "$FM_TEST_BLOCK" = agent ]; then
+  : > "$FM_TEST_PROBE_MARKER"
+  sleep 20
+else
+  : > "$FM_TEST_PROBE_MARKER.agent"
+  printf 'alive\n'
+fi
+SH
+  chmod +x "$w/fakebin/"*
+  for placement in local remote; do
+    if [ "$placement" = remote ]; then
+      printf 'remote_host=test-host\nremote_backend=herdr\nremote_target=fm-remote:sm1\n' >> "$w/home/state/sm1.meta"
+      printf '%s\n' '- sm1 - test (host: test-host; root: /srv/fm; home: /srv/sm1; scope: test; projects: p; added 2026-09-23)' > "$w/home/data/secondmates.md"
+    fi
+    for probe in agent self; do
+      start=$(date +%s)
+      out=$(PATH="$w/fakebin:$PATH" TMUX='' FM_SSH_BIN="$w/fakebin/ssh" FM_TEST_BLOCK="$probe" \
+        FM_TEST_PROBE_MARKER="$w/$placement-$probe" FM_TEST_PLACEMENT="$placement" \
+        FM_TEST_GIT_BIN="$git_bin" FM_SECONDMATE_VERIFY_POLL=30 \
+        health "$w" verify sm1 --expect-instr expected --wait 5); rc=$?
+      elapsed=$(($(date +%s) - start))
+      expect_code 3 "$rc" "blocked $placement $probe must remain unverified: $out"
+      assert_contains "$out" "probe timed out" "blocked probe must report timeout"
+      assert_contains "$out" "$probe" "blocked $placement $probe must report its timeout: $out"
+      assert_present "$w/$placement-$probe" "blocked $placement $probe must actually execute: $out"
+      [ "$elapsed" -le 6 ] || fail "$placement $probe exceeded budget: $elapsed seconds"
+    done
+  done
+  sed '/^remote_/d' "$w/home/state/sm1.meta" > "$w/meta"
+  mv "$w/meta" "$w/home/state/sm1.meta"
+  start=$(date +%s)
+  out=$(PATH="$w/fakebin:$PATH" TMUX='' FM_TEST_BLOCK=none FM_TEST_COMMAND=zsh \
+    FM_SECONDMATE_VERIFY_POLL=30 health "$w" verify sm1 --expect-instr expected --wait 2); rc=$?
+  expect_code 3 "$rc" "dead endpoint must remain unverified"
+  assert_contains "$out" "rather than a running agent" "must exercise retry sleep"
+  [ "$(($(date +%s) - start))" -le 3 ] || fail "poll sleep exceeded budget"
+  start=$(date +%s)
+  out=$(health "$w" verify sm1 --expect-instr expected --wait 0); rc=$?
+  expect_code 3 "$rc" "zero budget must not verify"
+  [ "$(($(date +%s) - start))" -le 1 ] || fail "zero budget blocked"
+  pass "verify bounds local and remote probes"
+}
+
+test_record_preserves_same_session_revision
+test_verify_bounds_probes_and_sleep
 test_record_and_self_report_the_running_session
 test_stale_reads_current_stale_and_unknown
 test_idle_reads_the_busy_record

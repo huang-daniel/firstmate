@@ -19,6 +19,8 @@
 #           session pid, the code root it runs from, that root's HEAD commit, and
 #           the instruction-surface identity at that commit. The session that
 #           holds the home lock is thereby the one that reports its revision.
+#           A record for the same pid is preserved on subsequent starts, even
+#           after instruction reloads; a different pid writes a fresh record.
 #   self    Print this home's (FM_HOME's) running-session report as key=value
 #           lines: lock_pid, lock_live (yes|no, the lock-holding pid is a live
 #           verified harness), session_pid, session_commit, session_instr (from
@@ -53,6 +55,8 @@
 #           A live --prior-pid still holding the lock is named as a lock
 #           collision: the replacement cannot take the lock and would run
 #           read-only, leaving the home without a working mate.
+#           Each probe and sleep is bounded by the remaining wait budget.
+#           A zero budget returns unknown without probing.
 #
 # Exit status: 0 on a completed read (and a verified replacement); 3 an
 # unverified replacement; 1 an unusable input or home; 2 invalid use.
@@ -107,6 +111,10 @@ cmd_record() {
   [ -d "$STATE" ] || { echo "error: state dir '$STATE' is missing" >&2; return 1; }
   pid=$(sed -n '1p' "$STATE/.lock" 2>/dev/null || true)
   case "$pid" in ''|*[!0-9]*) echo "error: this home's session lock names no pid; nothing to record" >&2; return 1 ;; esac
+  if [ -f "$STATE/.session-revision" ] && [ ! -L "$STATE/.session-revision" ] \
+    && [ "$(record_field "$STATE/.session-revision" pid)" = "$pid" ]; then
+    return 0
+  fi
   root=$(cd "$FM_ROOT" 2>/dev/null && pwd -P) || return 1
   commit=$(git -C "$root" rev-parse --verify -q HEAD 2>/dev/null) || commit=""
   instr=$(instr_identity "$root" 2>/dev/null) || instr=""
@@ -253,9 +261,16 @@ agent_state_of() {  # <id>
   fm_backend_agent_state "$FM_BACKEND_VALIDATED_BACKEND" "$FM_BACKEND_VALIDATED_TARGET" 2>/dev/null || printf unreadable
 }
 
+verify_probe() {
+  local remaining
+  remaining=$((deadline - $(date +%s)))
+  [ "$remaining" -gt 0 ] || return 124
+  fm_run_timed "$remaining" "$SCRIPT_DIR/fm-secondmate-health.sh" _verify-probe "$1" "$2"
+}
+
 cmd_verify() {
   local id=$1 prior="" expect="" wait=${FM_SECONDMATE_VERIFY_WAIT:-180} poll=${FM_SECONDMATE_VERIFY_POLL:-5}
-  local deadline reason state report lock_pid lock_live session_pid session_commit session_instr
+  local deadline reason state report lock_pid lock_live session_pid session_commit session_instr remaining probe_rc
   shift
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -273,42 +288,66 @@ cmd_verify() {
   fi
   parent_state
   mate_meta "$id"
+  . "$SCRIPT_DIR/fm-timeout-lib.sh"
   deadline=$(($(date +%s) + wait))
-  while :; do
-    state=$(agent_state_of "$id")
-    reason=""
-    if [ "$state" != alive ]; then
+  reason=""
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    state=$(verify_probe agent "$id")
+    probe_rc=$?
+    if [ "$probe_rc" -eq 124 ]; then
+      reason="${reason:+last observation: $reason; }agent-state probe timed out"
+      break
+    elif [ "$probe_rc" -ne 0 ] || [ "$state" != alive ]; then
       reason="its endpoint reads '$state' rather than a running agent"
-    elif ! report=$(mate_self "$id") || [ -z "$report" ]; then
-      reason="its home's running-session report could not be read${MATE_REMOTE:+ from $MATE_REMOTE (that host may predate this check)}"
     else
-      lock_pid=$(self_field "$report" lock_pid)
-      lock_live=$(self_field "$report" lock_live)
-      session_pid=$(self_field "$report" session_pid)
-      session_commit=$(self_field "$report" session_commit)
-      session_instr=$(self_field "$report" session_instr)
-      if [ "$lock_live" != yes ]; then
-        reason="no live session has taken its home lock"
-      elif [ -n "$prior" ] && [ "$lock_pid" = "$prior" ]; then
-        reason="lock collision: its home lock is still held by the previous session (pid $prior), so the replacement cannot take it and would run read-only"
-      elif [ "$session_pid" != "$lock_pid" ] || [ -z "$session_instr" ]; then
-        reason="the session holding its home lock (pid $lock_pid) has not reported its revision"
-      elif [ "$session_instr" != "$expect" ]; then
-        reason="the replacement reports revision ${session_commit:-unknown}, whose instruction surface differs from the intended one ($(instr_changed "$session_instr" "$expect"))"
+      report=$(verify_probe self "$id")
+      probe_rc=$?
+      if [ "$probe_rc" -eq 124 ]; then
+        reason="${reason:+last observation: $reason; }self-report probe timed out"
+        break
+      elif [ "$probe_rc" -ne 0 ] || [ -z "$report" ]; then
+        reason="its home's running-session report could not be read${MATE_REMOTE:+ from $MATE_REMOTE (that host may predate this check)}"
       else
-        echo "verified $id pid=$lock_pid commit=${session_commit:-unknown}"
-        return 0
+        lock_pid=$(self_field "$report" lock_pid)
+        lock_live=$(self_field "$report" lock_live)
+        session_pid=$(self_field "$report" session_pid)
+        session_commit=$(self_field "$report" session_commit)
+        session_instr=$(self_field "$report" session_instr)
+        if [ "$lock_live" != yes ]; then
+          reason="no live session has taken its home lock"
+        elif [ -n "$prior" ] && [ "$lock_pid" = "$prior" ]; then
+          reason="lock collision: its home lock is still held by the previous session (pid $prior), so the replacement cannot take it and would run read-only"
+        elif [ "$session_pid" != "$lock_pid" ] || [ -z "$session_instr" ]; then
+          reason="the session holding its home lock (pid $lock_pid) has not reported its revision"
+        elif [ "$session_instr" != "$expect" ]; then
+          reason="the replacement reports revision ${session_commit:-unknown}, whose instruction surface differs from the intended one ($(instr_changed "$session_instr" "$expect"))"
+        else
+          echo "verified $id pid=$lock_pid commit=${session_commit:-unknown}"
+          return 0
+        fi
       fi
     fi
-    [ "$(date +%s)" -lt "$deadline" ] || break
-    sleep "$poll"
+    remaining=$((deadline - $(date +%s)))
+    [ "$remaining" -gt 0 ] || break
+    sleep "$(awk -v poll="$poll" -v remaining="$remaining" 'BEGIN { print poll < remaining ? poll : remaining }')"
   done
-  echo "unknown $id: $reason"
+  echo "unknown $id: ${reason:-verification budget exhausted}"
   return 3
 }
 
 case "${1:-}" in
   -h|--help) usage; exit 0 ;;
+  _verify-probe)
+    [ "$#" -eq 3 ] || exit 2
+    case "$2" in agent|self) ;; *) exit 2 ;; esac
+    case "$3" in ''|*[!A-Za-z0-9._-]*) exit 2 ;; esac
+    parent_state
+    mate_meta "$3"
+    case "$2" in
+      agent) agent_state_of "$3" ;;
+      self) mate_self "$3" ;;
+    esac
+    ;;
   record) [ "$#" -eq 1 ] || { usage >&2; exit 2; }; cmd_record ;;
   self) [ "$#" -eq 1 ] || { usage >&2; exit 2; }; cmd_self ;;
   stale|idle|verify)
