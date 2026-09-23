@@ -215,6 +215,67 @@ test_failed_delete_retains_tripwire() {
   pass "fm-herdr-lab: failed deletion retains ownership until absence is confirmed"
 }
 
+test_prepare_reclaims_stale_matching_tripwire() {
+  local name="fm-lab-stale-match-$$" status=0 err recorded
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "stale-record fixture provision failed"
+  # The session is gone but no teardown removed the record.
+  printf '%s\n' deleted > "$FAKE_STATE/$name"
+  recorded=$(cat "$TRIPWIRES/$name.fleet-state.json")
+  err=$(run_with_fake fm_herdr_lab_prepare "$name" 2>&1 >/dev/null) || status=$?
+  expect_code 0 "$status" "prepare must reclaim a stale record whose fleet state is unchanged"
+  [ "$(printf '%s\n' "$err" | grep -c "reclaimed stale fleet-state tripwire for '$name'")" = 1 ] \
+    || fail "prepare did not print exactly one reclaim line, got: $err"
+  [ "$(cat "$TRIPWIRES/$name.fleet-state.json")" = "$recorded" ] \
+    || fail "prepare did not record the current fleet state after reclaiming"
+  run_with_fake fm_herdr_lab_provision "$name" 2>/dev/null || fail "provision after a reclaimed record failed"
+  [ "$(cat "$FAKE_STATE/$name")" = running ] || fail "provision after reclaim did not start the lab session"
+  run_with_fake fm_herdr_lab_teardown "$name" || fail "teardown after reclaim failed"
+  assert_absent "$TRIPWIRES/$name.fleet-state.json" "teardown after reclaim left its tripwire behind"
+  pass "fm-herdr-lab: prepare reclaims a stale record whose fleet state is unchanged"
+}
+
+test_prepare_refuses_stale_differing_tripwire() {
+  local name="fm-lab-stale-differ-$$" status=0 err recorded
+  : > "$FAKE_LOG"
+  mkdir -p "$TRIPWIRES"
+  recorded='{"name":"default","default":true,"running":true,"socket_path":"/changed/default.sock"}'
+  printf '%s\n' "$recorded" > "$TRIPWIRES/$name.fleet-state.json"
+  err=$(run_with_fake fm_herdr_lab_prepare "$name" 2>&1) || status=$?
+  expect_code 1 "$status" "prepare must refuse a stale record whose fleet state differs"
+  case "$err" in
+    *"tripwire already exists for '$name'; refusing ambiguous ownership"*) : ;;
+    *) fail "differing stale record was not refused as ambiguous ownership: $err" ;;
+  esac
+  case "$err" in *reclaimed*) fail "differing stale record was reported reclaimed: $err" ;; esac
+  [ "$(cat "$TRIPWIRES/$name.fleet-state.json")" = "$recorded" ] \
+    || fail "refused prepare changed the differing stale record"
+  rm -f "$TRIPWIRES/$name.fleet-state.json"
+  pass "fm-herdr-lab: prepare keeps and refuses a stale record whose fleet state differs"
+}
+
+test_prepare_refuses_existing_session_with_tripwire() {
+  local name="fm-lab-stale-live-$$" status=0 err recorded lab_state
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "existing-session fixture provision failed"
+  recorded=$(cat "$TRIPWIRES/$name.fleet-state.json")
+  for lab_state in running stopped; do
+    printf '%s\n' "$lab_state" > "$FAKE_STATE/$name"
+    status=0
+    err=$(run_with_fake fm_herdr_lab_prepare "$name" 2>&1) || status=$?
+    expect_code 1 "$status" "prepare must refuse an existing $lab_state session even with a matching record"
+    case "$err" in
+      *"session '$name' already exists; refusing to adopt or overwrite it"*) : ;;
+      *) fail "existing $lab_state session was not refused: $err" ;;
+    esac
+    case "$err" in *reclaimed*) fail "existing $lab_state session's record was reclaimed: $err" ;; esac
+    [ "$(cat "$TRIPWIRES/$name.fleet-state.json")" = "$recorded" ] \
+      || fail "refused prepare changed the existing $lab_state session's record"
+  done
+  run_with_fake fm_herdr_lab_teardown "$name" || fail "existing-session fixture teardown failed"
+  pass "fm-herdr-lab: prepare still refuses an existing session and keeps its record"
+}
+
 test_timed_out_provision_cancels_late_launch() {
   local name="fm-lab-late-launch-$$" status=0
   cat > "$FAKEBIN/sleep" <<'SH'
@@ -504,6 +565,9 @@ test_missing_tripwire_blocks_destruction
 test_changed_default_trips_after_teardown
 test_stopped_owned_lab_can_reprovision
 test_failed_delete_retains_tripwire
+test_prepare_reclaims_stale_matching_tripwire
+test_prepare_refuses_stale_differing_tripwire
+test_prepare_refuses_existing_session_with_tripwire
 test_timed_out_provision_cancels_late_launch
 test_viewer_refuses_unowned_sessions
 test_viewer_start_cancels_an_unrecorded_launcher
