@@ -102,11 +102,12 @@ Each guard refuses when it fails or cannot be established, with exit status 4, b
 1. **Eligible.** [`bin/fm-context-size.sh`](../bin/fm-context-size.sh) reads the mate's current context from its own session transcript, and it must be over 400,000 tokens.
    The threshold is eligibility, not an instruction to compact.
 2. **Idle.** [`bin/fm-secondmate-health.sh`](../bin/fm-secondmate-health.sh) `idle`, the same owner the restart pass uses, reads it idle.
-3. **Nothing in flight.** Its steering inbox holds no unhandled instruction, its status log in this home holds no open keyed decision, this home holds no reply expectation it still owes and no pending backlog handoff to it, its own home holds no queued notification, and no direct report of its home reads working, parked, blocked, or unreadable to [`bin/fm-crew-state.sh`](../bin/fm-crew-state.sh).
+3. **Nothing in flight.** Its steering inbox holds no unhandled instruction, its status log in this home holds no open keyed decision, this home holds no reply expectation it still owes and no pending backlog handoff to it, its own home holds no queued notification, and every direct report of its home reads done, paused, or failed to [`bin/fm-crew-state.sh`](../bin/fm-crew-state.sh).
 4. **Checkpointed.** It is sent the restart pass's open-work persistence request, framed for compaction and extended to outstanding work, decisions, ownership, blockers, and next action ([`bin/fm-secondmate-restart-lib.sh`](../bin/fm-secondmate-restart-lib.sh) owns the text, the correlated send, and the shared wait bounds).
    Its correlated answer must arrive within that bound and contain `checkpoint=complete`; no answer, `checkpoint=incomplete`, or an answer that does not affirm completeness refuses.
    It must then settle idle within the restart pass's settle window.
-5. **Re-checked.** Immediately before the keystroke, idle and every check in 3 except the direct-report reads are read again, the agent must read alive, and the composer must read exactly empty.
+5. **Re-checked.** The before-size transcript read, agent-alive and empty-composer checks, and full direct-report reads run first.
+   Idle and the remaining checks in 3 are read again last, immediately before the keystroke.
 
 The command is then typed through the same verified keystroke path `exit` uses, never the steering inbox.
 Completion is a new `compact_boundary` entry in the session transcript, and the recovery check follows:

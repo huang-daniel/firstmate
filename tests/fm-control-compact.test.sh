@@ -308,7 +308,7 @@ test_compaction_happy_path() {
 # --- C3: every guard refuses with nothing typed ------------------------------
 test_below_threshold_refuses() {
   local dir out rc
-  dir=$(new_case below claude secondmate 390000)
+  dir=$(new_case below claude secondmate 400000)
   out=$(run_compact "$dir"); rc=$?
   assert_refused "$dir" "$out" "$rc" "not over the 400000 eligibility threshold" below
   [ ! -s "$dir/fake/requests" ] || fail "a mate below the threshold must not be asked to checkpoint"
@@ -433,6 +433,16 @@ test_idle_direct_report_passes() {
   pass "C3k a direct report that is not running or waiting does not block"
 }
 
+test_unknown_direct_report_refuses() {
+  local dir out rc
+  dir=$(new_case crew-unknown)
+  add_crew "$dir" c1 idle
+  rm "$dir/sm1-home/state/c1.busy-state"
+  out=$(run_compact "$dir"); rc=$?
+  assert_refused "$dir" "$out" "$rc" "direct report c1 is not provably inactive" crew-unknown
+  pass "C3n an unverified direct report refuses"
+}
+
 test_unverified_harness_refuses() {
   local dir out rc
   dir=$(new_case codex codex)
@@ -491,6 +501,21 @@ SH
   out=$(run_compact "$dir"); rc=$?
   assert_refused "$dir" "$out" "$rc" "still busy" recheck-busy
   pass "C5a a mate busy again after its checkpoint is re-read and refused"
+}
+
+test_direct_report_active_during_checkpoint_refuses() {
+  local dir out rc
+  dir=$(new_case recheck-crew)
+  add_crew "$dir" c1 idle 'done [at=1]: finished'
+  cat > "$dir/fake/after-checkpoint" <<SH
+#!/usr/bin/env bash
+"$ROOT/bin/fm-busy-event.sh" arm "$dir/sm1-home/state" c1 --state busy --source claude-hook --event test >/dev/null
+SH
+  chmod +x "$dir/fake/after-checkpoint"
+  out=$(run_compact "$dir"); rc=$?
+  assert_refused "$dir" "$out" "$rc" "direct report c1 is in a running step" recheck-crew
+  assert_equals checkpoint "$(cat "$dir/fake/requests")" "the report must become active during the checkpoint"
+  pass "C5e a direct report becoming active during the checkpoint refuses"
 }
 
 test_instruction_during_checkpoint_refuses() {
@@ -615,12 +640,14 @@ test_queued_notification_refuses
 test_running_direct_report_refuses
 test_waiting_direct_report_refuses
 test_idle_direct_report_passes
+test_unknown_direct_report_refuses
 test_unverified_harness_refuses
 test_crew_target_refuses
 test_checkpoint_unanswered_refuses
 test_checkpoint_incomplete_refuses
 test_checkpoint_unaffirmed_refuses
 test_busy_after_checkpoint_refuses
+test_direct_report_active_during_checkpoint_refuses
 test_instruction_during_checkpoint_refuses
 test_unacknowledged_checkpoint_refuses
 test_decision_during_checkpoint_refuses

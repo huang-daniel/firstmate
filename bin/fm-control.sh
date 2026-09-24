@@ -126,16 +126,17 @@
 #                3. its steering inbox holds no unhandled instruction, its
 #                   status log in this home no open keyed decision, this home no
 #                   open reply expectation it owes and no pending backlog
-#                   handoff to it, its own home no queued notification, and no
-#                   direct report of its home reads working, parked, blocked,
-#                   or unreadable to bin/fm-crew-state.sh;
+#                   handoff to it, its own home no queued notification, and
+#                   every direct report of its home reads done, paused, or
+#                   failed to bin/fm-crew-state.sh;
 #                4. it answers the restart pass's durable open-work checkpoint
 #                   request (bin/fm-secondmate-restart-lib.sh) within that
 #                   pass's bound, affirming checkpoint=complete, then settles
 #                   idle within that pass's settle window;
-#                5. immediately before the keystroke, idle and every check in 3
-#                   except the direct-report reads are re-read, its agent reads
-#                   alive, and its composer reads exactly empty.
+#                5. the before-size transcript read, agent-alive and empty
+#                   composer checks, and all direct-report reads run first;
+#                   idle and the remaining checks in 3 run last, immediately
+#                   before the keystroke.
 #              Only then is the command typed, through the same keystroke path
 #              `exit` uses. Completion is the transcript's new compact_boundary.
 #              The recovery check then requires a smaller context, a live agent,
@@ -197,8 +198,6 @@
 #   FM_CONTROL_COMPACT_WAIT      wait for the compaction to be recorded (600)
 #   FM_CONTROL_COMPACT_POLL      transcript re-read interval during that wait (5)
 #   FM_CONTROL_COMPACT_PROBE_WAIT  wait for the recovery probe's answer (300)
-#   FM_CONTROL_COMPACT_THRESHOLD eligibility threshold in tokens (400000);
-#                                for tests only
 #   The checkpoint shares FM_SECONDMATE_PERSIST_WAIT, FM_SECONDMATE_PERSIST_POLL,
 #   and FM_SECONDMATE_IDLE_SETTLE with bin/fm-secondmate-restart.sh.
 set -eu
@@ -1281,12 +1280,28 @@ compact_idle_verdict() {
   printf '%s' "${verdict:-unknown unreadable}"
 }
 
-# compact_guards <full|final>: every guard refuses by name when it fails or
-# cannot be established. `final` is the re-check immediately before the
-# keystroke; `full` adds the direct-report reads, which are slower and cannot
-# change because of the checkpoint turn.
 compact_guards() {  # <full|final>
   local phase=$1 verdict msg open keys crew_meta crew_id crew_out crew_state
+  for crew_meta in "$COMPACT_MATE_HOME/state"/*.meta; do
+    [ -e "$crew_meta" ] || [ -L "$crew_meta" ] || continue
+    crew_id=${crew_meta##*/}
+    crew_id=${crew_id%.meta}
+    crew_out=$(FM_HOME="$COMPACT_MATE_HOME" FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' \
+      FM_ROOT_OVERRIDE='' FM_CREW_STATE_NO_FORGE=1 \
+      "$SCRIPT_DIR/fm-crew-state.sh" "$crew_id" 2>/dev/null | head -1) || crew_out=
+    case "$crew_out" in
+      'state: '*) ;;
+      *) compact_refuse "the current state of its direct report $crew_id cannot be read" ;;
+    esac
+    crew_state=${crew_out#state: }
+    crew_state=${crew_state%% *}
+    case "$crew_state" in
+      done|paused|failed) ;;
+      working) compact_refuse "its direct report $crew_id is in a running step (${crew_out})" ;;
+      parked|blocked) compact_refuse "its direct report $crew_id is waiting on a decision (${crew_out})" ;;
+      *) compact_refuse "its direct report $crew_id is not provably inactive (${crew_out})" ;;
+    esac
+  done
   verdict=$(compact_idle_verdict)
   [ "${verdict%% *}" = idle ] \
     || compact_refuse "it is not provably idle (${verdict})${phase:+ at the $phase check}"
@@ -1312,25 +1327,6 @@ compact_guards() {  # <full|final>
     [ -r "$COMPACT_MATE_HOME/state/.wake-queue" ] \
       || compact_refuse "its own home's notification queue cannot be read at the $phase check"
   fi
-  [ "$phase" = full ] || return 0
-  for crew_meta in "$COMPACT_MATE_HOME/state"/*.meta; do
-    [ -e "$crew_meta" ] || [ -L "$crew_meta" ] || continue
-    crew_id=${crew_meta##*/}
-    crew_id=${crew_id%.meta}
-    crew_out=$(FM_HOME="$COMPACT_MATE_HOME" FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' \
-      FM_ROOT_OVERRIDE='' FM_CREW_STATE_NO_FORGE=1 \
-      "$SCRIPT_DIR/fm-crew-state.sh" "$crew_id" 2>/dev/null | head -1) || crew_out=
-    case "$crew_out" in
-      'state: '*) ;;
-      *) compact_refuse "the current state of its direct report $crew_id cannot be read" ;;
-    esac
-    crew_state=${crew_out#state: }
-    crew_state=${crew_state%% *}
-    case "$crew_state" in
-      working) compact_refuse "its direct report $crew_id is in a running step (${crew_out})" ;;
-      parked|blocked) compact_refuse "its direct report $crew_id is waiting on a decision (${crew_out})" ;;
-    esac
-  done
 }
 
 # compact_checkpoint: the persist request the restart pass sends
@@ -1405,7 +1401,7 @@ compact_recover() {
 }
 
 do_compact() {
-  local threshold marker cmd verdict wait poll deadline boundaries_before composer_state
+  local marker cmd verdict wait poll deadline boundaries_before composer_state
   [ "$KIND" = secondmate ] \
     || die "task $ID is a $KIND task; compact applies to a second mate only, and never to a crew, a scout, or the primary itself"
   fm_control_compact_supported "$HARNESS" \
@@ -1417,14 +1413,12 @@ do_compact() {
   marker=$(cat "$COMPACT_MATE_HOME/.fm-secondmate-home" 2>/dev/null || true)
   [ "$marker" = "$ID" ] \
     || compact_refuse "its home '${COMPACT_MATE_HOME:-none}' is not marked as its own seeded second mate home"
-  threshold=${FM_CONTROL_COMPACT_THRESHOLD:-400000}
-  case "$threshold" in ''|*[!0-9]*|0) die "FM_CONTROL_COMPACT_THRESHOLD must be a positive integer: $threshold" ;; esac
 
   # 1. Eligibility: over the threshold, from a structured read only.
   compact_read_context || compact_refuse "its context size cannot be read: $CTX_REASON"
   COMPACT_BEFORE=$CTX_TOKENS
-  [ "$CTX_TOKENS" -gt "$threshold" ] \
-    || compact_refuse "its context is $CTX_TOKENS tokens, not over the $threshold eligibility threshold"
+  [ "$CTX_TOKENS" -gt 400000 ] \
+    || compact_refuse "its context is $CTX_TOKENS tokens, not over the 400000 eligibility threshold"
 
   # 2-4. Restart-grade idle, and nothing in flight toward or under it.
   compact_guards full
@@ -1434,7 +1428,6 @@ do_compact() {
   compact_settle_idle
 
   # 3. Re-check immediately before the keystroke; never rely on an earlier read.
-  compact_guards final
   [ "$(agent_state)" = alive ] || compact_refuse "its agent is not running at the final check"
   composer_state=$(fm_backend_composer_state "$BACKEND" "$T" "$LABEL" 2>/dev/null) || composer_state=unknown
   [ "$composer_state" = empty ] \
@@ -1445,6 +1438,7 @@ do_compact() {
 
   # Deliver through the control plane's verified keystroke path, never fm-send.
   cmd=$(fm_control_compact_command "$HARNESS")
+  compact_guards final
   verdict=$(fm_backend_send_text_submit "$BACKEND" "$T" "$cmd" "$EXIT_RETRIES" "$POLL" 1.2 "$LABEL") \
     || compact_fail "the $cmd command could not be sent on $BACKEND"
   [ "$verdict" != send-failed ] || compact_fail "the $cmd command could not be sent on $BACKEND"
