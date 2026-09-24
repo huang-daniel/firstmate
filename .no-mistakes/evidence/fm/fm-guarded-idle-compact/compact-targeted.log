@@ -1,0 +1,31 @@
+ok - C1 the context size is read from the session transcript, and unprovable reads refuse
+ok - C2 an idle mate over the threshold is checkpointed, compacted, probed, and recorded
+ok - C3a a session at or below 400k is not eligible
+ok - C3b an unreadable context size refuses
+ok - C3c a mate that is not provably idle refuses
+ok - C3d an unhandled steering instruction refuses
+ok - C3e an open keyed decision refuses
+ok - C3f an answer the mate still owes refuses
+ok - C3g a pending backlog handoff refuses
+ok - C3h a notification queued in the mate's own home refuses
+ok - C3i a direct report in a running step refuses
+ok - C3j a direct report waiting on a decision refuses
+ok - C3k a direct report that is not running or waiting does not block
+ok - C3n an unverified direct report refuses
+ok - C3o completed validation requires independent worker inactivity at both guards
+ok - C3l a harness without all three verified legs refuses by name
+ok - C3m a crew is never a compaction target
+ok - C4a an unanswered checkpoint refuses
+ok - C4b a checkpoint reported incomplete refuses
+ok - C4c a checkpoint answer that does not affirm completeness refuses
+ok - C5a a mate busy again after its checkpoint is re-read and refused
+ok - C5e a direct report becoming active during the checkpoint refuses
+ok - C5b an instruction that arrives during the checkpoint is caught at the final check
+ok - C5c a checkpoint request the mate never acknowledged is caught at the final check
+ok - C5d a decision opened during the checkpoint is caught at the final check
+ok - C6a a compaction the transcript never records is a recorded failure
+ok - C6b a context that did not drop is a recorded failure
+ok - C6c an unanswered recovery probe is a recorded failure
+ok - C6d a probe answer without the mate's own id is a recorded failure
+ok - C6e a probe answer reporting unreadable records is a recorded failure
+ok - C6f a recorded recovery failure keeps the next compaction refused until resolved
