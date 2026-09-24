@@ -211,7 +211,7 @@ That plane types nothing at all when a pre-check proves the target cannot take t
 
 Text for a worker to read and commands that drive a worker's process are separate planes.
 `fm-send.sh` is the data plane and always routing-marks a `kind=secondmate` target, which is right for a message and wrong for a lifecycle command, because a marked exit command arrives as chat the agent reasons about instead of executing.
-`bin/fm-control.sh` is the control plane for an exact task id; [agent-control.md](agent-control.md) owns its supported actions and safety contract, with per-harness mechanics owned by `bin/fm-control-lib.sh`.
+`bin/fm-control.sh` is the control plane for an exact task id, with per-harness mechanics owned by `bin/fm-control-lib.sh`.
 [`docs/agent-control.md`](agent-control.md) owns the verb contract, the capability matrix, the relaunch transaction, and the fail-closed boundaries.
 
 ## Busy state is semantic, per adapter

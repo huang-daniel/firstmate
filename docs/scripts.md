@@ -23,7 +23,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-update.sh`           | Guarded self-update of firstmate and local or remote secondmate homes, reconciling redundant divergence and classifying every live mate left on the target commit for restart or fallback nudge |
 | `fm-secondmate-health.sh` | Record the revision a session started on, and read a second mate's staleness, busy state, and replacement health |
 | `fm-secondmate-restart.sh` | Skip current mates, persist open conversational work, then restart stale mates whose busy records prove idle and verify each replacement, or report the fallback outcome |
-| `fm-secondmate-restart-lib.sh` | Shared second-mate restart capability and persistence-request contract |
+| `fm-secondmate-restart-lib.sh` | Secondmate restart capability and shared restart/compaction checkpoint requests |
 | `fm-on.sh`               | Execute one tracked Firstmate command in a configured remote secondmate home, using its job worker except for the doctor bootstrap |
 | `fm-remote-job-lib.sh`   | Shared bounded remote job queue, worker readiness, LaunchAgent contract, and filesystem-composed PATH |
 | `fm-remote-job-worker.sh` | Long-lived remote queue worker for tracked `fm-*.sh` commands in the account runtime |
@@ -121,6 +121,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-lease.sh`            | Claim, release, inspect, and sweep per-task supervision leases                       |
 | `fm-lease-lib.sh`        | One owner of the supervision lease contract and the main-only role-partition guards  |
 | `fm-control.sh`          | Agent lifecycle control plane for an exact task id; [agent-control.md](agent-control.md) owns the supported actions and safety contract |
+| [`fm-context-size.sh`](../bin/fm-context-size.sh) | Read the lock-holding Claude session's context size from its structured transcript |
 | `fm-control-lib.sh`      | One executable owner of the control-plane verb allowlist, per-harness interrupt/exit mechanics, per-backend capability, and the endpoint-absence proof both `exit` and `relaunch` read |
 | `fm-busy-lib.sh`         | Single owner of the semantic busy-state contract: verdicts, source attribution, and per-harness sources |
 | `fm-busy-event.sh`       | The only writer of a task's semantic busy-state record and native-harness progress marker; arms an incarnation and applies lifecycle events |
