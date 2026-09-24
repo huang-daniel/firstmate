@@ -978,6 +978,9 @@ test_ship_closeout_section() {
     assert_contains "$section" "MERGE RELATIONSHIP: <LANDS_BEFORE | LANDS_AFTER | INDEPENDENT>" \
       "$mode closeout missing the merge-relationship slot"
     assert_contains "$section" "for the supervising home" "$mode closeout must leave the slot to the supervising home"
+    assert_contains "$section" "Never write the literal placeholder or a relationship value into a PR description" \
+      "$mode closeout must keep the merge-relationship placeholder out of the PR description"
+    assert_contains "$section" "never decide the relationship yourself" "$mode closeout must not let the worker decide the relationship"
     assert_contains "$section" "required at the done report for pipeline-mode work" \
       "$mode closeout must require the slot for pipeline-mode work"
     assert_contains "$section" "Do not repeat the branch, SHA, file list, or timestamps" \
