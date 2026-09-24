@@ -97,7 +97,7 @@ It applies to a local `kind=secondmate` target only; a crew, a scout, and the pr
 Claude is the one verified adapter (`fm_control_compact_supported`), because it alone has all three legs: a structured context-size read, a provable second mate idle verdict, and an in-place compaction the session records.
 Every other adapter refuses by name, and so does a backend without a recovery-grade agent-state classifier.
 
-Each guard refuses when it fails or cannot be established, with exit status 4, before anything is typed:
+Each guard refuses when it fails or cannot be established, with exit status 4, before the compaction command is typed (the checkpoint request itself uses the ordinary data plane):
 
 1. **Eligible.** [`bin/fm-context-size.sh`](../bin/fm-context-size.sh) reads the mate's current context from its own session transcript, and it must be over 400,000 tokens.
    The threshold is eligibility, not an instruction to compact.

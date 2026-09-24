@@ -118,7 +118,7 @@
 #   compact    Compact a second mate's conversation in place with its
 #              harness's own compaction command, only behind these guards, each
 #              of which refuses (exit status 4, `compact-refused <id>: <why>`)
-#              when it fails or cannot be established, before anything is typed:
+#              when it fails or cannot be established, before /compact is typed:
 #                1. its context, read from the session's own transcript by
 #                   bin/fm-context-size.sh, is over 400000 tokens;
 #                2. bin/fm-secondmate-health.sh idle - the restart pass's own
@@ -1233,7 +1233,8 @@ compact_sizes() {
   printf 'before=%s after=%s checkpoint=%s' "$COMPACT_BEFORE" "$COMPACT_AFTER" "$COMPACT_CHECKPOINT"
 }
 
-# compact_refuse: nothing was typed into the mate's session. Exit status 4.
+# compact_refuse: /compact was not typed; a checkpoint request may already
+# have been delivered through the data plane. Exit status 4.
 compact_refuse() {  # <reason>
   compact_record "note [at=$(date +%s)]" "refused: $1; $(compact_sizes)"
   echo "compact-refused $ID: $1" >&2
