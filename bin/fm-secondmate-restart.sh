@@ -120,9 +120,9 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 # shellcheck source=bin/fm-pending-reply-lib.sh
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
 
-PERSIST_WAIT=${FM_SECONDMATE_PERSIST_WAIT:-900}
-PERSIST_POLL=${FM_SECONDMATE_PERSIST_POLL:-5}
-IDLE_SETTLE=${FM_SECONDMATE_IDLE_SETTLE:-120}
+PERSIST_WAIT=${FM_SECONDMATE_PERSIST_WAIT:-$FM_SECONDMATE_PERSIST_WAIT_DEFAULT}
+PERSIST_POLL=${FM_SECONDMATE_PERSIST_POLL:-$FM_SECONDMATE_PERSIST_POLL_DEFAULT}
+IDLE_SETTLE=${FM_SECONDMATE_IDLE_SETTLE:-$FM_SECONDMATE_IDLE_SETTLE_DEFAULT}
 case "$PERSIST_WAIT" in ''|*[!0-9]*) echo "error: FM_SECONDMATE_PERSIST_WAIT must be a non-negative integer: $PERSIST_WAIT" >&2; exit 2 ;; esac
 case "$PERSIST_POLL" in ''|*[!0-9]*|0) echo "error: FM_SECONDMATE_PERSIST_POLL must be a positive integer: $PERSIST_POLL" >&2; exit 2 ;; esac
 case "$IDLE_SETTLE" in ''|*[!0-9]*) echo "error: FM_SECONDMATE_IDLE_SETTLE must be a non-negative integer: $IDLE_SETTLE" >&2; exit 2 ;; esac
@@ -367,21 +367,13 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
   fi
   HARNESS[i]=$FM_SECONDMATE_RESTART_HARNESS
 
-  if ! corr=$(fm_pending_reply_create "$FM_HOME" "$STATE" "$id" \
-    "$FM_SECONDMATE_PERSIST_REQUEST"); then
-    REASON[i]="its answer about the open work cannot be tracked, so a clean reload could not be proven"
+  if ! fm_secondmate_request_send "$FM_HOME" "$STATE" "$id" \
+    "$FM_SECONDMATE_PERSIST_REQUEST"; then
+    REASON[i]="it was asked to write down its open work, but $FM_SECONDMATE_REQUEST_REASON, so a clean reload could not be proven"
     i=$((i + 1))
     continue
   fi
-  if ! send_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-    FM_PENDING_REPLY_EXISTING_CORR="$corr" \
-    "$SCRIPT_DIR/fm-send.sh" "$id" "$FM_SECONDMATE_PERSIST_REQUEST" 2>&1); then
-    fm_pending_reply_discard_undelivered "$STATE" "$corr" >/dev/null 2>&1 || true
-    REASON[i]="the request to write down its open work could not be delivered: $(first_reported_line "$send_out")"
-    i=$((i + 1))
-    continue
-  fi
-  CORR[i]=$corr
+  CORR[i]=$FM_SECONDMATE_REQUEST_CORR
   DEADLINE[i]=$(($(date +%s) + PERSIST_WAIT))
   PLAN[i]="persisted-pending"
   i=$((i + 1))

@@ -15,7 +15,7 @@ The failure repeated across harnesses and homes, and the workaround (remember to
 
 `bin/fm-control-lib.sh` is the single executable owner of three capability tables, which have no side effects, so they can be read as a contract:
 
-- The **verb allowlist**: `interrupt`, `exit`, `stand-down`, `relaunch`.
+- The **verb allowlist**: `interrupt`, `exit`, `stand-down`, `relaunch`, `compact`.
   There is no arbitrary-text and no generic raw-key entry point.
   A caller either names an allowlisted verb or is refused.
 - **Per-harness mechanics**: the key that cancels a running turn, how many times it must be delivered, whether the composer needs clearing afterwards, the command that exits the agent, and which task kinds the adapter is verified to run.
@@ -35,6 +35,7 @@ A recorded `harness=` is not always an exact adapter name: a task launched from 
 | `interrupt` | Deliver the harness's verified interrupt sequence while leaving the agent running. | Delivery succeeds while the endpoint still exists and the agent is still alive where the backend can classify that; cancellation is confirmed only from an adapter-owned acknowledgement and otherwise reports `cancel=unconfirmed`. |
 | `exit` | Stop the agent, preserving the endpoint, the worktree, and every uncommitted change. | The backend's recovery-grade classifier reports the agent gone. Already-stopped is idempotent success. An endpoint reading `missing` goes through the same [absence proof](#reclaiming-a-task-whose-endpoint-is-gone) the reclaim uses before anything is claimed about it, and only Herdr can supply one from a read: proven gone reports `endpoint-gone` (the agent went with it, and the endpoint this verb normally preserves did not survive), a pane that turns out to be there and idle is the ordinary `already-stopped`, one whose agent is back takes the ordinary interrupt-then-exit path. A tmux `missing` refuses rather than claim a stop it cannot see, unless the record says `stand-down` closed that endpoint, which reports `endpoint-gone`. |
 | `stand-down` | Stand a finished ship worker down: stop its agent as `exit` does, then close its endpoint so a task held for a merge word leaves no blank terminal behind. The worktree, task record, status log, steering inbox, and merge poll are all preserved. | The endpoint reads gone to the recovery-grade classifier, and the task record carries `endpoint_closed=<endpoint>`. Already closed is idempotent success (`already-closed`). See [Standing a finished worker down](#standing-a-finished-worker-down). |
+| `compact` | Compact a second mate's conversation in place with its harness's own compaction command, only behind the guards in [Guarded context compaction](#guarded-context-compaction). | The session transcript records a new completed compaction, the context is smaller, and a read-only probe answered through the parent channel shows the mate's role, its own id, and its durable records readable. Every attempt is recorded in the mate's status log. |
 | `relaunch` | Replace the running agent with a new one in the same worktree - and the same endpoint whenever that endpoint still exists - on the exact recorded adapter or an explicitly chosen harness, model, and effort. | The new agent is alive on the endpoint the task's record now names, and that record names the harness that is actually running. An already authenticated merge watch remains valid, with trace propagation enabled or disabled. |
 
 An exit that delivers lifecycle input but cannot prove the agent stopped fails with `exit=unconfirmed`, reports the observed agent state and any interrupt cancellation claim, and never claims that nothing changed.
@@ -85,6 +86,43 @@ The marker is what keeps a stood-down task recoverable from its records alone:
   Every republished record drops the marker, so it never outlives the endpoint it names.
 - [`bin/fm-teardown.sh`](../bin/fm-teardown.sh) meets the already-gone endpoint as an ordinary silent close and still runs its complete landed-work test.
 - The session-start digest reports the endpoint as closed at stand-down rather than dead, and [`bin/fm-crew-state.sh`](../bin/fm-crew-state.sh) keeps reading the task's current state from its status log rather than reporting a gone endpoint.
+
+## Guarded context compaction
+
+`compact` keeps a long-running second mate's context small without restarting it, and only at a genuinely idle boundary.
+Claude's automatic compaction setting stays off because it can fire between steps mid-turn; this verb is the one path, and firstmate invokes it deliberately.
+Nothing schedules it, and it is not a way to type an arbitrary slash command: the command comes from `fm_control_compact_command` in `bin/fm-control-lib.sh`, and every guard must pass first.
+
+It applies to a local `kind=secondmate` target only; a crew, a scout, and the primary are never targets.
+Claude is the one verified adapter (`fm_control_compact_supported`), because it alone has all three legs: a structured context-size read, a provable second mate idle verdict, and an in-place compaction the session records.
+Every other adapter refuses by name, and so does a backend without a recovery-grade agent-state classifier.
+
+Each guard refuses when it fails or cannot be established, with exit status 4, before the compaction command is typed (the checkpoint request itself uses the ordinary data plane):
+
+1. **Eligible.** [`bin/fm-context-size.sh`](../bin/fm-context-size.sh) reads the mate's current context from its own session transcript, and it must be over 400,000 tokens.
+   The threshold is eligibility, not an instruction to compact.
+2. **Idle.** [`bin/fm-secondmate-health.sh`](../bin/fm-secondmate-health.sh) `idle`, the same owner the restart pass uses, reads it idle.
+3. **Nothing in flight.** Its steering inbox holds no unhandled instruction, its status log in this home holds no open keyed decision, this home holds no reply expectation it still owes and no pending backlog handoff to it, its own home holds no queued notification, and every direct report of its home reads done, paused, or failed to [`bin/fm-crew-state.sh`](../bin/fm-crew-state.sh).
+   Each report must also have independent semantic idle evidence or positive proof that its agent is gone; a completed validation run alone does not establish inactivity.
+4. **Checkpointed.** It is sent the restart pass's open-work persistence request, framed for compaction and extended to outstanding work, decisions, ownership, blockers, and next action ([`bin/fm-secondmate-restart-lib.sh`](../bin/fm-secondmate-restart-lib.sh) owns the text, the correlated send, and the shared wait bounds).
+   Its correlated answer must arrive within that bound and contain `checkpoint=complete`; no answer, `checkpoint=incomplete`, or an answer that does not affirm completeness refuses.
+   It must then settle idle within the restart pass's settle window.
+5. **Re-checked.** The before-size transcript read, agent-alive and empty-composer checks, and full direct-report reads run first.
+   Idle and the remaining checks in 3 are read again last, immediately before the keystroke.
+
+The command is then typed through the same verified keystroke path `exit` uses, never the steering inbox.
+Completion is a new `compact_boundary` entry in the session transcript, and the recovery check follows:
+
+- the context after compaction is smaller than before;
+- the agent still reads alive;
+- a read-only probe sent through the ordinary parent channel is answered with `role=secondmate`, the mate's own `id=`, and `records=readable`, showing its charter is intact and its outstanding work reads back from its durable records;
+- the context read after that answer is still below the size before compaction.
+
+Every attempt is recorded in the mate's status log in this home, with the before and after context sizes and the checkpoint's reply reference: `note: context-compact refused: <why>`, `note: context-compact compacted:`, and `note: context-compact recovery-ok:`.
+A recovery that cannot be proven is recorded as `blocked [key=context-compact]: context-compact recovery-failed: <why>` and stops there with exit status 1.
+Nothing is resumed, restarted, or re-dispatched, and that open blocker keeps every later `compact` refused until firstmate resolves it.
+
+The primary never compacts itself through this verb or any automation; `AGENTS.md` section 8 owns its one-notice rule, and `bin/fm-context-size.sh` with no argument is the read-only way it reads its own size.
 
 ## Transactional relaunch
 
@@ -215,6 +253,8 @@ The empirical basis for each adapter's value is the `harness-adapters` skill's v
 ## Verification
 
 - `tests/fm-control.test.sh` - the adapter contract for its verified-harness lane (adapters outside the lane pin their control mechanics in their own harness suites), the backend capability matrix, exact-id scoping, the closed verb list, the busy, idle, dead, and idempotent lifecycle cases, and marker non-regression, all against a stubbed session provider.
+- `tests/fm-control-compact.test.sh` - guarded compaction: the structured context read, the checkpoint-compact-probe order, every refusal guard, the checkpoint gate, the re-check before the keystroke, and each recovery failure, against a stubbed session provider that models a live Claude mate and its transcript.
+- `tests/fm-context-size-live-e2e.test.sh` - the opt-in live guard for the transcript facts compaction relies on, against the real installed Claude Code; its dated result is in [`docs/verification/runtime-backends.md`](verification/runtime-backends.md) "Claude context size and compaction".
 - `tests/fm-control-relaunch.test.sh` - the relaunch transaction: identity preservation, harness switching, the progress note, checkpoint refusals, rollback after a failed launch, and the endpoint-absence proof both verbs share - the Herdr reclaim of a destroyed endpoint, and tmux refusing one it cannot prove absent.
 - `tests/fm-control-herdr-smoke.test.sh` - the second state-verified backend against the real herdr binary, on an isolated throwaway lab session.
 - `tests/fm-control-relaunch.test.sh` also pins `stand-down` on tmux against the same stubbed provider: the close, what it preserves, every refusal including an active validation run, idempotency, and relaunch into a fresh window afterwards; it checks authenticated merge-watch preservation across stand-down and relaunch with tracing on and off, and rejection of an unrecognized trailing metadata field.

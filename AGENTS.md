@@ -343,6 +343,7 @@ When a steer answers an open keyed decision or blocker, pass `fm-send`'s `--reso
 `fm-send` is the data plane for text the worker should read; never use its key or text paths for interrupt, exit, or other lifecycle control, because routing-marked lifecycle text becomes chat the worker reasons about instead of executing.
 Drive a worker's lifecycle through `bin/fm-control.sh <task-id> interrupt|exit|stand-down|relaunch`, which owns the per-runtime mechanics, verifies each action, and never tears down or discards anything ([`docs/agent-control.md`](docs/agent-control.md)).
 Stand a finished ship worker down with `stand-down` rather than `exit`, so its terminal closes while its records stay.
+Compact a second mate's context only through its guarded `compact` verb, invoked deliberately and never scheduled ([`docs/agent-control.md`](docs/agent-control.md) owns its guards, checkpoint, and recovery check).
 A secondmate's routed reply returns through status or a document pointer, not by firstmate peeking into its chat.
 For the parent-owned correlation, recovery, and escalation contract on marked secondmate requests, see `bin/fm-pending-reply-lib.sh`.
 Supervise all live work under section 8.
@@ -455,6 +456,7 @@ When Relay-linked work reaches a milestone or terminal state, load `fmx-respond`
 
 A secondmate's idle endpoint is healthy, and parent supervision relies on its routed status rather than treating a quiet pane as stale.
 Waiting on a healthy supervision cycle is silent; empty polls, elapsed time, and no-change updates are not captain-facing progress.
+Never type or automate `/compact` on your own session; when read-only `bin/fm-context-size.sh` shows it over 400k tokens while the fleet is quiet and nothing is pending from the captain, give the captain one concise notice requesting `/compact`, and do not repeat it while that same condition holds.
 Never broadly kill watchers, especially never `pkill -f bin/fm-watch.sh`, because that can kill sibling firstmate homes.
 A forced repair must use the home-scoped owner path emitted by supervision instructions.
 
