@@ -531,6 +531,21 @@ The lab home was deleted and the test entry was removed from the store and verif
 That automated spawn case runs against a fake claude, so it asserts the store entry and the launch command and nothing more; the live arms above are what establish that the entry actually suppresses the dialog.
 The composer-classification record below observes the same gate from the other side, where an untrusted worktree left Claude, Grok, and Muse unverified because the guard reads a first-launch trust dialog as an unreadable composer.
 
+## Claude context size and compaction
+
+[`bin/fm-context-size.sh`](../../bin/fm-context-size.sh) and the `compact` verb's completion proof in [`bin/fm-control.sh`](../../bin/fm-control.sh) read what Claude Code writes into its own session transcript: a main-chain turn's reported usage, and the `compact_boundary` entry a `/compact` appends with its recorded pre and post sizes.
+The opt-in live guard `tests/fm-context-size-live-e2e.test.sh` refreshes this record; it submits two short prompts in a throwaway project and removes the transcript it created.
+
+Verified 2026-09-24 on Linux:
+
+```
+$ FM_CONTEXT_SIZE_LIVE_E2E=1 bash tests/fm-context-size-live-e2e.test.sh
+ok - claude 2.1.282 (Claude Code): a real turn's context size reads through the home lock (23341 tokens)
+ok - claude 2.1.282 (Claude Code): /compact records a manual boundary (23342 -> 2859 tokens) that becomes the reported size
+```
+
+The same Claude Code release also records each running session's id in `~/.claude/sessions/<pid>.json`, which the read cross-checks against the id recorded beside the home lock when both exist.
+
 ## Codex hook trust
 
 Verified 2026-09-16 on codex-cli 0.151.0, macOS arm64, in a fresh linked worktree of this repository.

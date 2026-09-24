@@ -8,6 +8,7 @@
 #        fm-control.sh <task-id> relaunch [--harness <name>] [--model <name>]
 #                                         [--effort <level>] [--require-idle]
 #                                         (--note <text> | --note-file <path>)
+#        fm-control.sh <task-id> compact
 #
 # Why this exists, and how it differs from fm-send.sh. bin/fm-send.sh is the
 # DATA plane: conversational text for the agent to read, always routing-marked
@@ -114,6 +115,43 @@
 #              the prior durable record in place and reports the concrete
 #              state; it never leaves a half-transitioned task claiming to be
 #              running.
+#   compact    Compact a second mate's conversation in place with its
+#              harness's own compaction command, only behind these guards, each
+#              of which refuses (exit status 4, `compact-refused <id>: <why>`)
+#              when it fails or cannot be established, before anything is typed:
+#                1. its context, read from the session's own transcript by
+#                   bin/fm-context-size.sh, is over 400000 tokens;
+#                2. bin/fm-secondmate-health.sh idle - the restart pass's own
+#                   idle owner - reads it idle;
+#                3. its steering inbox holds no unhandled instruction, its
+#                   status log in this home no open keyed decision, this home no
+#                   open reply expectation it owes and no pending backlog
+#                   handoff to it, its own home no queued notification, and no
+#                   direct report of its home reads working, parked, blocked,
+#                   or unreadable to bin/fm-crew-state.sh;
+#                4. it answers the restart pass's durable open-work checkpoint
+#                   request (bin/fm-secondmate-restart-lib.sh) within that
+#                   pass's bound, affirming checkpoint=complete, then settles
+#                   idle within that pass's settle window;
+#                5. immediately before the keystroke, idle and every check in 3
+#                   except the direct-report reads are re-read, its agent reads
+#                   alive, and its composer reads exactly empty.
+#              Only then is the command typed, through the same keystroke path
+#              `exit` uses. Completion is the transcript's new compact_boundary.
+#              The recovery check then requires a smaller context, a live agent,
+#              and a read-only probe answered through its parent channel that
+#              names role=secondmate, its own id=, and records=readable; the
+#              context re-read after that answer must still be below the size
+#              before compaction. Every attempt is recorded in its status log
+#              here: `note: context-compact refused|compacted|recovery-ok` with
+#              before/after sizes and the checkpoint reference, or a failed
+#              recovery as `blocked [key=context-compact]`, which stops there
+#              (exit status 1) and keeps later compactions refused until it is
+#              resolved. Nothing is ever resumed, restarted, or re-dispatched.
+#              Claude is the one verified adapter (fm_control_compact_supported);
+#              a crew, a scout, and the primary are never targets. This is a
+#              guarded action firstmate invokes deliberately, not a generic
+#              way to type a slash command, and nothing schedules it.
 #
 # Teardown and discard are NOT verbs here and never will be. `exit` stops an
 # agent and preserves everything else; `stand-down` additionally closes the
@@ -155,7 +193,14 @@
 #   FM_CONTROL_SETTLE_WAIT       adapter acknowledgement wait after interrupt (5)
 #   FM_CONTROL_EXIT_WAIT         alive->dead wait after the exit command (30)
 #   FM_CONTROL_LAUNCH_WAIT       dead->alive wait after a relaunch (90)
-#   FM_CONTROL_EXIT_RETRIES      Enter retries for the exit command (3)
+#   FM_CONTROL_EXIT_RETRIES      Enter retries for the exit and compact commands (3)
+#   FM_CONTROL_COMPACT_WAIT      wait for the compaction to be recorded (600)
+#   FM_CONTROL_COMPACT_POLL      transcript re-read interval during that wait (5)
+#   FM_CONTROL_COMPACT_PROBE_WAIT  wait for the recovery probe's answer (300)
+#   FM_CONTROL_COMPACT_THRESHOLD eligibility threshold in tokens (400000);
+#                                for tests only
+#   The checkpoint shares FM_SECONDMATE_PERSIST_WAIT, FM_SECONDMATE_PERSIST_POLL,
+#   and FM_SECONDMATE_IDLE_SETTLE with bin/fm-secondmate-restart.sh.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -203,6 +248,10 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-pending-reply-lib.sh
+. "$SCRIPT_DIR/fm-pending-reply-lib.sh"
+# shellcheck source=bin/fm-secondmate-restart-lib.sh
+. "$SCRIPT_DIR/fm-secondmate-restart-lib.sh"
 
 POLL=${FM_CONTROL_POLL:-0.5}
 SETTLE_WAIT=${FM_CONTROL_SETTLE_WAIT:-5}
@@ -495,7 +544,7 @@ verify_interrupt_running() {
     after=$(agent_state)
     [ "$after" = alive ] \
       || die "task $ID's agent is '$after' after its interrupt key; an interrupt must leave the agent running"
-    proof=agent-alive
+    proof='agent-alive'
   fi
   printf '%s' "$proof"
 }
@@ -1155,6 +1204,274 @@ do_relaunch() {
   echo "relaunched $ID harness=$TARGET_HARNESS from=$PRIOR_RECORDED_HARNESS model=$TARGET_MODEL effort=$TARGET_EFFORT backend=$BACKEND endpoint=$T worktree=$WT"
 }
 
+# --- guarded compact --------------------------------------------------------
+#
+# Every attempt leaves one durable line in the mate's status log in this home
+# (compact_record): a refusal with its reason, the compaction itself, and the
+# recovery verdict, each with the context sizes and checkpoint reference known
+# at that point. A reply correlation token is never written into those lines,
+# because a corr= token in this log is what resolves a reply expectation.
+
+COMPACT_STATUS="$STATE/$ID.status"
+COMPACT_BEFORE=unread
+COMPACT_AFTER=none
+COMPACT_CHECKPOINT=none
+COMPACT_MATE_HOME=
+CTX_TOKENS=
+CTX_BOUNDARIES=
+CTX_POST=
+CTX_REASON=
+
+compact_record() {  # <status-head> <text>
+  local text
+  text=$(printf '%s' "$2" | tr '\n' ' ' | sed 's/corr=/corr:/g')
+  printf '%s: context-compact %s\n' "$1" "$text" >> "$COMPACT_STATUS" \
+    || echo "warning: the context-compact record could not be appended to $COMPACT_STATUS" >&2
+}
+
+compact_sizes() {
+  printf 'before=%s after=%s checkpoint=%s' "$COMPACT_BEFORE" "$COMPACT_AFTER" "$COMPACT_CHECKPOINT"
+}
+
+# compact_refuse: nothing was typed into the mate's session. Exit status 4.
+compact_refuse() {  # <reason>
+  compact_record "note [at=$(date +%s)]" "refused: $1; $(compact_sizes)"
+  echo "compact-refused $ID: $1" >&2
+  exit 4
+}
+
+# compact_fail: /compact was delivered, and what followed could not be proven.
+# The failure is recorded as a keyed blocker - which also keeps every later
+# compact refused until it is resolved - and nothing is resumed, restarted, or
+# re-dispatched.
+compact_fail() {  # <reason>
+  compact_record "blocked [at=$(date +%s)] [key=context-compact]" "recovery-failed: $1; $(compact_sizes)"
+  die "compaction of $ID was not proven recovered: $1; nothing was resumed or restarted, and the failure is recorded as an open blocker in its status log"
+}
+
+# compact_read_context: the mate's current context size from its session's own
+# transcript (bin/fm-context-size.sh). Sets CTX_TOKENS, CTX_BOUNDARIES, and
+# CTX_POST, or CTX_REASON and returns 1.
+compact_read_context() {
+  local out rc=0
+  CTX_TOKENS=
+  CTX_BOUNDARIES=
+  CTX_POST=
+  CTX_REASON=
+  out=$("$SCRIPT_DIR/fm-context-size.sh" --home "$COMPACT_MATE_HOME" 2>&1) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    CTX_REASON=$(printf '%s\n' "$out" | sed -n '/./{s/^error: //;p;q;}')
+    [ -n "$CTX_REASON" ] || CTX_REASON="the context-size read failed without a reason"
+    return 1
+  fi
+  CTX_TOKENS=$(printf '%s\n' "$out" | sed -n 's/^tokens=//p')
+  CTX_BOUNDARIES=$(printf '%s\n' "$out" | sed -n 's/^boundaries=//p')
+  CTX_POST=$(printf '%s\n' "$out" | sed -n 's/^last_boundary_post=//p')
+  case "$CTX_TOKENS:$CTX_BOUNDARIES" in
+    *[!0-9:]*|:*|*:) CTX_REASON="the context-size read returned no usable size"; return 1 ;;
+  esac
+}
+
+# compact_idle_verdict: the restart-grade idle read, from the same owner the
+# restart pass uses (bin/fm-secondmate-health.sh idle).
+compact_idle_verdict() {
+  local verdict
+  verdict=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "$SCRIPT_DIR/fm-secondmate-health.sh" idle "$ID" 2>/dev/null | head -1) || verdict=
+  printf '%s' "${verdict:-unknown unreadable}"
+}
+
+# compact_guards <full|final>: every guard refuses by name when it fails or
+# cannot be established. `final` is the re-check immediately before the
+# keystroke; `full` adds the direct-report reads, which are slower and cannot
+# change because of the checkpoint turn.
+compact_guards() {  # <full|final>
+  local phase=$1 verdict msg open keys crew_meta crew_id crew_out crew_state
+  verdict=$(compact_idle_verdict)
+  [ "${verdict%% *}" = idle ] \
+    || compact_refuse "it is not provably idle (${verdict})${phase:+ at the $phase check}"
+  for msg in "$STATE/$ID.inbox"/*.msg; do
+    if [ -e "$msg" ] || [ -L "$msg" ]; then
+      compact_refuse "its steering inbox holds an unhandled instruction (${msg##*/}) at the $phase check"
+    fi
+  done
+  open=$(status_open_decisions "$COMPACT_STATUS" "$KIND" 2>/dev/null) \
+    || compact_refuse "its open decisions could not be read at the $phase check"
+  if [ -n "$open" ]; then
+    keys=$(printf '%s\n' "$open" | cut -f1 | paste -sd, -)
+    compact_refuse "it has an open decision awaiting acknowledgement (${keys}) at the $phase check"
+  fi
+  ! fm_pending_reply_task_has_open "$STATE" "$ID" \
+    || compact_refuse "an answer it owes to a correlated request is still pending at the $phase check"
+  if [ -e "$DATA/handoff/$ID.outbox.md" ] || [ -e "$STATE/.backlog-handoff-$ID.wake-pending" ]; then
+    compact_refuse "a backlog handoff to it is still pending at the $phase check"
+  fi
+  if [ -e "$COMPACT_MATE_HOME/state/.wake-queue" ]; then
+    grep -q '[^[:space:]]' "$COMPACT_MATE_HOME/state/.wake-queue" 2>/dev/null \
+      && compact_refuse "its own home holds queued notifications it has not handled at the $phase check"
+    [ -r "$COMPACT_MATE_HOME/state/.wake-queue" ] \
+      || compact_refuse "its own home's notification queue cannot be read at the $phase check"
+  fi
+  [ "$phase" = full ] || return 0
+  for crew_meta in "$COMPACT_MATE_HOME/state"/*.meta; do
+    [ -e "$crew_meta" ] || [ -L "$crew_meta" ] || continue
+    crew_id=${crew_meta##*/}
+    crew_id=${crew_id%.meta}
+    crew_out=$(FM_HOME="$COMPACT_MATE_HOME" FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' \
+      FM_ROOT_OVERRIDE='' FM_CREW_STATE_NO_FORGE=1 \
+      "$SCRIPT_DIR/fm-crew-state.sh" "$crew_id" 2>/dev/null | head -1) || crew_out=
+    case "$crew_out" in
+      'state: '*) ;;
+      *) compact_refuse "the current state of its direct report $crew_id cannot be read" ;;
+    esac
+    crew_state=${crew_out#state: }
+    crew_state=${crew_state%% *}
+    case "$crew_state" in
+      working) compact_refuse "its direct report $crew_id is in a running step (${crew_out})" ;;
+      parked|blocked) compact_refuse "its direct report $crew_id is waiting on a decision (${crew_out})" ;;
+    esac
+  done
+}
+
+# compact_checkpoint: the persist request the restart pass sends
+# (bin/fm-secondmate-restart-lib.sh), framed for compaction. Refuses unless the
+# mate's correlated answer arrives within the shared bound AND affirms
+# completeness with checkpoint=complete.
+compact_checkpoint() {
+  local wait poll answer
+  wait=${FM_SECONDMATE_PERSIST_WAIT:-$FM_SECONDMATE_PERSIST_WAIT_DEFAULT}
+  poll=${FM_SECONDMATE_PERSIST_POLL:-$FM_SECONDMATE_PERSIST_POLL_DEFAULT}
+  case "$wait" in ''|*[!0-9]*) die "FM_SECONDMATE_PERSIST_WAIT must be a non-negative integer: $wait" ;; esac
+  case "$poll" in ''|*[!0-9]*|0) die "FM_SECONDMATE_PERSIST_POLL must be a positive integer: $poll" ;; esac
+  fm_secondmate_request_send "$FM_HOME" "$STATE" "$ID" "$FM_SECONDMATE_COMPACT_CHECKPOINT_REQUEST" \
+    || compact_refuse "the checkpoint request failed: $FM_SECONDMATE_REQUEST_REASON"
+  COMPACT_CHECKPOINT="pending-reply:$FM_SECONDMATE_REQUEST_CORR"
+  fm_secondmate_request_wait "$STATE" "$FM_SECONDMATE_REQUEST_CORR" "$wait" "$poll" \
+    || compact_refuse "it did not answer the checkpoint request within ${wait}s, so its outstanding work is not proven written down"
+  answer=$(fm_secondmate_request_answer "$STATE" "$FM_SECONDMATE_REQUEST_CORR")
+  if printf '%s\n' "$answer" | grep -Eq '(^|[^A-Za-z0-9_])checkpoint=incomplete([^A-Za-z0-9_-]|$)'; then
+    compact_refuse "it reported its checkpoint incomplete, so something is still held only in its conversation"
+  fi
+  printf '%s\n' "$answer" | grep -Eq '(^|[^A-Za-z0-9_])checkpoint=complete([^A-Za-z0-9_-]|$)' \
+    || compact_refuse "its checkpoint answer did not affirm completeness with checkpoint=complete"
+}
+
+# compact_settle_idle: the checkpoint answer is written during a turn, so a
+# mate still finishing that turn reads busy at first. Re-read it for the shared
+# settle window, exactly as the restart pass does; only idle continues.
+compact_settle_idle() {
+  local settle poll deadline verdict
+  settle=${FM_SECONDMATE_IDLE_SETTLE:-$FM_SECONDMATE_IDLE_SETTLE_DEFAULT}
+  poll=${FM_SECONDMATE_PERSIST_POLL:-$FM_SECONDMATE_PERSIST_POLL_DEFAULT}
+  case "$settle" in ''|*[!0-9]*) die "FM_SECONDMATE_IDLE_SETTLE must be a non-negative integer: $settle" ;; esac
+  deadline=$(($(date +%s) + settle))
+  while :; do
+    verdict=$(compact_idle_verdict)
+    case "${verdict%% *}" in
+      idle) return 0 ;;
+      busy) [ "$(date +%s)" -lt "$deadline" ] \
+              || compact_refuse "it was still busy (${verdict}) ${settle}s after answering the checkpoint" ;;
+      *) compact_refuse "it is not provably idle after answering the checkpoint (${verdict})" ;;
+    esac
+    sleep "$poll"
+  done
+}
+
+# compact_recover: the lightweight recovery check. Nothing here resumes,
+# restarts, or re-dispatches anything; a failure stops at compact_fail.
+compact_recover() {
+  local probe_wait answer state
+  probe_wait=${FM_CONTROL_COMPACT_PROBE_WAIT:-300}
+  case "$probe_wait" in ''|*[!0-9]*) compact_fail "FM_CONTROL_COMPACT_PROBE_WAIT is not a non-negative integer" ;; esac
+  state=$(agent_state)
+  [ "$state" = alive ] || compact_fail "its agent reads '$state' after compaction rather than running"
+  fm_secondmate_request_send "$FM_HOME" "$STATE" "$ID" "$FM_SECONDMATE_COMPACT_PROBE_REQUEST" \
+    || compact_fail "the recovery probe failed: $FM_SECONDMATE_REQUEST_REASON"
+  fm_secondmate_request_wait "$STATE" "$FM_SECONDMATE_REQUEST_CORR" "$probe_wait" \
+    "${FM_SECONDMATE_PERSIST_POLL:-$FM_SECONDMATE_PERSIST_POLL_DEFAULT}" \
+    || compact_fail "it did not answer the read-only recovery probe within ${probe_wait}s"
+  answer=$(fm_secondmate_request_answer "$STATE" "$FM_SECONDMATE_REQUEST_CORR")
+  printf '%s\n' "$answer" | grep -Eq '(^|[^A-Za-z0-9_])records=unreadable([^A-Za-z0-9_-]|$)' \
+    && compact_fail "it reported that its outstanding work cannot be read back from its durable records"
+  printf '%s\n' "$answer" | grep -Eq '(^|[^A-Za-z0-9_])role=secondmate([^A-Za-z0-9_-]|$)' \
+    || compact_fail "its probe answer does not show its second mate role"
+  printf '%s\n' "$answer" | grep -Eq "(^|[^A-Za-z0-9_])id=${ID//./\\.}([^A-Za-z0-9._-]|\$)" \
+    || compact_fail "its probe answer does not name its own charter id $ID"
+  printf '%s\n' "$answer" | grep -Eq '(^|[^A-Za-z0-9_])records=readable([^A-Za-z0-9_-]|$)' \
+    || compact_fail "its probe answer does not confirm its outstanding work reads back from its durable records"
+  compact_read_context || compact_fail "its context size could not be re-read after the probe: $CTX_REASON"
+  [ "$CTX_TOKENS" -lt "$COMPACT_BEFORE" ] \
+    || compact_fail "its context reads $CTX_TOKENS tokens after the probe, not below the $COMPACT_BEFORE it held before"
+}
+
+do_compact() {
+  local threshold marker cmd verdict wait poll deadline boundaries_before composer_state
+  [ "$KIND" = secondmate ] \
+    || die "task $ID is a $KIND task; compact applies to a second mate only, and never to a crew, a scout, or the primary itself"
+  fm_control_compact_supported "$HARNESS" \
+    || compact_refuse "its worker runtime '${RECORDED_HARNESS:-none}' has no verified context-size read, idle proof, and in-place compaction; only claude has all three"
+  fm_control_backend_state_verified "$BACKEND" \
+    || compact_refuse "it runs on the $BACKEND backend, which cannot prove its agent is still running after compaction"
+  COMPACT_MATE_HOME=$(fm_meta_get "$META" home)
+  [ -n "$COMPACT_MATE_HOME" ] || COMPACT_MATE_HOME=$WT
+  marker=$(cat "$COMPACT_MATE_HOME/.fm-secondmate-home" 2>/dev/null || true)
+  [ "$marker" = "$ID" ] \
+    || compact_refuse "its home '${COMPACT_MATE_HOME:-none}' is not marked as its own seeded second mate home"
+  threshold=${FM_CONTROL_COMPACT_THRESHOLD:-400000}
+  case "$threshold" in ''|*[!0-9]*|0) die "FM_CONTROL_COMPACT_THRESHOLD must be a positive integer: $threshold" ;; esac
+
+  # 1. Eligibility: over the threshold, from a structured read only.
+  compact_read_context || compact_refuse "its context size cannot be read: $CTX_REASON"
+  COMPACT_BEFORE=$CTX_TOKENS
+  [ "$CTX_TOKENS" -gt "$threshold" ] \
+    || compact_refuse "its context is $CTX_TOKENS tokens, not over the $threshold eligibility threshold"
+
+  # 2-4. Restart-grade idle, and nothing in flight toward or under it.
+  compact_guards full
+
+  # 5-6. Checkpoint whatever lives only in conversation, or do not compact.
+  compact_checkpoint
+  compact_settle_idle
+
+  # 3. Re-check immediately before the keystroke; never rely on an earlier read.
+  compact_guards final
+  [ "$(agent_state)" = alive ] || compact_refuse "its agent is not running at the final check"
+  composer_state=$(fm_backend_composer_state "$BACKEND" "$T" "$LABEL" 2>/dev/null) || composer_state=unknown
+  [ "$composer_state" = empty ] \
+    || compact_refuse "its composer is '$composer_state', not proven empty, so /compact could concatenate onto existing text"
+  compact_read_context || compact_refuse "its context size cannot be re-read at the final check: $CTX_REASON"
+  COMPACT_BEFORE=$CTX_TOKENS
+  boundaries_before=$CTX_BOUNDARIES
+
+  # Deliver through the control plane's verified keystroke path, never fm-send.
+  cmd=$(fm_control_compact_command "$HARNESS")
+  verdict=$(fm_backend_send_text_submit "$BACKEND" "$T" "$cmd" "$EXIT_RETRIES" "$POLL" 1.2 "$LABEL") \
+    || compact_fail "the $cmd command could not be sent on $BACKEND"
+  [ "$verdict" != send-failed ] || compact_fail "the $cmd command could not be sent on $BACKEND"
+
+  # The session's own transcript records completion as a new compact_boundary.
+  wait=${FM_CONTROL_COMPACT_WAIT:-600}
+  poll=${FM_CONTROL_COMPACT_POLL:-5}
+  case "$wait" in ''|*[!0-9]*) compact_fail "FM_CONTROL_COMPACT_WAIT is not a non-negative integer" ;; esac
+  deadline=$(($(date +%s) + wait))
+  while :; do
+    if compact_read_context && [ "$CTX_BOUNDARIES" -gt "$boundaries_before" ]; then
+      break
+    fi
+    [ "$(date +%s)" -lt "$deadline" ] \
+      || compact_fail "no completed compaction was recorded in its session transcript within ${wait}s${CTX_REASON:+ ($CTX_REASON)}"
+    sleep "$poll"
+  done
+  COMPACT_AFTER=${CTX_POST:-$CTX_TOKENS}
+  [ "$COMPACT_AFTER" -lt "$COMPACT_BEFORE" ] \
+    || compact_fail "its context reads $COMPACT_AFTER tokens after compaction, not below the $COMPACT_BEFORE it held before"
+  compact_record "note [at=$(date +%s)]" "compacted: $(compact_sizes)"
+
+  compact_recover
+  compact_record "note [at=$(date +%s)]" "recovery-ok: $(compact_sizes)"
+  echo "compacted $ID before=$COMPACT_BEFORE after=$COMPACT_AFTER checkpoint=$COMPACT_CHECKPOINT recovery=ok harness=$HARNESS backend=$BACKEND"
+}
+
 # --- verbs ------------------------------------------------------------------
 
 case "$VERB" in
@@ -1183,5 +1500,8 @@ case "$VERB" in
     ;;
   relaunch)
     do_relaunch
+    ;;
+  compact)
+    do_compact
     ;;
 esac

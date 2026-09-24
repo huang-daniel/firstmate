@@ -54,12 +54,13 @@ interrupt
 exit
 stand-down
 relaunch
+compact
 EOF
 }
 
 fm_control_verb_allowed() {  # <verb>
   case "${1-}" in
-    interrupt|exit|stand-down|relaunch) return 0 ;;
+    interrupt|exit|stand-down|relaunch|compact) return 0 ;;
   esac
   return 1
 }
@@ -186,6 +187,29 @@ fm_control_interrupt_ack_source() {  # <harness>
     # claude/cursor this stays 'none': the ack is a rendered string, not a
     # recorded state source, and rovo has no busy wiring to confirm against.
     claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo|agy) printf 'none' ;;
+    *) return 1 ;;
+  esac
+}
+
+# Whether the guarded `compact` verb is verified on <harness>. All three of its
+# legs must be verified together: a structured read of the session's current
+# context size (bin/fm-context-size.sh reads Claude's own session transcript),
+# a provable idle verdict for a second mate (bin/fm-secondmate-health.sh idle
+# owns which harnesses can prove idle), and an in-place compaction command
+# whose completion the session records (Claude's `compact_boundary` transcript
+# entry). Only claude has all three, so every other adapter is refused by name.
+fm_control_compact_supported() {  # <harness>
+  case "${1-}" in
+    claude) return 0 ;;
+  esac
+  return 1
+}
+
+# The command that compacts the agent's conversation in place, typed into its
+# own composer, for an adapter fm_control_compact_supported accepts.
+fm_control_compact_command() {  # <harness>
+  case "${1-}" in
+    claude) printf '/compact' ;;
     *) return 1 ;;
   esac
 }
