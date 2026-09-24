@@ -128,7 +128,8 @@
 #                   open reply expectation it owes and no pending backlog
 #                   handoff to it, its own home no queued notification, and
 #                   every direct report of its home reads done, paused, or
-#                   failed to bin/fm-crew-state.sh;
+#                   failed to bin/fm-crew-state.sh, with independent semantic
+#                   idle evidence or positive proof that its agent is gone;
 #                4. it answers the restart pass's durable open-work checkpoint
 #                   request (bin/fm-secondmate-restart-lib.sh) within that
 #                   pass's bound, affirming checkpoint=complete, then settles
@@ -1282,6 +1283,7 @@ compact_idle_verdict() {
 
 compact_guards() {  # <full|final>
   local phase=$1 verdict msg open keys crew_meta crew_id crew_out crew_state
+  local crew_backend crew_target crew_agent crew_busy
   for crew_meta in "$COMPACT_MATE_HOME/state"/*.meta; do
     [ -e "$crew_meta" ] || [ -L "$crew_meta" ] || continue
     crew_id=${crew_meta##*/}
@@ -1300,6 +1302,25 @@ compact_guards() {  # <full|final>
       working) compact_refuse "its direct report $crew_id is in a running step (${crew_out})" ;;
       parked|blocked) compact_refuse "its direct report $crew_id is waiting on a decision (${crew_out})" ;;
       *) compact_refuse "its direct report $crew_id is not provably inactive (${crew_out})" ;;
+    esac
+    [ -z "$(fm_meta_get "$crew_meta" remote_host)" ] \
+      || compact_refuse "its direct report $crew_id has no locally provable activity state"
+    crew_backend=$(fm_backend_of_meta "$crew_meta")
+    crew_target=$(fm_backend_target_of_meta "$crew_meta")
+    [ -n "$crew_target" ] || compact_refuse "its direct report $crew_id has no recorded endpoint"
+    crew_agent=$(fm_backend_agent_state "$crew_backend" "$crew_target" 2>/dev/null) || crew_agent=unknown
+    if [ "$crew_agent" = missing ]; then
+      crew_agent=$(fm_control_endpoint_absence_verdict "$crew_backend" "$crew_target" "$crew_meta")
+      crew_agent=${crew_agent%%$'\t'*}
+    fi
+    case "$crew_agent" in
+      dead|gone) ;;
+      alive|unverified)
+        crew_busy=$(fm_busy_classify_meta "$crew_meta" "$crew_id" "$COMPACT_MATE_HOME/state") || crew_busy=unknown
+        [ "${crew_busy%% *}" = idle ] \
+          || compact_refuse "its direct report $crew_id is not provably idle (${crew_busy}) at the $phase check"
+        ;;
+      *) compact_refuse "its direct report $crew_id activity cannot be established (${crew_agent}) at the $phase check" ;;
     esac
   done
   verdict=$(compact_idle_verdict)

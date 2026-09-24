@@ -103,6 +103,7 @@ Each guard refuses when it fails or cannot be established, with exit status 4, b
    The threshold is eligibility, not an instruction to compact.
 2. **Idle.** [`bin/fm-secondmate-health.sh`](../bin/fm-secondmate-health.sh) `idle`, the same owner the restart pass uses, reads it idle.
 3. **Nothing in flight.** Its steering inbox holds no unhandled instruction, its status log in this home holds no open keyed decision, this home holds no reply expectation it still owes and no pending backlog handoff to it, its own home holds no queued notification, and every direct report of its home reads done, paused, or failed to [`bin/fm-crew-state.sh`](../bin/fm-crew-state.sh).
+   Each report must also have independent semantic idle evidence or positive proof that its agent is gone; a completed validation run alone does not establish inactivity.
 4. **Checkpointed.** It is sent the restart pass's open-work persistence request, framed for compaction and extended to outstanding work, decisions, ownership, blockers, and next action ([`bin/fm-secondmate-restart-lib.sh`](../bin/fm-secondmate-restart-lib.sh) owns the text, the correlated send, and the shared wait bounds).
    Its correlated answer must arrive within that bound and contain `checkpoint=complete`; no answer, `checkpoint=incomplete`, or an answer that does not affirm completeness refuses.
    It must then settle idle within the restart pass's settle window.

@@ -141,9 +141,12 @@ SH
 /bin/sleep 0.01
 SH
   chmod +x "$fb/sleep"
-  # No no-mistakes run is ever attributed to a direct report here.
   cat > "$fb/no-mistakes" <<'SH'
 #!/usr/bin/env bash
+if [ "${1:-}" = axi ] && [ -f "$FM_FAKE_DIR/completed-run" ]; then
+  cat "$FM_FAKE_DIR/completed-run"
+  exit 0
+fi
 exit 1
 SH
   chmod +x "$fb/no-mistakes"
@@ -443,6 +446,62 @@ test_unknown_direct_report_refuses() {
   pass "C3n an unverified direct report refuses"
 }
 
+test_completed_run_activity_guard() {
+  local dir out rc activity
+  for activity in busy unknown idle checkpoint missing gone; do
+    dir=$(new_case "completed-$activity")
+    add_crew "$dir" c1 idle 'done [at=1]: finished'
+    git -C "$dir/c1-wt" init -q
+    git -C "$dir/c1-wt" checkout -q -b completed-worker
+    git -C "$dir/c1-wt" commit -q --allow-empty -m initial
+    cat > "$dir/fake/completed-run" <<RUN
+run:
+  id: "01RUN"
+  branch: completed-worker
+  status: completed
+  head: "$(git -C "$dir/c1-wt" rev-parse HEAD)"
+  pr: "https://example.invalid/pr/1"
+  findings: none
+outcome: passed
+RUN
+    case "$activity" in
+      busy) "$ROOT/bin/fm-busy-event.sh" arm "$dir/sm1-home/state" c1 --state busy --source claude-hook --event test >/dev/null ;;
+      unknown) rm "$dir/sm1-home/state/c1.busy-state" ;;
+      missing|gone)
+        printf 'fm-sm1\n' > "$dir/fake/windows"
+        if [ "$activity" = gone ]; then
+          printf 'endpoint_closed=fmses:fm-c1\n' >> "$dir/sm1-home/state/c1.meta"
+        fi
+        ;;
+      checkpoint)
+        cat > "$dir/fake/after-checkpoint" <<SH
+#!/usr/bin/env bash
+"$ROOT/bin/fm-busy-event.sh" arm "$dir/sm1-home/state" c1 --state busy --source claude-hook --event test >/dev/null
+SH
+        chmod +x "$dir/fake/after-checkpoint"
+        ;;
+    esac
+    out=$(env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/sm1-home" FM_FAKE_DIR="$dir/fake" FM_CREW_STATE_NO_FORGE=1 "$ROOT/bin/fm-crew-state.sh" c1)
+    assert_contains "$out" "state: done" "completed run must mask the worker activity in the run-state view"
+    assert_contains "$out" "source: run-step" "the completed run must be attributed to HEAD"
+    out=$(run_compact "$dir"); rc=$?
+    if [ "$activity" = idle ] || [ "$activity" = gone ]; then
+      expect_code 0 "$rc" "a completed run with independent idle evidence may compact"$'\n'"$out"
+    elif [ "$activity" = missing ]; then
+      assert_refused "$dir" "$out" "$rc" "direct report c1 activity cannot be established" completed-missing
+    else
+      assert_refused "$dir" "$out" "$rc" "direct report c1 is not provably idle" "completed-$activity"
+      if [ "$activity" = checkpoint ]; then
+        assert_contains "$out" "at the final check" "follow-up activity must be caught at the send boundary"
+        assert_equals checkpoint "$(cat "$dir/fake/requests")" "the checkpoint must precede the refusal"
+      else
+        [ ! -s "$dir/fake/requests" ] || fail "active or unverified reports must refuse before checkpointing"
+      fi
+    fi
+  done
+  pass "C3o completed validation requires independent worker inactivity at both guards"
+}
+
 test_unverified_harness_refuses() {
   local dir out rc
   dir=$(new_case codex codex)
@@ -641,6 +700,7 @@ test_running_direct_report_refuses
 test_waiting_direct_report_refuses
 test_idle_direct_report_passes
 test_unknown_direct_report_refuses
+test_completed_run_activity_guard
 test_unverified_harness_refuses
 test_crew_target_refuses
 test_checkpoint_unanswered_refuses
