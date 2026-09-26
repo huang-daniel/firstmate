@@ -1,0 +1,72 @@
+[
+  {
+    "scenario": "duplicate names",
+    "command": [
+      "bash",
+      "bin/fm-pr-merge.sh",
+      "validation",
+      "https://github.com/example/repo/pull/1",
+      "--allow-red",
+      "ci",
+      "--allow-red",
+      "ci"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "error: --allow-red names check 'ci' more than once\n"
+  },
+  {
+    "scenario": "equals syntax",
+    "command": [
+      "bash",
+      "bin/fm-pr-merge.sh",
+      "validation",
+      "https://github.com/example/repo/pull/1",
+      "--allow-red=ci"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "error: --allow-red requires a separate check name argument\n"
+  },
+  {
+    "scenario": "missing name",
+    "command": [
+      "bash",
+      "bin/fm-pr-merge.sh",
+      "validation",
+      "https://github.com/example/repo/pull/1",
+      "--allow-red"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "error: --allow-red requires a check name\n"
+  },
+  {
+    "scenario": "newline name",
+    "command": [
+      "bash",
+      "bin/fm-pr-merge.sh",
+      "validation",
+      "https://github.com/example/repo/pull/1",
+      "--allow-red",
+      "ci\nui"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "error: --allow-red check names must not contain a tab or newline\n"
+  },
+  {
+    "scenario": "GitLab waiver",
+    "command": [
+      "bash",
+      "bin/fm-pr-merge.sh",
+      "validation",
+      "https://gitlab.example/group/repo/-/merge_requests/1",
+      "--allow-red",
+      "ci"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "error: --allow-red does not apply to GitLab, where a merge already requires the head pipeline to have succeeded\n"
+  }
+]
