@@ -1,0 +1,82 @@
+[
+  {
+    "scenario": "duplicate names",
+    "args": [
+      "--allow-red",
+      "lint",
+      "--allow-red",
+      "lint"
+    ],
+    "exit_code": 2,
+    "stderr": "error: --allow-red names check 'lint' more than once\n",
+    "passed": true
+  },
+  {
+    "scenario": "equals spelling",
+    "args": [
+      "--allow-red=lint"
+    ],
+    "exit_code": 2,
+    "stderr": "error: --allow-red requires a separate check name argument\n",
+    "passed": true
+  },
+  {
+    "scenario": "missing name",
+    "args": [
+      "--allow-red"
+    ],
+    "exit_code": 2,
+    "stderr": "error: --allow-red requires a check name\n",
+    "passed": true
+  },
+  {
+    "scenario": "tab in name",
+    "args": [
+      "--allow-red",
+      "lint\tci"
+    ],
+    "exit_code": 2,
+    "stderr": "error: --allow-red check names must not contain a tab or newline\n",
+    "passed": true
+  },
+  {
+    "scenario": "head override",
+    "args": [
+      "--allow-red",
+      "lint",
+      "--allow-red",
+      "ui",
+      "--",
+      "--match-head-commit=abc"
+    ],
+    "exit_code": 1,
+    "stderr": "error: extra merge arguments must not override the head commit\n",
+    "passed": true
+  },
+  {
+    "scenario": "repository override",
+    "args": [
+      "--allow-red",
+      "lint",
+      "--allow-red",
+      "ui",
+      "--",
+      "--repo=other/repo"
+    ],
+    "exit_code": 1,
+    "stderr": "error: extra merge arguments must not override the repository\n",
+    "passed": true
+  },
+  {
+    "scenario": "GitLab waiver",
+    "args": [
+      "--allow-red",
+      "lint",
+      "--allow-red",
+      "ui"
+    ],
+    "exit_code": 2,
+    "stderr": "error: --allow-red does not apply to GitLab, where a merge already requires the head pipeline to have succeeded\n",
+    "passed": true
+  }
+]
