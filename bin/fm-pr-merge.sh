@@ -20,17 +20,16 @@
 # state needs gh and jq, and either one absent stops the merge before any
 # state is recorded. An attended --allow-red <check-name> waives only checks
 # with that exact name, as the check rollup reports it, and takes the name as a
-# separate argument. Passed once, it keeps the original one-check waiver: every
-# other check must still be green. Passed repeatedly with distinct names, it
-# names a waiver set that must match the red checks exactly: every red check
-# must be named, every named check must be red at the verified head (a named
-# check that is green or absent refuses, because the caller's picture of the
-# pull request is stale), no named check may be a status context, and each one
-# must meet the zero-step billing condition that github_waived_check_zero_step
-# below owns - a GitHub Actions job that failed without running a step because
-# the account's billing block kept it from starting. Any red check outside the
-# set refuses by name, and a repeated name, a count, or a pattern is never
-# accepted. Either form still binds the head. Every waived red check is recorded
+# separate argument. It may be repeated with distinct names to waive a set, and
+# one name is simply a set of one. Every red check must be named, every named
+# check must be red at the verified head (a named check that is green or absent
+# refuses, because the caller's picture of the pull request is stale), no named
+# check may be a status context, and each one must meet the zero-step billing
+# condition that github_waived_check_zero_step below owns - a GitHub Actions job
+# that failed without running a step because the account's billing block kept
+# it from starting - rather than merely having a red conclusion. Any red check
+# outside the set refuses by name, and a repeated name, a count, or a pattern is
+# never accepted. The waiver still binds the head. Every waived red check is recorded
 # on its own row in the task's durable waiver ledger, which record_waived_checks
 # below owns. --allow-red is refused while the away-posture record exists, and it
 # never applies on GitLab, where a merge already requires the head pipeline to
@@ -591,9 +590,8 @@ github_checks_not_green() {
   ' 2>/dev/null || return 1
 }
 
-# Whether one red check named in a waiver set meets the zero-step billing
-# condition, the only red state a set of two or more --allow-red names may
-# cover: a GitHub Actions job that failed without running a single step because
+# Whether one red check named by --allow-red meets the zero-step billing
+# condition, the only red state a waiver may cover: a GitHub Actions job that failed without running a single step because
 # the account's billing block kept the workflow from starting, as opposed to a
 # job that ran steps and failed. Args: <live-pr-json> <check-name> <verified-head>.
 # The name is accepted only when every one of these holds, each read live:
@@ -614,7 +612,7 @@ github_checks_not_green() {
 # refusal FM_PR_WAIVER_REASON says which condition failed.
 FM_PR_WAIVER_JOBS=
 FM_PR_WAIVER_REASON=
-# One "<check>\t<condition>\t<evidence>" row per red check this merge waives,
+# One "<check>\t<job URLs>" row per red check this merge waives,
 # set by github_verify_mergeable and written by record_waived_checks.
 FM_PR_WAIVED_ROWS=()
 github_waived_check_zero_step() {
@@ -813,13 +811,10 @@ FIELDS
 $red
 EOF
 
-  # A waiver set of two or more names must match the red set exactly, and each
-  # of its checks must meet the zero-step billing condition. A single name keeps
-  # the original one-check waiver unchanged.
+  # Every waived name must be red at this head and meet the zero-step billing
+  # condition, whether one name is waived or several.
   FM_PR_WAIVED_ROWS=()
-  if [ "${#ALLOW_RED[@]}" -eq 1 ] && printf '%s\n' "$red" | grep -qxF -- "${ALLOW_RED[0]}"; then
-    FM_PR_WAIVED_ROWS+=("${ALLOW_RED[0]}"$'\t'named$'\t'-)
-  elif [ "${#ALLOW_RED[@]}" -gt 1 ]; then
+  if [ "${#ALLOW_RED[@]}" -gt 0 ]; then
     for check in "${ALLOW_RED[@]}"; do
       if ! printf '%s\n' "$red" | grep -qxF -- "$check"; then
         refusals="$refusals  - waived check '$check' is not red at head $live_head, so the waiver does not describe this pull request
@@ -831,7 +826,7 @@ EOF
 "
         continue
       fi
-      FM_PR_WAIVED_ROWS+=("$check"$'\t'zero-step-billing$'\t'"$FM_PR_WAIVER_JOBS")
+      FM_PR_WAIVED_ROWS+=("$check"$'\t'"$FM_PR_WAIVER_JOBS")
     done
   fi
 
@@ -843,7 +838,7 @@ EOF
   fi
   printf 'verified: %s is open and mergeable, with every required check green at head %s\n' \
     "$URL" "$live_head" >&2
-  if [ "${#ALLOW_RED[@]}" -gt 1 ]; then
+  if [ "${#FM_PR_WAIVED_ROWS[@]}" -gt 0 ]; then
     for row in "${FM_PR_WAIVED_ROWS[@]}"; do
       printf "verified: waived check '%s' is a GitHub Actions job blocked by billing before running any step (%s)\n" \
         "${row%%"$tab"*}" "${row##*"$tab"}" >&2
@@ -1143,11 +1138,9 @@ persist_accepted_merge_authority() {
 # <data>/<task-id>/merge-waivers.tsv so it survives task cleanup. It is created
 # with a header row when absent and gains one row per waived check once the
 # forge accepts the merge. Columns: accepted_at (epoch seconds), pr, head,
-# check, condition, evidence. condition is zero-step-billing for a check that
-# github_waived_check_zero_step verified, with the Actions job URLs it inspected
-# as evidence, or named for the single-name waiver, which is recorded as the
-# caller named it with evidence "-". Only a check that was red at the verified
-# head is recorded, and a merge that waived nothing writes nothing.
+# check, condition, evidence. condition is zero-step-billing, the condition
+# github_waived_check_zero_step verified, and evidence is the space-separated
+# Actions job URLs it inspected. A merge that waived nothing writes nothing.
 record_waived_checks() {
   local dir ledger now row tab=$'\t' status=0
   [ "${#FM_PR_WAIVED_ROWS[@]}" -gt 0 ] || return 0
@@ -1160,7 +1153,8 @@ record_waived_checks() {
     fi
     for row in "${FM_PR_WAIVED_ROWS[@]}"; do
       [ "$status" -eq 0 ] || break
-      printf '%s\t%s\t%s\t%s\n' "$now" "$URL" "$FM_PR_MERGE_HEAD" "$row" >> "$ledger" 2>/dev/null || status=1
+      printf '%s\t%s\t%s\t%s\tzero-step-billing\t%s\n' "$now" "$URL" "$FM_PR_MERGE_HEAD" \
+        "${row%%"$tab"*}" "${row#*"$tab"}" >> "$ledger" 2>/dev/null || status=1
     done
   else
     status=1

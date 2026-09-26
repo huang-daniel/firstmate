@@ -69,11 +69,13 @@ write_github_live_json() {
 JSON
 }
 
+# The single red check is GitHub Actions job 901; a test that waives it also
+# writes that job's fixture with write_actions_job.
 write_github_red_json() {
   local case_dir=$1 head=$2 name=$3
   printf '%s\n' "$head" > "$case_dir/github-head"
   cat > "$case_dir/github-view.json" <<JSON
-{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"$head","baseRefName":"main","statusCheckRollup":[{"__typename":"CheckRun","name":"$name","status":"COMPLETED","conclusion":"FAILURE"}]}
+{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"$head","baseRefName":"main","statusCheckRollup":[{"__typename":"CheckRun","name":"$name","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":"https://github.com/example/repo/actions/runs/7901/job/901"}]}
 JSON
 }
 
@@ -2581,6 +2583,7 @@ test_github_red_checks_refuse_and_allow_red_waives_named() {
   mkdir -p "$case_dir/wt"
   add_gh_mocks "$case_dir" "$head"
   write_github_red_json "$case_dir" "$head" lint
+  write_actions_job "$case_dir" 901 "$head"
   run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/81 \
     --allow-red lint \
     > "$case_dir/stdout" 2> "$case_dir/stderr" || fail "github-allow-red: named waiver should merge"
@@ -2801,7 +2804,8 @@ test_allow_red_still_waives_only_the_current_failure() {
   write_github_rollup_json "$case_dir" "$head" \
     "$(check_run ci COMPLETED FAILURE 2026-01-01T00:00:01Z)" \
     "$(check_run ci COMPLETED SUCCESS 2026-01-01T00:00:09Z)" \
-    "$(check_run lint COMPLETED FAILURE 2026-01-01T00:00:09Z)"
+    "$(actions_check_run lint 901)"
+  write_actions_job "$case_dir" 901 "$head"
 
   set +e
   run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/95 \
@@ -2811,6 +2815,8 @@ test_allow_red_still_waives_only_the_current_failure() {
   expect_code 1 "$rc" "superseded-allow-red-wrong-name: waiving the green check must not merge"
   assert_grep "check 'lint' is not green" "$case_dir/stderr" \
     "superseded-allow-red-wrong-name: the unwaived red check was not named"
+  assert_grep "waived check 'ci' is not red at head $head" "$case_dir/stderr" \
+    "superseded-allow-red-wrong-name: the superseded waived check was not reported as not red"
   assert_no_grep 'pr merge' "$case_dir/gh.log" \
     "superseded-allow-red-wrong-name: gh pr merge ran with an unwaived red check"
 
@@ -2820,7 +2826,8 @@ test_allow_red_still_waives_only_the_current_failure() {
   write_github_rollup_json "$case_dir" "$head" \
     "$(check_run ci COMPLETED FAILURE 2026-01-01T00:00:01Z)" \
     "$(check_run ci COMPLETED SUCCESS 2026-01-01T00:00:09Z)" \
-    "$(check_run lint COMPLETED FAILURE 2026-01-01T00:00:09Z)"
+    "$(actions_check_run lint 901)"
+  write_actions_job "$case_dir" 901 "$head"
   run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/96 \
     --allow-red lint > "$case_dir/stdout" 2> "$case_dir/stderr" \
     || fail "superseded-allow-red-named: the named waiver should merge"$'\n'"$(cat "$case_dir/stderr")"
@@ -2852,6 +2859,7 @@ test_allow_red_is_refused_while_away() {
   mkdir -p "$case_dir/wt"
   add_gh_mocks "$case_dir" "$head"
   write_github_red_json "$case_dir" "$head" lint
+  write_actions_job "$case_dir" 901 "$head"
   write_away_record "$case_dir" --words 'merge task-x1 when green'
   mv "$case_dir/state/.afk-contract" "$case_dir/away-record-after-view"
   set +e
@@ -2902,35 +2910,45 @@ test_allow_red_requires_separate_distinct_names() {
   pass "fm-pr-merge takes each red-check waiver as a separate, distinct name"
 }
 
-# The single-name waiver keeps its original meaning: it covers the named red
-# check without the zero-step verification, and the ledger records it as named.
-test_single_allow_red_is_unchanged_and_recorded() {
-  local case_dir head ledger
+# A single waived check is verified exactly like a member of a set: a zero-step
+# billing red merges and is recorded, while a red job that ran steps refuses.
+test_single_allow_red_is_verified() {
+  local case_dir rc head ledger
   head=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1
-  case_dir=$(make_case github-single-allow-red-ledger)
+  case_dir=$(make_case github-single-allow-red-billing)
   mkdir -p "$case_dir/wt"
   add_gh_mocks "$case_dir" "$head"
   write_github_red_json "$case_dir" "$head" lint
+  write_actions_job "$case_dir" 901 "$head"
   run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/140 \
     --allow-red lint > "$case_dir/stdout" 2> "$case_dir/stderr" \
-    || fail "single-allow-red: the named waiver should merge"$'\n'"$(cat "$case_dir/stderr")"
+    || fail "single-allow-red-billing: a zero-step billing red should merge"$'\n'"$(cat "$case_dir/stderr")"
   assert_logged_gh_merge "$case_dir" 140 example/repo --squash
-  assert_no_grep '/actions/jobs/' "$case_dir/gh.log" \
-    "single-allow-red: the single-name waiver must not need the zero-step verification"
+  assert_grep "verified: waived check 'lint' is a GitHub Actions job blocked by billing" "$case_dir/stderr" \
+    "single-allow-red-billing: the waived check was not reported"
   ledger="$case_dir/home/data/task-x1/merge-waivers.tsv"
-  [ -f "$ledger" ] || fail "single-allow-red: no waiver ledger was written"
-  assert_grep "$(printf 'https://github.com/example/repo/pull/140\t%s\tlint\tnamed\t-' "$head")" "$ledger" \
-    "single-allow-red: the ledger did not record the named waiver"$'\n'"$(cat "$ledger")"
+  [ -f "$ledger" ] || fail "single-allow-red-billing: no waiver ledger was written"
+  assert_grep "$(printf 'https://github.com/example/repo/pull/140\t%s\tlint\tzero-step-billing\thttps://github.com/example/repo/actions/runs/7901/job/901' "$head")" "$ledger" \
+    "single-allow-red-billing: the ledger did not record the waived check"$'\n'"$(cat "$ledger")"
 
-  case_dir=$(make_case github-single-allow-red-green)
+  case_dir=$(make_case github-single-allow-red-ran-steps)
   mkdir -p "$case_dir/wt"
   add_gh_mocks "$case_dir" "$head"
+  write_github_red_json "$case_dir" "$head" lint
+  write_actions_job "$case_dir" 901 "$head" ran
+  set +e
   run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/141 \
-    --allow-red lint > "$case_dir/stdout" 2> "$case_dir/stderr" \
-    || fail "single-allow-red-green: a green pull request should still merge"$'\n'"$(cat "$case_dir/stderr")"
+    --allow-red lint > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "single-allow-red-ran-steps: a red job that ran steps must refuse"
+  assert_grep "waived check 'lint' does not meet the zero-step billing condition: its Actions job 901 ran steps" "$case_dir/stderr" \
+    "single-allow-red-ran-steps: the job that ran steps was not reported"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "single-allow-red-ran-steps: gh pr merge ran past a real failure"
   assert_absent "$case_dir/home/data/task-x1/merge-waivers.tsv" \
-    "single-allow-red-green: a waiver that covered no red check was recorded"
-  pass "fm-pr-merge keeps the single-name --allow-red waiver unchanged and records what it waived"
+    "single-allow-red-ran-steps: a refused merge wrote the waiver ledger"
+  pass "fm-pr-merge verifies a single --allow-red check like any waived check"
 }
 
 # Two red checks that are both GitHub Actions jobs the billing block stopped
@@ -3585,7 +3603,7 @@ test_undated_runs_never_supersede
 test_allow_red_still_waives_only_the_current_failure
 test_allow_red_is_refused_while_away
 test_allow_red_requires_separate_distinct_names
-test_single_allow_red_is_unchanged_and_recorded
+test_single_allow_red_is_verified
 test_allow_red_set_waives_named_zero_step_billing_reds
 test_allow_red_set_refusals
 test_away_record_permits_any_green_merge_under_away_authority
