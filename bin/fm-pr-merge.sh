@@ -18,12 +18,23 @@
 # --match-head-commit, so a push that lands between that read and the merge
 # fails the merge instead of landing commits nothing verified. Reading that
 # state needs gh and jq, and either one absent stops the merge before any
-# state is recorded. An attended --allow-red <check-name> may be passed once,
-# with the name as a separate argument; it waives only checks with that exact
-# name, still requires every other check green, and still binds the head. It is
-# refused while the away-posture record exists, and it never
-# applies on GitLab, where a merge already requires the head pipeline to have
-# succeeded. After gh returns success, GitHub's live state is read back and
+# state is recorded. An attended --allow-red <check-name> waives only checks
+# with that exact name, as the check rollup reports it, and takes the name as a
+# separate argument. Passed once, it keeps the original one-check waiver: every
+# other check must still be green. Passed repeatedly with distinct names, it
+# names a waiver set that must match the red checks exactly: every red check
+# must be named, every named check must be red at the verified head (a named
+# check that is green or absent refuses, because the caller's picture of the
+# pull request is stale), no named check may be a status context, and each one
+# must meet the zero-step billing condition that github_waived_check_zero_step
+# below owns - a GitHub Actions job that failed without running a step because
+# the account's billing block kept it from starting. Any red check outside the
+# set refuses by name, and a repeated name, a count, or a pattern is never
+# accepted. Either form still binds the head. Every waived red check is recorded
+# on its own row in the task's durable waiver ledger, which record_waived_checks
+# below owns. --allow-red is refused while the away-posture record exists, and it
+# never applies on GitLab, where a merge already requires the head pipeline to
+# have succeeded. After gh returns success, GitHub's live state is read back and
 # accepted only when the pull request is merged or in the merge queue. gh's
 # GraphQL API supplies that queue-aware read; when that read fails, gh-axi's
 # own view still proves a landed merge, and every outcome it cannot prove
@@ -100,7 +111,7 @@
 # explicit captain instruction and never skips the live green check, the
 # away-record read, or a captain hold.
 #
-# Usage: fm-pr-merge.sh <task-id> <pr-url> [--attended-override] [--allow-red <check-name>] [-- <extra forge merge args>]
+# Usage: fm-pr-merge.sh <task-id> <pr-url> [--attended-override] [--allow-red <check-name>]... [-- <extra forge merge args>]
 #
 # On GitLab, this script confirms the MR is actually merged before reporting it;
 # an auto-merge-queued or unconfirmed request leaves the poll armed and records
@@ -114,6 +125,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
@@ -161,7 +173,17 @@ while [ "$#" -gt 0 ]; do
       ;;
     --allow-red)
       [ -n "${2:-}" ] || { echo "error: --allow-red requires a check name" >&2; exit 2; }
-      [ "${#ALLOW_RED[@]}" -eq 0 ] || { echo "error: --allow-red may be specified only once" >&2; exit 2; }
+      case "$2" in
+        *$'\t'*|*$'\n'*)
+          echo "error: --allow-red check names must not contain a tab or newline" >&2
+          exit 2
+          ;;
+      esac
+      if [ "${#ALLOW_RED[@]}" -gt 0 ]; then
+        for check in "${ALLOW_RED[@]}"; do
+          [ "$check" != "$2" ] || { echo "error: --allow-red names check '$2' more than once" >&2; exit 2; }
+        done
+      fi
       ALLOW_RED+=("$2")
       shift 2
       ;;
@@ -513,9 +535,9 @@ FIELDS
 # stays red. A name whose runs are all green needs no timestamp, while a name
 # with no green run stays red.
 #
-# The reported name is also what --allow-red matches. An unnamed check run is
-# grouped alone and can neither supersede nor be superseded, because unrelated
-# unnamed checks must not be treated as one.
+# The reported name is also what every --allow-red name matches. An unnamed
+# check run is grouped alone and can neither supersede nor be superseded,
+# because unrelated unnamed checks must not be treated as one.
 github_checks_not_green() {
   local json=$1
   printf '%s' "$json" | jq -r '
@@ -569,10 +591,142 @@ github_checks_not_green() {
   ' 2>/dev/null || return 1
 }
 
+# Whether one red check named in a waiver set meets the zero-step billing
+# condition, the only red state a set of two or more --allow-red names may
+# cover: a GitHub Actions job that failed without running a single step because
+# the account's billing block kept the workflow from starting, as opposed to a
+# job that ran steps and failed. Args: <live-pr-json> <check-name> <verified-head>.
+# The name is accepted only when every one of these holds, each read live:
+#   - the rollup holds no non-green status context by that name, because a
+#     status context carries no job to inspect and is never waivable;
+#   - the rollup holds at least one non-green check run by that name, and every
+#     one of them is COMPLETED with conclusion FAILURE and a details URL naming
+#     a job of this pull request's repository, in the form
+#     https://<host>/<owner>/<repo>/actions/runs/<run>/job/<job>;
+#   - the Actions jobs API reports each such job as that same job in that same
+#     run, completed with conclusion failure at the verified head commit, with
+#     an empty steps list;
+#   - each job's own check-run annotations include a failure-level annotation
+#     saying the job was not started because of the account's payments,
+#     spending limit, or billing.
+# Any read that fails or answers in another shape refuses rather than assuming.
+# On success FM_PR_WAIVER_JOBS holds the space-separated job URLs inspected; on
+# refusal FM_PR_WAIVER_REASON says which condition failed.
+FM_PR_WAIVER_JOBS=
+FM_PR_WAIVER_REASON=
+# One "<check>\t<condition>\t<evidence>" row per red check this merge waives,
+# set by github_verify_mergeable and written by record_waived_checks.
+FM_PR_WAIVED_ROWS=()
+github_waived_check_zero_step() {
+  local json=$1 name=$2 head=$3 entries line kind status conclusion run job url
+  local job_json job_fields job_state check_run_url annotations
+  local prefix="https://$PR_HOST/$PR_OWNER/$PR_REPO/" found=0
+  FM_PR_WAIVER_JOBS=
+  FM_PR_WAIVER_REASON=
+  if ! entries=$(printf '%s' "$json" | jq -r --arg name "$name" --arg prefix "$prefix" '
+      .statusCheckRollup[]
+      | if .__typename == "CheckRun" then
+          select((.name // "") == $name)
+          | select((.status == "COMPLETED" and (.conclusion == "SUCCESS" or .conclusion == "NEUTRAL" or .conclusion == "SKIPPED")) | not)
+          | ((.detailsUrl // "") | tostring) as $url
+          | (if ($url | ascii_downcase | startswith($prefix | ascii_downcase))
+             then ($url[($prefix | length):] | capture("^actions/runs/(?<run>[0-9]+)/job/(?<job>[0-9]+)$") // {run: "", job: ""})
+             else {run: "", job: ""} end) as $ids
+          | ["check_run", ((.status // "") | tostring), ((.conclusion // "") | tostring), $ids.run, $ids.job, $url]
+          | map(if . == "" then "-" else . end)
+          | join("\t")
+        else
+          select((.context // "") == $name and .state != "SUCCESS")
+          | "status_context"
+        end' 2>/dev/null); then
+    FM_PR_WAIVER_REASON="its checks could not be read"
+    return 1
+  fi
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    IFS=$'\t' read -r kind status conclusion run job url <<ENTRY
+$line
+ENTRY
+    if [ "$kind" != check_run ]; then
+      FM_PR_WAIVER_REASON="it is a status context, which is never waivable"
+      return 1
+    fi
+    found=$((found + 1))
+    if [ "$status" != COMPLETED ] || [ "$conclusion" != FAILURE ]; then
+      FM_PR_WAIVER_REASON="a run of it is $status with conclusion $conclusion, not a completed failure"
+      return 1
+    fi
+    if [ "$run" = - ] || [ "$job" = - ]; then
+      FM_PR_WAIVER_REASON="a run of it is not a GitHub Actions job of $PR_OWNER/$PR_REPO"
+      return 1
+    fi
+    if ! job_json=$(gh api "repos/$PR_OWNER/$PR_REPO/actions/jobs/$job" 2>/dev/null) \
+      || ! job_fields=$(printf '%s' "$job_json" | jq -r --arg job "$job" --arg run "$run" --arg head "$head" '
+          if type != "object" then error("not a job") else . end
+          | (if ((.id | tostring) == $job and (.run_id | tostring) == $run
+                 and .status == "completed" and .conclusion == "failure" and .head_sha == $head)
+             then (if (.steps | type) != "array" then "unreadable"
+                   elif (.steps | length) == 0 then "zero-step"
+                   else "ran-steps" end)
+             else "mismatch" end)
+          + "\t" + ((.check_run_url // "") | tostring)' 2>/dev/null); then
+      FM_PR_WAIVER_REASON="its Actions job $job could not be read"
+      return 1
+    fi
+    IFS=$'\t' read -r job_state check_run_url <<FIELDS
+$job_fields
+FIELDS
+    case "$job_state" in
+      zero-step) ;;
+      ran-steps)
+        FM_PR_WAIVER_REASON="its Actions job $job ran steps, so it failed on its own rather than being blocked from starting"
+        return 1
+        ;;
+      mismatch)
+        FM_PR_WAIVER_REASON="its Actions job $job is not a completed failure of run $run at head $head"
+        return 1
+        ;;
+      *)
+        FM_PR_WAIVER_REASON="its Actions job $job did not report its steps"
+        return 1
+        ;;
+    esac
+    case "$check_run_url" in
+      */check-runs/"$job") ;;
+      *)
+        FM_PR_WAIVER_REASON="its Actions job $job names a different check run"
+        return 1
+        ;;
+    esac
+    if ! annotations=$(gh api --paginate "repos/$PR_OWNER/$PR_REPO/check-runs/$job/annotations" 2>/dev/null) \
+      || ! annotations=$(printf '%s' "$annotations" | jq -r '
+          if type != "array" then error("not annotations") else .[] end
+          | select(.annotation_level == "failure"
+              and ((.message // "") | type == "string")
+              and (.message | test("^The job was not started because"))
+              and (.message | test("payment|spending limit|billing"; "i")))
+          | "billing-block"' 2>/dev/null); then
+      FM_PR_WAIVER_REASON="the annotations of its Actions job $job could not be read"
+      return 1
+    fi
+    if [ -z "$annotations" ]; then
+      FM_PR_WAIVER_REASON="its Actions job $job carries no billing-block annotation saying it was not started"
+      return 1
+    fi
+    FM_PR_WAIVER_JOBS="${FM_PR_WAIVER_JOBS:+$FM_PR_WAIVER_JOBS }$url"
+  done <<EOF
+$entries
+EOF
+  if [ "$found" -eq 0 ]; then
+    FM_PR_WAIVER_REASON="no red check run by that name was found"
+    return 1
+  fi
+}
+
 # Pre-merge conditions for a GitHub pull request, read from one live view.
 # Sets FM_PR_MERGE_HEAD to the verified head on success.
 github_verify_mergeable() {
-  local json fields line red name covered
+  local json fields line red name covered check row tab=$'\t'
   local total=0 named=0 refusals=''
   local state='' draft='' mergeable='' merge_state='' live_head='' base=''
 
@@ -659,6 +813,28 @@ FIELDS
 $red
 EOF
 
+  # A waiver set of two or more names must match the red set exactly, and each
+  # of its checks must meet the zero-step billing condition. A single name keeps
+  # the original one-check waiver unchanged.
+  FM_PR_WAIVED_ROWS=()
+  if [ "${#ALLOW_RED[@]}" -eq 1 ] && printf '%s\n' "$red" | grep -qxF -- "${ALLOW_RED[0]}"; then
+    FM_PR_WAIVED_ROWS+=("${ALLOW_RED[0]}"$'\t'named$'\t'-)
+  elif [ "${#ALLOW_RED[@]}" -gt 1 ]; then
+    for check in "${ALLOW_RED[@]}"; do
+      if ! printf '%s\n' "$red" | grep -qxF -- "$check"; then
+        refusals="$refusals  - waived check '$check' is not red at head $live_head, so the waiver does not describe this pull request
+"
+        continue
+      fi
+      if ! github_waived_check_zero_step "$json" "$check" "$live_head"; then
+        refusals="$refusals  - waived check '$check' does not meet the zero-step billing condition: $FM_PR_WAIVER_REASON
+"
+        continue
+      fi
+      FM_PR_WAIVED_ROWS+=("$check"$'\t'zero-step-billing$'\t'"$FM_PR_WAIVER_JOBS")
+    done
+  fi
+
   if [ -n "$refusals" ]; then
     printf 'error: refusing to merge %s\n' "$URL" >&2
     printf '%s' "$refusals" >&2
@@ -667,6 +843,12 @@ EOF
   fi
   printf 'verified: %s is open and mergeable, with every required check green at head %s\n' \
     "$URL" "$live_head" >&2
+  if [ "${#ALLOW_RED[@]}" -gt 1 ]; then
+    for row in "${FM_PR_WAIVED_ROWS[@]}"; do
+      printf "verified: waived check '%s' is a GitHub Actions job blocked by billing before running any step (%s)\n" \
+        "${row%%"$tab"*}" "${row##*"$tab"}" >&2
+    done
+  fi
   FM_PR_MERGE_HEAD=$live_head
   FM_PR_GITHUB_BASE=$base
 }
@@ -957,6 +1139,40 @@ persist_accepted_merge_authority() {
   return 1
 }
 
+# Durable ledger of the red checks a merge waived, kept at
+# <data>/<task-id>/merge-waivers.tsv so it survives task cleanup. It is created
+# with a header row when absent and gains one row per waived check once the
+# forge accepts the merge. Columns: accepted_at (epoch seconds), pr, head,
+# check, condition, evidence. condition is zero-step-billing for a check that
+# github_waived_check_zero_step verified, with the Actions job URLs it inspected
+# as evidence, or named for the single-name waiver, which is recorded as the
+# caller named it with evidence "-". Only a check that was red at the verified
+# head is recorded, and a merge that waived nothing writes nothing.
+record_waived_checks() {
+  local dir ledger now row tab=$'\t' status=0
+  [ "${#FM_PR_WAIVED_ROWS[@]}" -gt 0 ] || return 0
+  dir="$DATA/$ID"
+  ledger="$dir/merge-waivers.tsv"
+  now=$(date +%s)
+  if mkdir -p "$dir" 2>/dev/null && [ ! -L "$dir" ] && [ ! -L "$ledger" ]; then
+    if [ ! -e "$ledger" ]; then
+      printf 'accepted_at\tpr\thead\tcheck\tcondition\tevidence\n' >> "$ledger" 2>/dev/null || status=1
+    fi
+    for row in "${FM_PR_WAIVED_ROWS[@]}"; do
+      [ "$status" -eq 0 ] || break
+      printf '%s\t%s\t%s\t%s\n' "$now" "$URL" "$FM_PR_MERGE_HEAD" "$row" >> "$ledger" 2>/dev/null || status=1
+    done
+  else
+    status=1
+  fi
+  [ "$status" -eq 0 ] && return 0
+  for row in "${FM_PR_WAIVED_ROWS[@]}"; do
+    printf "actionable: the forge accepted the merge request for %s with red check '%s' waived, but the waiver could not be written to %s\n" \
+      "$URL" "${row%%"$tab"*}" "$ledger" >&2
+  done
+  return 1
+}
+
 # While away, a merge proceeds only when the base branch's rules prove no
 # merge queue, because a queued merge can land after its away authority
 # lapses with the record's archive. A repository whose
@@ -1153,6 +1369,7 @@ case "$PROVIDER" in
     if [ "$merge_status" -eq 0 ]; then
       FM_PR_GITHUB_MERGE_ACCEPTED=true
       persist_accepted_merge_authority || exit 1
+      record_waived_checks || exit 1
       fm_afk_contract_lock_release || true
       fm_lock_release "$MERGE_CONTROL_LOCK" || true
       MERGE_CONTROL_LOCK=
