@@ -11,7 +11,7 @@
 # A GitHub merge is refused unless every pre-merge condition holds, each read
 # live at merge time rather than taken from recorded metadata: the pull request
 # is open, not a draft, mergeable, free of conflicts, and every unwaived check
-# is green at the exact current head commit, where github_checks_not_green below
+# is green at the exact current head commit, where github_non_green_entries below
 # owns what makes a check green and judges each one by its current run.
 # Every failing condition is reported, not
 # just the first. The verified head is then passed to gh as
@@ -513,8 +513,8 @@ FIELDS
 }
 
 # Every GitHub check that is not green in the given live pull-request JSON, one
-# name per line. An entry is green when it is a status context whose state is
-# SUCCESS, or a check run that completed with SUCCESS, NEUTRAL, or SKIPPED (so
+# object per name containing its remaining non-green runs. An entry is green
+# when it is a status context whose state is SUCCESS, or a check run that completed with SUCCESS, NEUTRAL, or SKIPPED (so
 # a pending check is not green either). Exits nonzero when the rollup cannot be
 # read, so a malformed answer is a failed read and never an empty red set.
 #
@@ -537,7 +537,7 @@ FIELDS
 # The reported name is also what every --allow-red name matches. An unnamed
 # check run is grouped alone and can neither supersede nor be superseded,
 # because unrelated unnamed checks must not be treated as one.
-github_checks_not_green() {
+github_non_green_entries() {
   local json=$1
   printf '%s' "$json" | jq -r '
     def settled_at:
@@ -551,6 +551,7 @@ github_checks_not_green() {
         | if .__typename == "CheckRun" then
             {
               kind: "check_run",
+              entry: .,
               name: (.name // ""),
               completed: (.status == "COMPLETED"),
               ok: (.status == "COMPLETED" and (.conclusion == "SUCCESS" or .conclusion == "NEUTRAL" or .conclusion == "SKIPPED")),
@@ -558,14 +559,14 @@ github_checks_not_green() {
             }
             | . + {group: (if .name == "" then ["", $i] else [.name, -1] end)}
           else
-            {kind: "status_context", name: (.context // ""), ok: (.state == "SUCCESS")}
+            {kind: "status_context", entry: ., name: (.context // ""), ok: (.state == "SUCCESS")}
           end
       ]
     | . as $entries
     | (
         ($entries[]
           | select(.kind == "status_context" and (.ok | not))
-          | .name
+          | {name, runs: [.entry]}
         ),
         ($entries
           | [.[] | select(.kind == "check_run")]
@@ -575,19 +576,20 @@ github_checks_not_green() {
               reds: [.[] | select(.ok | not)],
               newest_green: ([.[] | select(.ok) | .at | select(. != null)] | max)
             }
-          | select(
-              (.reds | length) > 0
-              and (
-                .newest_green == null
-                or any(.reds[]; (.completed | not) or .at == null)
-                or ([.reds[] | .at] | max) >= .newest_green
-              )
-            )
-          | .name
+          | .newest_green as $green
+          | {name, runs: [.reds[]
+              | select($green == null or (.completed | not) or .at == null or .at >= $green)
+              | .entry]}
+          | select((.runs | length) > 0)
         )
       )
-    | if . == "" then "(unnamed check)" else . end
   ' 2>/dev/null || return 1
+}
+
+github_checks_not_green() {
+  local entries
+  entries=$(github_non_green_entries "$1") || return 1
+  printf '%s' "$entries" | jq -r 'if .name == "" then "(unnamed check)" else .name end'
 }
 
 # Whether one red check named by --allow-red meets the zero-step billing
@@ -597,9 +599,9 @@ github_checks_not_green() {
 # The name is accepted only when every one of these holds, each read live:
 #   - the rollup holds no non-green status context by that name, because a
 #     status context carries no job to inspect and is never waivable;
-#   - the rollup holds at least one non-green check run by that name, and every
-#     one of them is COMPLETED with conclusion FAILURE and a details URL naming
-#     a job of this pull request's repository, in the form
+#   - github_non_green_entries retains at least one non-green check run by
+#     that name after supersession, and every retained run is COMPLETED with
+#     conclusion FAILURE and a details URL naming a job of this pull request's repository, in the form
 #     https://<host>/<owner>/<repo>/actions/runs/<run>/job/<job>;
 #   - the Actions jobs API reports each such job as that same job in that same
 #     run, completed with conclusion failure at the verified head commit, with
@@ -621,12 +623,14 @@ github_waived_check_zero_step() {
   local prefix="https://$PR_HOST/$PR_OWNER/$PR_REPO/" found=0
   FM_PR_WAIVER_JOBS=
   FM_PR_WAIVER_REASON=
-  if ! entries=$(printf '%s' "$json" | jq -r --arg name "$name" --arg prefix "$prefix" '
-      .statusCheckRollup[]
+  if ! entries=$(github_non_green_entries "$json"); then
+    FM_PR_WAIVER_REASON="its checks could not be read"
+    return 1
+  fi
+  if ! entries=$(printf '%s' "$entries" | jq -r --arg name "$name" --arg prefix "$prefix" '
+      select(.name == $name) | .runs[]
       | if .__typename == "CheckRun" then
-          select((.name // "") == $name)
-          | select((.status == "COMPLETED" and (.conclusion == "SUCCESS" or .conclusion == "NEUTRAL" or .conclusion == "SKIPPED")) | not)
-          | ((.detailsUrl // "") | tostring) as $url
+          ((.detailsUrl // "") | tostring) as $url
           | (if ($url | ascii_downcase | startswith($prefix | ascii_downcase))
              then ($url[($prefix | length):] | capture("^actions/runs/(?<run>[0-9]+)/job/(?<job>[0-9]+)$") // {run: "", job: ""})
              else {run: "", job: ""} end) as $ids
@@ -634,8 +638,7 @@ github_waived_check_zero_step() {
           | map(if . == "" then "-" else . end)
           | join("\t")
         else
-          select((.context // "") == $name and .state != "SUCCESS")
-          | "status_context"
+          "status_context"
         end' 2>/dev/null); then
     FM_PR_WAIVER_REASON="its checks could not be read"
     return 1

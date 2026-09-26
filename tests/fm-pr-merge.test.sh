@@ -2910,6 +2910,44 @@ test_allow_red_requires_separate_distinct_names() {
   pass "fm-pr-merge takes each red-check waiver as a separate, distinct name"
 }
 
+test_allow_red_supersession() {
+  local case_dir head label old rc ledger
+  head=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1
+  for label in superseded undated unfinished tied fractional newer; do
+    case_dir=$(make_case "github-waiver-$label")
+    mkdir -p "$case_dir/wt"
+    add_gh_mocks "$case_dir" "$head"
+    case "$label" in
+      superseded) old=$(check_run lint COMPLETED CANCELLED 2025-12-31T23:59:59Z) ;;
+      undated) old=$(check_run lint COMPLETED CANCELLED) ;;
+      unfinished) old=$(check_run lint IN_PROGRESS - 2025-12-31T23:59:59Z) ;;
+      tied) old=$(check_run lint COMPLETED CANCELLED 2026-01-01T00:00:00Z) ;;
+      fractional) old=$(check_run lint COMPLETED CANCELLED 2025-12-31T23:59:59.000Z) ;;
+      newer) old=$(check_run lint COMPLETED CANCELLED 2026-01-01T00:00:02Z) ;;
+    esac
+    write_github_rollup_json "$case_dir" "$head" "$old" \
+      "$(check_run lint COMPLETED SUCCESS 2026-01-01T00:00:00Z)" \
+      "$(actions_check_run lint 901)"
+    write_actions_job "$case_dir" 901 "$head"
+    rc=0
+    run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/140 \
+      --allow-red lint > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+    ledger="$case_dir/home/data/task-x1/merge-waivers.tsv"
+    if [ "$label" = superseded ]; then
+      expect_code 0 "$rc" "waiver-$label: superseded cancellation must not block billing waiver"
+      assert_logged_gh_merge "$case_dir" 140 example/repo --squash
+      assert_grep "$(printf '%s\tlint\tzero-step-billing\thttps://github.com/example/repo/actions/runs/7901/job/901' "$head")" \
+        "$ledger" "waiver-$label: current billing job must be recorded"
+    else
+      expect_code 1 "$rc" "waiver-$label: retained cancellation or unfinished run must refuse"
+      assert_grep "not a completed failure" "$case_dir/stderr" "waiver-$label: retained run must be validated"
+      assert_no_grep 'pr merge' "$case_dir/gh.log" "waiver-$label: refused waiver must not merge"
+      assert_absent "$ledger" "waiver-$label: refused waiver must not write ledger"
+    fi
+  done
+  pass "fm-pr-merge waives billing failures only after excluding superseded runs"
+}
+
 # A single waived check is verified exactly like a member of a set: a zero-step
 # billing red merges and is recorded, while a red job that ran steps refuses.
 test_single_allow_red_is_verified() {
@@ -3603,6 +3641,7 @@ test_undated_runs_never_supersede
 test_allow_red_still_waives_only_the_current_failure
 test_allow_red_is_refused_while_away
 test_allow_red_requires_separate_distinct_names
+test_allow_red_supersession
 test_single_allow_red_is_verified
 test_allow_red_set_waives_named_zero_step_billing_reds
 test_allow_red_set_refusals
